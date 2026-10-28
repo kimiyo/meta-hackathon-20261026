@@ -37,13 +37,15 @@ def next_entity_id(conn: sqlite3.Connection, type_: str) -> str:
     return f"{prefix}_{n:04d}"
 
 
-def create_entity(conn, *, entity_id, type_, name, first_episode, description=""):
+def create_entity(conn, *, entity_id, type_, name, first_episode, description="",
+                _commit=True):
     conn.execute(
         "INSERT INTO entities(entity_id, type, canonical_name, first_episode, description)"
         " VALUES(?,?,?,?,?)",
         (entity_id, type_, name, first_episode, description),
     )
-    conn.commit()
+    if _commit:
+        conn.commit()
     return entity_id
 
 
@@ -139,11 +141,12 @@ def entity_history(conn, entity_id: str, from_ep: int | None = None,
 
 
 # -- proposals -----------------------------------------------------------
-def store_proposal(conn, *, episode_no, revision_id, items, mentions=()) -> int:
+def store_proposal(conn, *, episode_no, revision_id, items, mentions=(),
+                   events=()) -> int:
     cur = conn.execute(
-        "INSERT INTO change_proposals(episode_no, manuscript_revision_id, created_at)"
-        " VALUES(?,?,?)",
-        (episode_no, revision_id, now_iso()),
+        "INSERT INTO change_proposals(episode_no, manuscript_revision_id, created_at,"
+        " events_json) VALUES(?,?,?,?)",
+        (episode_no, revision_id, now_iso(), _j(list(events))),
     )
     set_id = cur.lastrowid
     for it in items:
@@ -181,6 +184,14 @@ def get_proposals(conn, episode_no: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_proposal_events(conn, proposal_set_id: int) -> list[dict]:
+    row = conn.execute("SELECT events_json FROM change_proposals WHERE proposal_set_id=?",
+                       (proposal_set_id,)).fetchone()
+    if not row or not row["events_json"]:
+        return []
+    return json.loads(row["events_json"])
+
+
 def set_item_validation(conn, item_id: int, validation: str, reason: str = "") -> None:
     conn.execute("UPDATE change_proposal_items SET validation=? WHERE item_id=?",
                  (validation, item_id))
@@ -213,6 +224,7 @@ def commit_episode(conn, *, episode_no, revision_id, proposal_set_id) -> dict:
     ).fetchall()
     applied = 0
     touched: set[str] = set()
+    new_ids: dict[str, str] = {}  # candidate_name → entity_id (one set, one entity)
     with conn:  # atomic transaction
         for it in items:
             if it["validation"] not in ("ok", "change"):
@@ -220,9 +232,14 @@ def commit_episode(conn, *, episode_no, revision_id, proposal_set_id) -> dict:
             entity_id = it["entity_id"]
             if it["operation"] == "create" or entity_id is None:
                 name = it["candidate_name"] or "이름없음"
-                entity_id = next_entity_id(conn, "character")
-                create_entity(conn, entity_id=entity_id, type_="character",
-                              name=name, first_episode=episode_no)
+                if name in new_ids:
+                    entity_id = new_ids[name]
+                else:
+                    entity_id = next_entity_id(conn, "character")
+                    create_entity(conn, entity_id=entity_id, type_="character",
+                                  name=name, first_episode=episode_no,
+                                  _commit=False)
+                    new_ids[name] = entity_id
             conn.execute(
                 "INSERT INTO entity_changes(entity_id, episode_no, manuscript_revision_id,"
                 " attribute_path, operation, old_value, new_value, story_time,"
@@ -233,6 +250,18 @@ def commit_episode(conn, *, episode_no, revision_id, proposal_set_id) -> dict:
             )
             applied += 1
             touched.add(entity_id)
+        for ev in get_proposal_events(conn, proposal_set_id):
+            cur = conn.execute(
+                "INSERT INTO events(episode_no, summary, story_time, cause, consequence)"
+                " VALUES(?,?,?,?,?)",
+                (episode_no, ev.get("summary", ""), ev.get("story_time", ""),
+                 ev.get("cause", ""), ev.get("consequence", "")))
+            for p in ev.get("participants", []):
+                pid = p.get("entity_id") or new_ids.get(p.get("candidate_name", ""))
+                if pid:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO event_participants(event_id, entity_id, role)"
+                        " VALUES(?,?,?)", (cur.lastrowid, pid, p.get("role", "")))
         conn.execute(
             "UPDATE change_proposals SET status='committed' WHERE proposal_set_id=?",
             (proposal_set_id,),

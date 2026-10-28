@@ -1,0 +1,38 @@
+{
+  "_note": "자작 샘플. 각 케이스: 승인된 EP1 상태 + 새 EP 원고 + 기대 판정.",
+  "approved_ep1_manuscript": "서연은 스물여섯 생일에 달빛 서점을 물려받았다. 장부의 첫째 규칙은 분명했다. 남의 이름을 담보로 받는 것은 장부가 가장 금하는 일이었다. 서연은 마력을 하루에 두 번만 쓸 수 있었다.",
+  "approved_changes": [
+    {"entity_ref": "new:서연", "operation": "create", "attribute_path": "이름",
+     "new_value": "서연", "evidence_quote": "서연은 스물여섯 생일에 달빛 서점을 물려받았다."},
+    {"entity_ref": "new:서연", "operation": "set", "attribute_path": "나이",
+     "new_value": 26, "evidence_quote": "서연은 스물여섯 생일에 달빛 서점을 물려받았다."},
+    {"entity_ref": "new:서연", "operation": "set", "attribute_path": "마력제한",
+     "new_value": "하루 두 번", "evidence_quote": "서연은 마력을 하루에 두 번만 쓸 수 있었다."}
+  ],
+  "cases": [
+    {
+      "id": "cool-01",
+      "type": "모순",
+      "episode_no": 2,
+      "manuscript": "서연은 떨리는 손으로 장부를 펼쳤다. 손님이 내민 것은 타인의 이름이었다. 서연은 타인의 이름을 담보로 받았다. 그날 이미 두 번 쓴 마력을 세 번째로 썼다. 하루 두 번이라는 제한을 넘은 것이다.",
+      "expected": "error",
+      "memo": "쿨다운 위반(타인 이름 담보 금지 규칙을 어김). 반증 근거는 EP1 승인문에서 제시되어야 함."
+    },
+    {
+      "id": "homo-01",
+      "type": "동명이인",
+      "episode_no": 3,
+      "manuscript": "저녁에 또 한 명의 서연이 서점에 들어섰다. 처음 보는 얼굴이었다. 그녀는 자신을 평행세계의 서연이라 소개했다.",
+      "expected": "new_entity_candidate",
+      "memo": "기존 ch_0001에 병합하지 않고 신규 후보(new:서연)로 분리되어야 함. 판정은 ok 또는 deferred."
+    },
+    {
+      "id": "recall-01",
+      "type": "정상",
+      "episode_no": 4,
+      "manuscript": "서연은 옛날을 회상했다. 어린 시절 서점의 창문은 언제나 밝았다고 할머니가 말씀하셨다. 지금의 어두운 창문이 낯설었다.",
+      "expected": "no_error",
+      "memo": "과거 회상은 현재 상태 변경이 아님. error 판정이 나오면 오탐."
+    }
+  ]
+}

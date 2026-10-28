@@ -191,4 +191,16 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(DDL)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for sql in (
+        "ALTER TABLE episode_jobs ADD COLUMN fix_instruction TEXT DEFAULT ''",
+        "ALTER TABLE change_proposals ADD COLUMN events_json TEXT DEFAULT '[]'",
+    ):
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass  # already migrated

@@ -35,12 +35,13 @@ def test_unapproved_design_rejected(conn):
         state_machine.advance(conn, FakeMeta(["가" * 3000]), 1, design_id=2)
 
 
-def test_repeat_advance_consumes_attempt(conn):
-    meta = FakeMeta(["가" * 3000, "나" * 3000])
-    state_machine.advance(conn, meta, 1, design_id=1)
-    out = state_machine.advance(conn, meta, 1)
-    assert out["state"] == "DRAFT" and out["attempt"] == 1
-    assert out["revision"]["version"] == 2
+def test_repeat_failed_advance_consumes_attempt(conn):
+    meta = FakeMeta(["짧다", "짧다"])
+    for _ in range(2):
+        with pytest.raises(LLMStepError):
+            state_machine.advance(conn, meta, 1, design_id=1)
+    job = state_machine.get_job(conn, 1)
+    assert job["state"] == "PLAN" and job["attempt"] == 2
 
 
 def test_invalid_manuscript_records_error_and_retries(conn):

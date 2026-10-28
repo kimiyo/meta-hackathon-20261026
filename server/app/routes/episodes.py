@@ -43,9 +43,19 @@ def get_episode(episode_no: int,
         "SELECT revision_id, version, approval_status, LENGTH(text) AS length"
         " FROM manuscript_revisions WHERE episode_no=? ORDER BY version",
         (episode_no,)).fetchall()
+    verification = None
+    if job.get("proposal_set_id"):
+        from .. import memory
+        items = [i for i in memory.get_proposals(conn, episode_no)
+                 if i["proposal_set_id"] == job["proposal_set_id"]]
+        counts: dict[str, int] = {}
+        for i in items:
+            counts[i["validation"]] = counts.get(i["validation"], 0) + 1
+        verification = {"proposal_set_id": job["proposal_set_id"],
+                        "counts": counts, "items": len(items)}
     return {"episode_no": episode_no, **state_machine._public(job),
             "revisions": [dict(r) for r in revs],
-            "verification": None}  # Phase 5 fills this in
+            "verification": verification}
 
 
 @router.get("/episodes/{episode_no}/manuscript")
