@@ -43,6 +43,7 @@ def create_entity(conn, *, entity_id, type_, name, first_episode, description=""
         " VALUES(?,?,?,?,?)",
         (entity_id, type_, name, first_episode, description),
     )
+    conn.commit()
     return entity_id
 
 

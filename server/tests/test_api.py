@@ -55,6 +55,7 @@ def api_client(tmp_path, monkeypatch):
     seed = dbmod.connect(db_path)
     memory.create_entity(seed, entity_id="ch_0001", type_="character",
                          name="서연", first_episode=1)
+    seed.commit()
     seed.close()
     yield TestClient(app)
     app.dependency_overrides.clear()
