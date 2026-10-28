@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Design from "./pages/Design.jsx";
+import Monitor from "./pages/Monitor.jsx";
+import Review from "./pages/Review.jsx";
+import Entities from "./pages/Entities.jsx";
 
 const TABS = ["작품 · 설계", "집필 모니터", "작가 검토", "엔티티 브라우저"];
 
@@ -37,12 +40,9 @@ export default function App() {
       </nav>
       <main>
         {tab === 0 && <Design />}
-        {tab !== 0 && (
-          <div>
-            <h2>{TABS[tab]}</h2>
-            <p>Phase 6에서 구현됩니다.</p>
-          </div>
-        )}
+        {tab === 1 && <Monitor />}
+        {tab === 2 && <Review />}
+        {tab === 3 && <Entities />}
       </main>
     </div>
   );

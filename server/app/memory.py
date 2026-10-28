@@ -192,9 +192,11 @@ def get_proposal_events(conn, proposal_set_id: int) -> list[dict]:
     return json.loads(row["events_json"])
 
 
-def set_item_validation(conn, item_id: int, validation: str, reason: str = "") -> None:
-    conn.execute("UPDATE change_proposal_items SET validation=? WHERE item_id=?",
-                 (validation, item_id))
+def set_item_validation(conn, item_id: int, validation: str, reason: str = "",
+                      counter_quote: str = "") -> None:
+    conn.execute("UPDATE change_proposal_items SET validation=?, reason=?,"
+                 " counter_quote=? WHERE item_id=?",
+                 (validation, reason[:500], counter_quote[:1000], item_id))
     conn.commit()
 
 

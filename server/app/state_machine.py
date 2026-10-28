@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import drafting, extraction, memory, verification
+from . import drafting, extraction, memory, quality, verification
 from .db import now_iso
-from .errors import LLMStepError
+from .errors import BudgetExceeded, LLMStepError
 
 STATES = ("PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED",
           "COMMITTED", "NEEDS_AUTHOR")
@@ -27,14 +27,16 @@ def _save_job(conn, job: dict) -> None:
     conn.execute(
         "INSERT INTO episode_jobs(episode_no, design_id, state, attempt,"
         " manuscript_revision_id, proposal_set_id, last_error, fix_instruction,"
-        " updated_at) VALUES(?,?,?,?,?,?,?,?,?)"
+        " quality_json, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)"
         " ON CONFLICT(episode_no) DO UPDATE SET state=excluded.state,"
         " attempt=excluded.attempt, manuscript_revision_id=excluded.manuscript_revision_id,"
         " proposal_set_id=excluded.proposal_set_id, last_error=excluded.last_error,"
-        " fix_instruction=excluded.fix_instruction, updated_at=excluded.updated_at",
+        " fix_instruction=excluded.fix_instruction,"
+        " quality_json=excluded.quality_json, updated_at=excluded.updated_at",
         (job["episode_no"], job["design_id"], job["state"], job["attempt"],
          job.get("manuscript_revision_id"), job.get("proposal_set_id"),
-         job.get("last_error", ""), job.get("fix_instruction", ""), now_iso()))
+         job.get("last_error", ""), job.get("fix_instruction", ""),
+         job.get("quality_json", "{}"), now_iso()))
     conn.commit()
 
 
@@ -83,6 +85,11 @@ def _run_draft(conn, meta, job: dict, max_tokens: int) -> dict:
             work_id=design["work_id"], episode_no=episode_no,
             author_instruction=job.get("fix_instruction", "") or "",
             max_tokens=max_tokens)
+    except BudgetExceeded as e:
+        job["state"] = "NEEDS_AUTHOR"
+        job["last_error"] = f"budget_exceeded: {e}"[:300]
+        _save_job(conn, job)
+        return {"episode_no": episode_no, **_public(job)}
     except LLMStepError as e:
         job["attempt"] += 1  # failed step stays in state, consumes retry
         job["last_error"] = f"{e.reason}: {e.detail}"[:300]
@@ -96,28 +103,57 @@ def _run_draft(conn, meta, job: dict, max_tokens: int) -> dict:
     return {"episode_no": episode_no, **_public(job), "revision": rev}
 
 
-def _run_verify_batch(conn, meta, job: dict, max_tokens: int) -> dict:
-    """DRAFT→VERIFY: extraction → proposals → verification in one batch."""
-    episode_no = job["episode_no"]
-    rev_row = conn.execute("SELECT * FROM manuscript_revisions WHERE revision_id=?",
-                           (job["manuscript_revision_id"],)).fetchone()
+def _extract_and_verify(conn, meta, episode_no: int, design_id: int,
+                        revision_id: int, manuscript: str,
+                        max_tokens: int) -> tuple[dict, dict]:
     # Discard any stale pending set for this revision before regenerating.
     for ps in conn.execute(
             "SELECT proposal_set_id FROM change_proposals"
             " WHERE episode_no=? AND manuscript_revision_id=? AND status='pending'",
-            (episode_no, job["manuscript_revision_id"])):
+            (episode_no, revision_id)):
         memory.discard_proposal_set(conn, ps["proposal_set_id"])
+    ext = extraction.extract_changes(
+        meta, conn, episode_no=episode_no, revision_id=revision_id,
+        manuscript=manuscript, max_tokens=max_tokens)
+    outline = drafting.get_outline(conn, design_id, episode_no)
+    ver = verification.verify_proposals(
+        meta, conn, episode_no=episode_no, revision_id=revision_id,
+        proposal_set_id=ext["proposal_set_id"], manuscript=manuscript,
+        world_rules=outline.get("constraints", []), max_tokens=max_tokens)
+    return ext, ver
+
+
+def _run_verify_batch(conn, meta, job: dict, max_tokens: int) -> dict:
+    """DRAFT→VERIFY: extraction → verification → quality in one batch.
+
+    If proofreading produces a new revision, extraction+verification re-run
+    once on the new text so the reviewed text is exactly the verified text.
+    """
+    import json as _json
+
+    episode_no = job["episode_no"]
     try:
-        ext = extraction.extract_changes(
-            meta, conn, episode_no=episode_no,
-            revision_id=job["manuscript_revision_id"], manuscript=rev_row["text"],
-            max_tokens=max_tokens)
+        rev_row = conn.execute(
+            "SELECT * FROM manuscript_revisions WHERE revision_id=?",
+            (job["manuscript_revision_id"],)).fetchone()
         outline = drafting.get_outline(conn, job["design_id"], episode_no)
-        ver = verification.verify_proposals(
+        ext, ver = _extract_and_verify(
+            conn, meta, episode_no, job["design_id"],
+            job["manuscript_revision_id"], rev_row["text"], max_tokens)
+        qual = quality.run_quality(
             meta, conn, episode_no=episode_no,
             revision_id=job["manuscript_revision_id"],
-            proposal_set_id=ext["proposal_set_id"], manuscript=rev_row["text"],
-            world_rules=outline.get("constraints", []), max_tokens=max_tokens)
+            manuscript=rev_row["text"], outline=outline, max_tokens=max_tokens)
+        if qual["new_revision"]:
+            job["manuscript_revision_id"] = qual["new_revision"]["revision_id"]
+            ext, ver = _extract_and_verify(
+                conn, meta, episode_no, job["design_id"],
+                job["manuscript_revision_id"], qual["manuscript"], max_tokens)
+    except BudgetExceeded as e:
+        job["state"] = "NEEDS_AUTHOR"
+        job["last_error"] = f"budget_exceeded: {e}"[:300]
+        _save_job(conn, job)
+        return {"episode_no": episode_no, **_public(job)}
     except LLMStepError as e:
         job["attempt"] += 1
         job["last_error"] = f"{e.reason}: {e.detail}"[:300]
@@ -126,28 +162,43 @@ def _run_verify_batch(conn, meta, job: dict, max_tokens: int) -> dict:
     job["state"] = "VERIFY"
     job["proposal_set_id"] = ext["proposal_set_id"]
     job["last_error"] = ""
+    job["quality_json"] = _json.dumps(
+        {"scores": qual["scores"], "issues": qual["issues"],
+         "edits_applied": qual["edits_applied"],
+         "gate_pass": qual["gate_pass"]}, ensure_ascii=False)
     _save_job(conn, job)
     return {"episode_no": episode_no, **_public(job),
-            "extraction": ext, "verification": ver}
+            "extraction": ext, "verification": ver,
+            "quality": {k: qual[k] for k in
+                        ("scores", "issues", "edits_applied", "gate_pass")}}
 
 
 def _gate_verify(conn, job: dict, retry_limit: int) -> dict:
-    """VERIFY resting-state decision (no AI): error→DRAFT, else READY/NEEDS_AUTHOR.
-    Phase 6 adds the quality gate to the pass branch."""
+    """VERIFY resting-state decision (no AI): error/quality→DRAFT,
+    else READY/NEEDS_AUTHOR."""
+    import json as _json
+
     episode_no = job["episode_no"]
     items = [i for i in memory.get_proposals(conn, episode_no)
              if i["proposal_set_id"] == job["proposal_set_id"]]
     counts: dict[str, int] = {}
     for i in items:
         counts[i["validation"]] = counts.get(i["validation"], 0) + 1
-    if counts.get("error", 0) > 0:
+    qual = _json.loads(job.get("quality_json") or "{}")
+    if counts.get("error", 0) > 0 or not qual.get("gate_pass", True):
         memory.discard_proposal_set(conn, job["proposal_set_id"])
-        job["fix_instruction"] = verification.build_fix_instruction(
-            conn, episode_no, job["proposal_set_id"])
+        if counts.get("error", 0) > 0:
+            job["fix_instruction"] = verification.build_fix_instruction(
+                conn, episode_no, job["proposal_set_id"])
+            job["last_error"] = (f"verify errors: {counts.get('error', 0)},"
+                                 " redrafting")
+        else:
+            job["fix_instruction"] = quality.build_quality_fix(
+                qual.get("issues", []), qual.get("scores", {}))
+            job["last_error"] = "quality gate failed, redrafting"
         job["proposal_set_id"] = None
         job["attempt"] += 1
         job["state"] = "DRAFT"
-        job["last_error"] = f"verify errors: {counts.get('error', 0)}, redrafting"
         _save_job(conn, job)
         return {"episode_no": episode_no, **_public(job), "counts": counts}
     if counts.get("deferred", 0) > 0 or job["attempt"] >= retry_limit:
@@ -168,3 +219,46 @@ def _public(job: dict) -> dict:
             "manuscript_revision_id": job.get("manuscript_revision_id"),
             "proposal_set_id": job.get("proposal_set_id"),
             "last_error": job.get("last_error", "")}
+
+
+def request_change(conn, episode_no: int, instruction: str) -> dict:
+    """READY→DRAFT: author asks for changes (manuscript + input preserved)."""
+    job = get_job(conn, episode_no)
+    if not job:
+        raise KeyError(f"episode {episode_no} has no job")
+    if job["state"] != "READY_FOR_REVIEW":
+        raise ValueError(f"request-change needs READY_FOR_REVIEW, got {job['state']}")
+    if job["proposal_set_id"]:
+        memory.discard_proposal_set(conn, job["proposal_set_id"])
+    job["proposal_set_id"] = None
+    job["fix_instruction"] = instruction
+    job["state"] = "DRAFT"
+    job["last_error"] = "author requested changes"
+    _save_job(conn, job)
+    return {"episode_no": episode_no, **_public(job)}
+
+
+def approve_episode(conn, episode_no: int) -> dict:
+    """READY→AUTHOR_APPROVED→COMMITTED: atomic manuscript+memory commit."""
+    job = get_job(conn, episode_no)
+    if not job:
+        raise KeyError(f"episode {episode_no} has no job")
+    if job["state"] != "READY_FOR_REVIEW":
+        raise ValueError(f"approve needs READY_FOR_REVIEW, got {job['state']}")
+    job["state"] = "AUTHOR_APPROVED"
+    _save_job(conn, job)
+    try:
+        result = memory.commit_episode(
+            conn, episode_no=episode_no,
+            revision_id=job["manuscript_revision_id"],
+            proposal_set_id=job["proposal_set_id"])
+    except Exception:
+        job["state"] = "READY_FOR_REVIEW"  # commit failed: back to review
+        _save_job(conn, job)
+        raise
+    stale = memory.mark_stale_from(conn, episode_no)
+    job["state"] = "COMMITTED"
+    job["last_error"] = ""
+    _save_job(conn, job)
+    return {"episode_no": episode_no, **_public(job), "commit": result,
+            "marked_stale": stale}

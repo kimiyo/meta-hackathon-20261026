@@ -199,6 +199,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for sql in (
         "ALTER TABLE episode_jobs ADD COLUMN fix_instruction TEXT DEFAULT ''",
         "ALTER TABLE change_proposals ADD COLUMN events_json TEXT DEFAULT '[]'",
+        "ALTER TABLE episode_jobs ADD COLUMN quality_json TEXT DEFAULT '{}'",
+        "ALTER TABLE change_proposal_items ADD COLUMN reason TEXT DEFAULT ''",
+        "ALTER TABLE change_proposal_items ADD COLUMN counter_quote TEXT DEFAULT ''",
     ):
         try:
             conn.execute(sql)

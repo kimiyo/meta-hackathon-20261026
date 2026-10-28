@@ -96,7 +96,8 @@ def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
         if verdict == "error" and counter:
             if not citation.check_quote(corpus, counter)["ok"]:
                 verdict = "deferred"  # unverified counter-evidence: no conflict use
-        memory.set_item_validation(conn, v["item_id"], verdict)
+        memory.set_item_validation(conn, v["item_id"], verdict,
+                                   v.get("reason", ""), counter)
         counts[verdict] = counts.get(verdict, 0) + 1
         applied[v["item_id"]] = {"verdict": verdict,
                                  "reason": v.get("reason", "")}

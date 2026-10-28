@@ -33,10 +33,15 @@ MS = "서연은 달빛 서점의 주인이 되었다. " + "가" * 3000
 class ScriptedMeta:
     """Routes canned outputs by bundle; validates through real schemas."""
 
-    def __init__(self, entity_items, verdicts, manuscript=MS):
+    def __init__(self, entity_items, verdicts, manuscript=MS, quality=None):
+        from app.schemas import quality as qsch
         self.entity_items = entity_items
         self.verdicts = verdicts
         self.manuscript = manuscript
+        self.quality = quality or {
+            "scores": {"immersion": 0.8, "tension": 0.8, "coherence": 0.9},
+            "issues": [], "proofread_edits": []}
+        self._qsch = qsch
 
     def chat_json(self, *, bundle, episode, system, user, schema, max_tokens):
         if bundle == "drafting":
@@ -44,10 +49,22 @@ class ScriptedMeta:
                 {"manuscript": self.manuscript, "lookup_requests": []}).model_dump()
         if bundle == "entity":
             return esch.EntityOutput.model_validate(
-                {"items": self.entity_items, "mentions": []}).model_dump()
+                {"items": self.entity_items, "mentions": [],
+                 "events": []}).model_dump()
         if bundle == "verify":
+            import json as _json
+            payload = _json.loads(user[user.index('{"proposal_items"'):])
+            real_ids = [i["item_id"] for i in payload["proposal_items"]]
+            verdicts = []
+            for v, rid in zip(self.verdicts, real_ids):
+                v = dict(v)
+                v["item_id"] = rid
+                verdicts.append(v)
             return vsch.VerifyOutput.model_validate(
-                {"verdicts": self.verdicts}).model_dump()
+                {"verdicts": verdicts}).model_dump()
+        if bundle == "quality":
+            return self._qsch.QualityOutput.model_validate(
+                self.quality).model_dump()
         raise AssertionError(bundle)
 
 

@@ -53,9 +53,58 @@ def get_episode(episode_no: int,
             counts[i["validation"]] = counts.get(i["validation"], 0) + 1
         verification = {"proposal_set_id": job["proposal_set_id"],
                         "counts": counts, "items": len(items)}
+    import json as _json
+    quality = None
+    if job.get("quality_json"):
+        try:
+            quality = _json.loads(job["quality_json"]) or None
+        except ValueError:
+            quality = None
     return {"episode_no": episode_no, **state_machine._public(job),
             "revisions": [dict(r) for r in revs],
-            "verification": verification}
+            "verification": verification, "quality": quality}
+
+
+class ChangeIn(BaseModel):
+    instruction: str
+
+
+@router.post("/episodes/{episode_no}/request-change")
+def request_change(episode_no: int, body: ChangeIn,
+                   conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        return state_machine.request_change(conn, episode_no, body.instruction)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/episodes/{episode_no}/approve")
+def approve_episode(episode_no: int,
+                    conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        return state_machine.approve_episode(conn, episode_no)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/designs/{design_id}/episodes")
+def design_episodes(design_id: int,
+                    conn: sqlite3.Connection = Depends(get_conn)):
+    """Outlines joined with jobs (for the writing monitor)."""
+    outlines = conn.execute(
+        "SELECT episode_no, title FROM episode_outlines WHERE design_id=?"
+        " ORDER BY episode_no", (design_id,)).fetchall()
+    if not outlines:
+        raise HTTPException(404, f"design {design_id} not found")
+    jobs = {r["episode_no"]: dict(r) for r in conn.execute(
+        "SELECT * FROM episode_jobs WHERE design_id=?", (design_id,))}
+    return {"design_id": design_id, "episodes": [
+        {"episode_no": o["episode_no"], "title": o["title"],
+         "job": ({k: jobs[o["episode_no"]][k] for k in
+                  ("state", "attempt", "manuscript_revision_id",
+                   "proposal_set_id", "last_error")}
+                 if o["episode_no"] in jobs else None)}
+        for o in outlines]}
 
 
 @router.get("/episodes/{episode_no}/manuscript")

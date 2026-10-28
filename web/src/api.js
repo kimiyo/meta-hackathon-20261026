@@ -27,5 +27,28 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
-  // Phase 4-6: episodes, entities, ops
+  designEpisodes: (designId) => req(`/designs/${designId}/episodes`),
+  episode: (no) => req(`/episodes/${no}`),
+  advance: (no, designId) =>
+    req(`/episodes/${no}/advance`, {
+      method: "POST",
+      body: JSON.stringify({ design_id: designId ?? null }),
+    }),
+  manuscript: (no, version) =>
+    req(`/episodes/${no}/manuscript${version ? `?version=${version}` : ""}`),
+  requestChange: (no, instruction) =>
+    req(`/episodes/${no}/request-change`, {
+      method: "POST",
+      body: JSON.stringify({ instruction }),
+    }),
+  approveEpisode: (no) => req(`/episodes/${no}/approve`, { method: "POST" }),
+  proposals: (no) => req(`/episodes/${no}/proposals`),
+  entities: (q) => req(`/entities${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  entityState: (id, ep) => req(`/entities/${id}/state?as_of_episode=${ep}`),
+  entityHistory: (id) => req(`/entities/${id}/history`),
+  aliases: (status) => req(`/aliases${status ? `?status=${status}` : ""}`),
+  resolveAlias: (id, body) =>
+    req(`/aliases/${id}/resolve`, { method: "POST", body: JSON.stringify(body) }),
+  llmCalls: () => req("/ops/llm-calls?limit=20"),
+  opsBudget: () => req("/ops/budget"),
 };

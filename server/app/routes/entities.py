@@ -45,6 +45,19 @@ def episode_proposals(episode_no: int,
             "items": memory.get_proposals(conn, episode_no)}
 
 
+@router.get("/aliases")
+def list_aliases(status: str | None = None,
+                 conn: sqlite3.Connection = Depends(get_conn)):
+    sql = ("SELECT a.*, e.canonical_name FROM entity_aliases a"
+           " LEFT JOIN entities e ON e.entity_id=a.entity_id WHERE 1=1")
+    args: list = []
+    if status:
+        sql += " AND a.status=?"
+        args.append(status)
+    sql += " ORDER BY a.alias_id DESC"
+    return {"aliases": [dict(r) for r in conn.execute(sql, args)]}
+
+
 class AliasResolve(BaseModel):
     entity_id: str | None = None  # None → register as new entity
     basis: str = ""

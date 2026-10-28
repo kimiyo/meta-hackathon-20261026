@@ -140,3 +140,44 @@ def test_episodes_api(api_client):
         assert r.status_code == 404
     finally:
         del app.dependency_overrides[get_meta]
+
+
+def test_approve_and_ops_api(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_verify_pipeline import ScriptedMeta, _item
+
+    wid = api_client.post("/api/v1/works", json={"title": "w"}).json()["id"]
+    from tests.test_planning import FakeMeta as PlanFake
+    app.dependency_overrides[get_meta] = lambda: PlanFake(1)
+    did = api_client.post(f"/api/v1/works/{wid}/designs",
+                          json={"keywords": "k", "total_episodes": 1}).json()["design_id"]
+    api_client.post(f"/api/v1/designs/{did}/approve")
+    meta = ScriptedMeta(
+        [_item("ch_0001", "set", "직업", "서점주인", "달빛 서점의 주인이 되었다")],
+        [{"item_id": 1, "verdict": "ok", "reason": "신규"}])
+    app.dependency_overrides[get_meta] = lambda: meta
+    try:
+        api_client.post("/api/v1/episodes/1/advance", json={"design_id": did})
+        api_client.post("/api/v1/episodes/1/advance", json={})
+        r = api_client.post("/api/v1/episodes/1/advance", json={})
+        assert r.json()["state"] == "READY_FOR_REVIEW"
+        r = api_client.post("/api/v1/episodes/1/request-change",
+                            json={"instruction": "고쳐줘"})
+        assert r.json()["state"] == "DRAFT"
+        # Re-run to READY then approve.
+        api_client.post("/api/v1/episodes/1/advance", json={})
+        api_client.post("/api/v1/episodes/1/advance", json={})
+        r = api_client.post("/api/v1/episodes/1/approve")
+        assert r.json()["state"] == "COMMITTED"
+        assert r.json()["commit"]["applied"] == 1
+        r = api_client.get(f"/api/v1/designs/{did}/episodes")
+        assert r.json()["episodes"][0]["job"]["state"] == "COMMITTED"
+        r = api_client.get("/api/v1/ops/budget")
+        assert r.json()["budget"] > 0
+        r = api_client.get("/api/v1/aliases?status=candidate")
+        assert r.status_code == 200
+        r = api_client.post("/api/v1/admin/reset-demo")
+        assert r.status_code == 403  # no token
+    finally:
+        del app.dependency_overrides[get_meta]
