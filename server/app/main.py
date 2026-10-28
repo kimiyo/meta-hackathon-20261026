@@ -9,7 +9,7 @@ from . import budget as budgetmod
 from . import db as dbmod
 from .config import PROJECT_ROOT, load_settings
 from .meta_client import build_client
-from .routes import entities, works
+from .routes import entities, episodes, works
 
 settings = load_settings()
 
@@ -40,6 +40,7 @@ def get_meta_client():
 
 app.include_router(entities.router)
 app.include_router(works.router)
+app.include_router(episodes.router)
 
 
 @app.get("/api/v1/health")
