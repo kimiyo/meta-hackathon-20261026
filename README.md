@@ -67,6 +67,30 @@ cd web && npm run build
 | `EPISODE_RETRY_LIMIT` | 3 | 회차 재시도 상한 |
 | `ADMIN_TOKEN` | (없음) | 데모 초기화 보호 토큰 |
 
+## 재현 절차 (서버 기동 후)
+
+```bash
+BASE=http://127.0.0.1:8000/api/v1
+WID=$(curl -s -X POST $BASE/works -H 'Content-Type: application/json' \
+  -d '{"title":"재현용 서점"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+DID=$(curl -s -X POST $BASE/works/$WID/designs -H 'Content-Type: application/json' \
+  -d '{"keywords":"헌책방, 달빛","total_episodes":3}' | python3 -c "import sys,json;print(json.load(sys.stdin)['design_id'])")
+curl -s -X POST $BASE/designs/$DID/approve
+for EP in 1 2 3; do
+  curl -s -X POST $BASE/episodes/$EP/advance -H 'Content-Type: application/json' \
+    -d "{\"design_id\":$DID}" > /dev/null      # PLAN→DRAFT
+  curl -s -X POST $BASE/episodes/$EP/advance -H 'Content-Type: application/json' \
+    -d '{}' > /dev/null                          # DRAFT→VERIFY
+  curl -s -X POST $BASE/episodes/$EP/advance -H 'Content-Type: application/json' \
+    -d '{}'                                      # VERIFY→READY (판정 확인)
+  curl -s -X POST $BASE/episodes/$EP/approve     # 승인+커밋
+done
+curl -s "$BASE/entities/ch_0001/state?as_of_episode=2"  # 다음화 반영 확인
+```
+
+기대 결과: 3회차 연속 COMMITTED, EP2 시점 상태에 EP1 변경 반영.
+실측 기준: 약 21 호출, 약 169k 토큰, 약 9분 (`evals/결과_20261028.md`).
+
 ## 보안
 
 - API 키는 서버 프로세스 메모리에서만 존재. UI·응답·로그에 키를 포함하지 않는다.
