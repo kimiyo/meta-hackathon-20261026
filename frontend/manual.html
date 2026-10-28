@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Muse Novel Studio — 사용 설명서</title>
+<style>
+  :root {
+    --ink: #1d2129; --ink-soft: #4a4f59; --line: #e2ddd2;
+    --paper: #f4f1ea; --card: #fffdf8; --sidebar: #232a26;
+    --accent: #0e6b5c; --accent-deep: #0a4f44;
+    --amber: #b7791f; --amber-bg: #faf0d7;
+    --red: #b3372f; --red-bg: #f9e6e1;
+    --green: #2e7d4f; --green-bg: #e3f1e6;
+    --blue: #2f5fb3; --blue-bg: #e5ecf9;
+    --gray-bg: #eceae3;
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Pretendard", -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--sans); background: var(--paper); color: var(--ink);
+    font-size: 14.5px; line-height: 1.7; }
+  header.top { background: var(--sidebar); color: #e8e4d8; padding: 26px 20px; }
+  header.top .inner, main { max-width: 900px; margin: 0 auto; }
+  header.top h1 { font-size: 22px; letter-spacing: -0.3px; }
+  header.top p { color: #a8a396; font-size: 13.5px; margin-top: 4px; }
+  main { padding: 24px 20px 70px; }
+  nav.toc { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 20px; margin-bottom: 22px; }
+  nav.toc b { display: block; font-size: 13px; color: var(--ink-soft); margin-bottom: 6px; }
+  nav.toc ol { margin-left: 20px; columns: 2; font-size: 13.5px; }
+  nav.toc a { color: var(--accent-deep); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  section.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px 24px; margin-bottom: 16px; }
+  h2 { font-size: 18px; padding-bottom: 8px; margin-bottom: 12px;
+    border-bottom: 2px solid var(--line); letter-spacing: -0.2px; }
+  h3 { font-size: 15px; margin: 16px 0 6px; color: var(--accent-deep); }
+  p, li { margin-bottom: 6px; }
+  ol, ul { margin-left: 22px; }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--gray-bg);
+    border-radius: 5px; padding: 1px 6px; }
+  pre { font-family: var(--mono); font-size: 12.5px; background: #2f3a34; color: #e8e4d8;
+    border-radius: 8px; padding: 12px 16px; overflow-x: auto; margin: 8px 0 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 8px 0 12px; }
+  th { text-align: left; font-size: 12px; color: var(--ink-soft); padding: 6px 8px;
+    border-bottom: 2px solid var(--line); white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid #efece4; vertical-align: top; }
+  .warn { background: var(--amber-bg); border: 1px solid #dcc489; border-radius: 8px;
+    padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+  .danger { background: var(--red-bg); border: 1px solid #dfb3ad; border-radius: 8px;
+    padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+  .ok { background: var(--green-bg); border: 1px solid #b3d2bd; border-radius: 8px;
+    padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+  .flow { font-family: var(--mono); font-size: 13px; background: #f7f5ef;
+    border-radius: 8px; padding: 12px 16px; margin: 8px 0; line-height: 2; }
+  footer { text-align: center; color: var(--ink-soft); font-size: 12px; padding: 0 0 30px; }
+  .muted { color: var(--ink-soft); }
+  a { color: var(--accent-deep); }
+  @media print { header.top { background: none; color: #000; } body { background: #fff; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="inner">
+    <h1>Muse Novel Studio — 사용 설명서</h1>
+    <p>웹소설 연재 코파일럿 · 기획 → 집필 → 검증 → 승인 → 커밋</p>
+  </div>
+</header>
+
+<main>
+<nav class="toc">
+  <b>목차</b>
+  <ol>
+    <li><a href="#start">시작하기</a></li>
+    <li><a href="#layout">화면 구성</a></li>
+    <li><a href="#flow">기본 사용 흐름</a></li>
+    <li><a href="#tab1">1. 작품 · 설계</a></li>
+    <li><a href="#tab2">2. 집필 모니터</a></li>
+    <li><a href="#tab3">3. 작가 검토</a></li>
+    <li><a href="#tab4">4. 엔티티 브라우저</a></li>
+    <li><a href="#states">상태와 용어</a></li>
+    <li><a href="#caution">주의사항</a></li>
+    <li><a href="#trouble">문제 해결</a></li>
+  </ol>
+</nav>
+
+<section class="card" id="start">
+<h2>1. 시작하기</h2>
+<p>서버 하나만 띄우면 됩니다. API와 화면을 같은 주소에서 서빙하므로 별도 웹 서버가 필요 없습니다.</p>
+<pre>cd server
+..\.venv\Scripts\python -m uvicorn app.main:app --port 8000</pre>
+<p>브라우저에서 <b>http://127.0.0.1:8000/</b> 을 엽니다. 아래 조건이 필요합니다.</p>
+<ul>
+  <li><code>.env</code> 파일에 <code>MODEL_API_KEY</code> 입력 (없으면 서버가 부팅을 거부합니다)</li>
+  <li>상단바에 <b>healthy</b> 표시가 뜨면 정상 연결된 것입니다</li>
+</ul>
+</section>
+
+<section class="card" id="layout">
+<h2>2. 화면 구성</h2>
+<h3>상단바</h3>
+<table>
+  <tr><th>요소</th><th>의미</th></tr>
+  <tr><td>작품 pill</td><td>현재 소설 제목만 표시. 클릭하면 소설 정보 수정 창</td></tr>
+  <tr><td>← 작품 목록</td><td>메인(소설 목록) 화면으로 돌아가기. 첫 화면은 항상 메인입니다</td></tr>
+  <tr><td>healthy 칩</td><td>서버·DB 연결 상태와 사용 중인 모델명</td></tr>
+  <tr><td>토큰 칩</td><td>오늘 사용한 토큰 / 일일 예산 (잔여량)</td></tr>
+</table>
+<h3>탭 4개</h3>
+<table>
+  <tr><th>탭</th><th>하는 일</th></tr>
+  <tr><td><b>1. 작품 · 설계</b></td><td>작품 만들기, 설계도(컨셉·구간·회차 개요) 생성과 승인</td></tr>
+  <tr><td><b>2. 집필 모니터</b></td><td>회차별 진행 상황 확인, 다음 단계로 전진, LLM 호출 기록</td></tr>
+  <tr><td><b>3. 작가 검토</b></td><td>원고 읽기·비교, 검증 결과 확인, 수정 요청, 승인+커밋</td></tr>
+  <tr><td><b>4. 엔티티 브라우저</b></td><td>인물·장소 등 설정(기억) 검색과 변경 이력 조회</td></tr>
+</table>
+</section>
+
+<section class="card" id="flow">
+<h2>3. 기본 사용 흐름</h2>
+<div class="flow">메인에서 소설 선택/만들기 → 설계도 생성 → <b>설계 승인</b> → 회차 전진 반복 → 검토·승인+커밋 → 다음 회차 → …</div>
+<ol>
+  <li>메인 화면에서 소설을 고르거나 새 제목으로 만듭니다. 만들면 바로 스튜디오로 들어가 글쓰기가 시작됩니다. 상단의 <b>← 작품 목록</b> 버튼으로 언제든 메인으로 돌아올 수 있습니다.</li>
+  <li><b>설계도</b>를 생성합니다 (키워드, 총 회차, 제약 조건 입력).</li>
+  <li>설계도를 읽어보고 <b>설계 승인</b>을 합니다. 승인된 설계가 있어야 집필이 시작됩니다.</li>
+  <li>집필 모니터에서 회차의 <b>전진</b> 버튼을 눌러 원고를 생성하고 검증까지 진행합니다.</li>
+  <li>작가 검토에서 원고를 읽고, 문제없으면 <b>승인 + 커밋</b>합니다. 고칠 곳이 있으면 <b>수정 요청</b>을 보냅니다.</li>
+  <li>다음 회차로 같은 과정을 반복합니다. 설정이 궁금하면 엔티티 브라우저에서 확인합니다.</li>
+</ol>
+</section>
+
+<section class="card" id="tab1">
+<h2>4. 탭 1 — 작품 · 설계</h2>
+<h3>작품 이름</h3>
+<p>현재 작품 이름은 상단바에만 표시됩니다. 이름을 클릭하면 소설 정보 수정 창이 뜨고, 지금은 이름만 바꿀 수 있습니다. 다른 작품으로 바꾸려면 상단 <b>← 작품 목록</b>으로 메인에 갔다 오십시오.</p>
+<h3>설계도 생성</h3>
+<ul>
+  <li><b>키워드</b>: 쉼표로 구분 (예: 헌책방, 달빛, 비밀 결사)</li>
+  <li><b>총 회차</b>: 1~200 (AI가 10화 단위로 나누어 개요를 만든 뒤 하나로 합칩니다)</li>
+  <li><b>제약 조건</b>: 줄바꿈으로 구분 (예: 3인칭 시점 유지, 1화당 분량 등)</li>
+</ul>
+<p>생성에는 시간이 걸리며, 진행 중에는 취소할 수 없습니다.</p>
+<h3>설계도 읽기</h3>
+<ul>
+  <li><b>concept</b>: 장르/톤, 주제, 결말 방향</li>
+  <li><b>구간(sections)</b>: 10화 단위 줄거리 흐름</li>
+  <li><b>회차 개요</b>: 클릭하면 펼침. 목표·사건·인물 변화·복선이 회차별로 정리됩니다</li>
+</ul>
+<h3>설계 승인</h3>
+<p>내용이 마음에 들면 <b>설계 승인</b>을 누릅니다. 승인 전에는 마음에 들 때까지 몇 번이든 재생성할 수 있으며, 누를 때마다 버전이 하나씩 올라갑니다 (버튼에 다음 버전이 표시됩니다). 승인된 설계가 있어야 집필 모니터에서 첫 전진이 가능합니다.</p>
+</section>
+
+<section class="card" id="tab2">
+<h2>5. 탭 2 — 집필 모니터</h2>
+<h3>설계 ID 불러오기</h3>
+<p>들어가면 첫 작품의 최신 설계가 자동으로 불러와집니다. 다른 설계를 보려면 설계 ID를 입력하고 <b>불러오기</b>를 누릅니다.</p>
+<h3>회차표 읽기</h3>
+<ul>
+  <li><b>게이트(P/D/V/R/A/C)</b>: PLAN→DRAFT→VERIFY→READY→APPROVED→COMMITTED 진행 단계를 색칠된 뱃지로 표시합니다</li>
+  <li><b>상태</b>: 현재 단계. <code>NEEDS_AUTHOR</code>는 작가 개입이 필요해 멈춘 상태입니다</li>
+  <li><b>상세</b>: 시도 횟수, 원고 버전, 검증/품질 요약, 실패 사유를 보여줍니다</li>
+  <li><b>전진</b>: 다음 단계로 한 걸음 진행합니다 (아래 주의사항 참조)</li>
+</ul>
+<h3>전진이 하는 일</h3>
+<ul>
+  <li>처음 누르면: 원고 초안을 씁니다 (PLAN → DRAFT)</li>
+  <li>다시 누르면: 설정 변경 추출 → 연속성 검증 → 품질 검사를 한 번에 수행합니다 (DRAFT → VERIFY)</li>
+  <li>또 누르면: 검증 결과를 판정합니다. 문제없으면 검토 대기(<code>READY_FOR_REVIEW</code>), 문제가 있으면 자동으로 고쳐 쓰기 위해 DRAFT로 돌아갑니다</li>
+</ul>
+<div class="danger"><b>전진(advance)은 되돌릴 수 없습니다.</b> 같은 상태에서 반복 호출하면 재시도 횟수를 소모하고, AI 호출 중에는 취소할 수 없습니다.</div>
+<h3>LLM 호출 기록 · 토큰 예산</h3>
+<p>최근 20건의 AI 호출(bundle, 회차, 입출력 토큰, 지연, 성공/실패)과 오늘의 토큰 사용량을 보여줍니다. 진행률 막대는 커밋된 회차 비율입니다.</p>
+</section>
+
+<section class="card" id="tab3">
+<h2>6. 탭 3 — 작가 검토</h2>
+<p>회차 번호를 입력하고 <b>불러오기</b>를 누르면 원고와 검증 결과가 표시됩니다.</p>
+<h3>원고 본문</h3>
+<ul>
+  <li><b>버전 선택</b>: 고쳐 쓰기 때마다 v1, v2…로 쌓입니다. 이전 버전도 그대로 볼 수 있습니다</li>
+  <li><b>이전 버전과 비교</b>: 체크하면 단어 단위로 달라진 곳을 표시합니다 (삭제 <code>빨강 취소선</code> / 추가 <code>초록</code>)</li>
+  <li>원고 1화 분량은 약 3,000~5,000자입니다</li>
+</ul>
+<h3>수정 요청</h3>
+<p>고치고 싶은 점을 지시문으로 적고 <b>수정 요청 보내기</b>를 누르면, 원고와 입력은 보존한 채 DRAFT로 돌아가 다시 씁니다. 검토 대기 상태일 때만 가능합니다.</p>
+<h3>승인 + 커밋</h3>
+<p>원고가 마음에 들면 <b>승인 + 커밋</b>을 누릅니다. 원고와 설정 변경안이 원자적으로(한꺼번에, 1회만) 확정됩니다. 검토 대기 상태일 때만 누를 수 있습니다.</p>
+<h3>검증 카드 읽기</h3>
+<p>이번 회차에서 바뀐 설정마다 "새 문장 vs 기존 근거" 카드가 표시됩니다.</p>
+<table>
+  <tr><th>판정</th><th>의미</th></tr>
+  <tr><td><code>ok</code></td><td>기존 설정과 일치</td></tr>
+  <tr><td><code>change</code></td><td>설명 가능한 변화 (개요의 인물 변화 등과 부합)</td></tr>
+  <tr><td><code>error</code></td><td>기존 설정과 충돌 — 수정이 필요합니다</td></tr>
+  <tr><td><code>deferred</code></td><td>판정 보류. "근거 미확인"이면 충돌 증거로 쓰지 않습니다</td></tr>
+</table>
+<h3>별명 · 동명이인 판정</h3>
+<p>새로 등장한 이름이 기존 인물과 같은지 작가가 직접 정합니다. 연결할 인물 ID를 입력하고 <b>확정</b>(빈칸이면 새 인물로 등록), 또는 <b>기각</b>을 누릅니다.</p>
+</section>
+
+<section class="card" id="tab4">
+<h2>7. 탭 4 — 엔티티 브라우저</h2>
+<p>인물·장소 등의 "기억(설정)"을 조회합니다. <b>승인되어 커밋된 변경만</b> 표시되며, 미승인 변경안은 포함되지 않습니다.</p>
+<ul>
+  <li><b>검색</b>: 이름·ID로 찾습니다. 클릭하면 오른쪽에 상세와 이력이 표시됩니다</li>
+  <li><b>회차 지정 상태</b>: 특정 회차 종료 시점의 설정값을 조회합니다 (예: EP 6까지 확정된 나이)</li>
+  <li><b>속성 이력 타임라인</b>: 언제·어떤 근거 문장으로 바뀌었는지 시간순으로 보여줍니다</li>
+</ul>
+</section>
+
+<section class="card" id="states">
+<h2>8. 상태와 용어</h2>
+<table>
+  <tr><th>상태</th><th>의미</th></tr>
+  <tr><td><code>PLAN</code></td><td>아직 집필 전 (개요만 있음)</td></tr>
+  <tr><td><code>DRAFT</code></td><td>원고 초안 있음, 검증 전</td></tr>
+  <tr><td><code>VERIFY</code></td><td>추출·검증·품질 검사 완료, 판정 대기</td></tr>
+  <tr><td><code>READY_FOR_REVIEW</code></td><td>작가 검토 대기 — 검토 탭에서 승인/수정요청</td></tr>
+  <tr><td><code>AUTHOR_APPROVED</code></td><td>승인됨, 커밋 처리 중 (순간 상태)</td></tr>
+  <tr><td><code>COMMITTED</code></td><td>확정됨. 원고와 설정이 모두 반영됨</td></tr>
+  <tr><td><code>NEEDS_AUTHOR</code></td><td>작가 개입 필요 — 자동 진행 중단. 상세의 사유를 확인하십시오</td></tr>
+</table>
+<ul>
+  <li><b>시도(attempt)</b>: 실패·반려될 때마다 1씩 증가. 상한(3회)에 닿으면 <code>NEEDS_AUTHOR</code>가 됩니다</li>
+  <li><b>토큰 예산</b>: 하루 사용량 상한(기본 100만). 소진되면 진행이 중단되고 해당 회차는 <code>NEEDS_AUTHOR</code>가 됩니다</li>
+  <li><b>제안 set / 원고 rev</b>: 검증 대상 설정 변경 묶음과 원고 버전의 관리 번호입니다</li>
+</ul>
+</section>
+
+<section class="card" id="caution">
+<h2>9. 주의사항</h2>
+<div class="danger"><b>전진은 취소·되돌리기가 없습니다.</b> 누르기 전에 회차와 설계 ID를 확인하십시오.</div>
+<ul>
+  <li>첫 전진에는 <b>승인된 설계</b>가 필요합니다. 미승인 설계에서는 <code>design_not_approved</code> 오류가 납니다</li>
+  <li><b>승인 + 커밋</b>은 되돌릴 수 없습니다. 커밋된 설정은 이후 모든 검증의 기준이 됩니다</li>
+  <li>AI 호출 중(원고 생성·검증 등)에는 해당 버튼을 중복 클릭해도 추가로 실행되지 않습니다</li>
+  <li>데이터는 <code>data/studio.db</code> 파일에 저장됩니다. 삭제하면 모든 작품·원고·설정이 사라지니 주의하십시오</li>
+</ul>
+</section>
+
+<section class="card" id="trouble">
+<h2>10. 문제 해결</h2>
+<table>
+  <tr><th>증상</th><th>확인할 것</th></tr>
+  <tr><td>서버가 부팅되지 않음</td><td><code>.env</code>의 <code>MODEL_API_KEY</code>가 비어 있는지 확인</td></tr>
+  <tr><td>화면에 빨간 오류 상자</td><td>상자 안 메시지의 API 경로·상태코드를 확인. 일시적이면 새로고침 후 재시도</td></tr>
+  <tr><td><code>design_not_approved</code></td><td>설계 승인 버튼을 먼저 눌렀는지 확인</td></tr>
+  <tr><td><code>NEEDS_AUTHOR</code>에서 멈춤</td><td>상세 화면의 사유 확인 (재시도 상한 / 판정 보류 / 예산 소진)</td></tr>
+  <tr><td>토큰 예산 초과</td><td>상단 토큰 칩 확인. 일일 예산은 자정(UTC) 기준으로 집계됩니다</td></tr>
+  <tr><td>설계도 생성이 끝나지 않음</td><td>총 회차가 클수록 오래 걸립니다 (10화씩 순차 생성). 터미널 오류 확인</td></tr>
+</table>
+<p class="muted">서버 터미널에 찍힌 Traceback이 가장 정확한 단서입니다. 문의 시 함께 전달하십시오.</p>
+</section>
+</main>
+
+<footer>Muse Novel Studio — 사용 설명서 · 앱으로 돌아가려면 <a href="./index.html">메인 화면</a></footer>
+
+</body>
+</html>

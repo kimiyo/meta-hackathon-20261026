@@ -61,7 +61,7 @@ def health() -> JSONResponse:
     })
 
 
-# Serve the built SPA at / when a production build exists.
-_dist = PROJECT_ROOT / "web" / "dist"
+# Serve the static frontend (plain HTML/CSS/JS, no build step) at /.
+_dist = PROJECT_ROOT / "frontend"
 if _dist.is_dir():
     app.mount("/", StaticFiles(directory=_dist, html=True), name="spa")

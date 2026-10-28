@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Muse Novel Studio</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">Muse Novel Studio <small id="model-info">연결 확인 중…</small></div>
+  <button class="btn sm" id="btn-home" style="display:none;background:transparent;border-color:#4a524c;color:#e8e4d8;white-space:nowrap">← 작품 목록</button>
+  <div class="work-pill" id="work-pill" title="클릭하여 소설 정보 수정" style="cursor:pointer">작품 없음</div>
+  <div class="spacer"></div>
+  <div class="ops-strip">
+    <span class="health-dot ops-chip" id="health-chip"><i></i> 확인 중…</span>
+    <span class="ops-chip" id="budget-chip">토큰 —</span>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-screen="s1" class="active"><span class="n">1</span>작품 · 설계</button>
+  <button data-screen="s2"><span class="n">2</span>집필 모니터</button>
+  <button data-screen="s3"><span class="n">3</span>작가 검토</button>
+  <button data-screen="s4"><span class="n">4</span>엔티티 브라우저</button>
+</nav>
+
+<main>
+<!-- ════════════ 메인 · 소설 목록 ════════════ -->
+<section class="screen active" id="home">
+  <div id="home-error"></div>
+  <div class="card">
+    <h3>새 소설 만들기</h3>
+    <p class="muted small">버튼을 누르면 입력창이 뜹니다. 제목을 입력하면 새 소설을 만들고 바로 스튜디오로 들어갑니다.</p>
+    <div class="btn-row">
+      <button class="btn primary" id="btn-home-create">새로 만들기 · 시작</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>내 소설 목록 <span class="hint" id="home-count"></span></h3>
+    <div id="home-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0 12px">
+      <span class="muted small">불러오는 중…</span>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════ 화면 1 · 작품/설계 ════════════ -->
+<section class="screen" id="s1">
+  <div id="design-error"></div>
+  <div class="grid-2">
+    <div>
+      <div class="card">
+        <h3>설계도 생성 <span class="hint">기획 AI · 10화 단위 분할 생성</span></h3>
+        <label class="f">키워드</label>
+        <input type="text" id="design-keywords" placeholder="쉼표 구분 (예: 헌책방, 달빛, 비밀 결사)">
+        <label class="f">총 회차</label>
+        <input type="number" id="design-total" value="20" min="1" max="200">
+        <label class="f">제약 조건</label>
+        <textarea id="design-constraints" placeholder="줄바꿈 구분"></textarea>
+        <div class="btn-row">
+          <button class="btn primary" id="btn-create-design">설계도 생성</button>
+        </div>
+      </div>
+    </div>
+    <div id="design-detail"><div class="card"><span class="muted">작품을 선택하면 설계도가 표시됩니다.</span></div></div>
+  </div>
+</section>
+
+<!-- ════════════ 화면 2 · 집필 모니터 ════════════ -->
+<section class="screen" id="s2">
+  <div id="monitor-error"></div>
+  <div class="grid-monitor">
+    <div class="card">
+      <h3>회차별 진행 <span class="hint">P/D/V/R/A/C</span></h3>
+      <label class="f">설계 ID</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="monitor-design-id" placeholder="설계 ID">
+        <button class="btn sm" id="btn-monitor-load" style="white-space:nowrap">불러오기</button>
+      </div>
+      <div class="small muted" id="monitor-budget" style="margin-top:10px">토큰 —</div>
+      <div class="progress-10" id="monitor-progress" style="display:none"><i style="width:0%"></i></div>
+      <table class="tbl" style="margin-top:10px">
+        <thead><tr><th>회차</th><th>게이트</th><th>상태</th><th></th></tr></thead>
+        <tbody id="ep-rows"><tr><td colspan="4"><span class="muted small">설계를 불러오세요.</span></td></tr></tbody>
+      </table>
+    </div>
+    <div>
+      <div class="card" id="ep-detail"><h3>회차 상세</h3><span class="muted">회차를 선택하면 상세 정보가 표시됩니다.</span></div>
+      <div class="card">
+        <h3>LLM 호출 기록 <span class="hint">최근 20건 · llm_calls</span></h3>
+        <table class="tbl">
+          <thead><tr><th>시각</th><th>bundle</th><th>회차</th><th>in/out</th><th>지연</th><th>결과</th></tr></thead>
+          <tbody id="calls-rows"><tr><td colspan="6"><span class="muted small">기록 없음</span></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════ 화면 3 · 작가 검토 ════════════ -->
+<section class="screen" id="s3">
+  <div id="review-error"></div>
+  <div id="review-notice"></div>
+  <div style="margin-bottom:14px;display:flex;gap:8px;align-items:center">
+    <label class="f" style="margin:0">회차</label>
+    <input type="number" id="review-ep" value="1" min="1" style="width:80px">
+    <button class="btn sm" id="btn-review-load">불러오기</button>
+    <span class="small muted" id="review-state"></span>
+  </div>
+  <div class="grid-review">
+    <div>
+      <div class="card">
+        <h3>원고 본문
+          <span class="hint">버전
+            <select id="rev-select" style="width:auto;display:inline-block;padding:3px 8px"></select>
+            <label style="font-weight:400;margin-left:8px"><input type="checkbox" id="diff-toggle" style="width:auto"> 이전 버전과 비교</label>
+          </span>
+        </h3>
+        <div class="manuscript" id="manuscript"><span class="muted">회차를 불러오세요.</span></div>
+        <div class="small muted" id="manuscript-meta" style="margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <h3>수정 요청 <span class="hint">request-change → DRAFT로 복귀 (원고·입력 보존)</span></h3>
+        <textarea id="change-req" placeholder="예: 타인의 이름을 받는 장면을 규칙 위반이 아니라 예외 거래로 고쳐줘."></textarea>
+        <div class="btn-row">
+          <button class="btn" id="btn-request-change">수정 요청 보내기</button>
+          <button class="btn primary" id="btn-approve-ep">승인 + 커밋</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>검증 카드 <span class="hint" id="verdict-count"></span></h3>
+        <div id="verdict-list"><span class="muted small">회차를 불러오세요.</span></div>
+      </div>
+      <div class="card">
+        <h3>별명 · 동명이인 판정</h3>
+        <div id="alias-list"><span class="muted small">회차를 불러오세요.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════ 화면 4 · 엔티티 브라우저 ════════════ -->
+<section class="screen" id="s4">
+  <div id="entities-error"></div>
+  <div class="grid-2">
+    <div class="card">
+      <h3>엔티티 검색 <span class="hint">MVP: character · location</span></h3>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="ent-search" placeholder="이름·ID 검색">
+        <button class="btn sm" id="btn-ent-search" style="white-space:nowrap">검색</button>
+      </div>
+      <div style="margin-top:10px" id="ent-list"><span class="muted small">불러오는 중…</span></div>
+    </div>
+    <div>
+      <div class="card" id="ent-detail"><h3>엔티티 상태</h3><span class="muted">엔티티를 선택하세요.</span></div>
+      <div class="card" id="ent-history-card" style="display:none">
+        <h3>속성 이력 타임라인 <span class="hint">entity_changes 순서 적용</span></h3>
+        <div class="timeline" id="ent-history"></div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<div class="footer-note">Muse Novel Studio — API 키 입력란 없음 · <a href="./manual.html">사용 설명서</a></div>
+
+<div id="novel-dialog-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-dialog-title">
+    <h3 id="novel-dialog-title">새 소설 만들기</h3>
+    <div id="novel-dialog-error"></div>
+    <label class="f">소설 제목</label>
+    <input type="text" id="novel-dialog-title-input" placeholder="새 소설 제목">
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-novel-dialog-cancel">취소</button>
+      <button class="btn primary" id="btn-novel-dialog-confirm">만들기 · 시작</button>
+    </div>
+  </div>
+</div>
+
+<div id="novel-info-dialog-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-info-dialog-title">
+    <h3 id="novel-info-dialog-title">소설 정보 수정</h3>
+    <div id="novel-info-dialog-error"></div>
+    <label class="f">소설 제목</label>
+    <input type="text" id="novel-info-title-input" placeholder="소설 제목">
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-novel-info-cancel">취소</button>
+      <button class="btn primary" id="btn-novel-info-save">저장</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

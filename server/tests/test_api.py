@@ -39,6 +39,48 @@ def test_check_budget_raises_when_exhausted(conn):
     assert s["remaining"] == 1000
 
 
+def test_connect_usable_across_threads(tmp_path):
+    """FastAPI runs sync deps/endpoints/teardown on different threadpool
+    threads, so a request-scoped connection must survive cross-thread
+    handoff (used sequentially, never concurrently)."""
+    import threading
+
+    c = dbmod.connect(tmp_path / "t.db")
+    errors = []
+
+    def use_and_close():
+        try:
+            c.execute("INSERT INTO works(title, logline, created_at)"
+                      " VALUES(?,?,?)", ("t", "", "now"))
+            c.commit()
+            row = c.execute("SELECT COUNT(*) c FROM works").fetchone()
+            assert row["c"] == 1
+        except Exception as e:  # noqa: BLE001 - surfaced below
+            errors.append(e)
+        finally:
+            c.close()
+
+    t = threading.Thread(target=use_and_close)
+    t.start()
+    t.join()
+    assert not errors
+
+
+def test_patch_work_api(api_client):
+    wid = api_client.post("/api/v1/works", json={"title": "원제"}).json()["id"]
+    r = api_client.patch(f"/api/v1/works/{wid}", json={"title": "바뀐제목"})
+    assert r.status_code == 200
+    assert r.json()["title"] == "바뀐제목"
+    r = api_client.get(f"/api/v1/works/{wid}")
+    assert r.json()["title"] == "바뀐제목"
+    r = api_client.patch(f"/api/v1/works/{wid}", json={"title": "  "})
+    assert r.status_code == 400
+    r = api_client.patch(f"/api/v1/works/{wid}", json={})
+    assert r.status_code == 400
+    r = api_client.patch("/api/v1/works/999", json={"title": "x"})
+    assert r.status_code == 404
+
+
 @pytest.fixture()
 def api_client(tmp_path, monkeypatch):
     db_path = tmp_path / "api.db"

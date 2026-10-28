@@ -187,7 +187,10 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     p = path or db_path()
     if str(p) != ":memory:":
         p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(p))
+    # check_same_thread=False: FastAPI runs sync deps/endpoints/teardown on
+    # different threadpool threads. Each connection is request-scoped and
+    # never used by two threads concurrently, so cross-thread handoff is safe.
+    conn = sqlite3.connect(str(p), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(DDL)

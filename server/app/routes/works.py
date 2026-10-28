@@ -113,3 +113,32 @@ def patch_outline(design_id: int, episode_no: int, body: OutlinePatch,
         raise HTTPException(404, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+class WorkPatch(BaseModel):
+    title: str | None = None
+    logline: str | None = None
+
+
+@router.patch("/works/{work_id}")
+def patch_work(work_id: int, body: WorkPatch,
+               conn: sqlite3.Connection = Depends(get_conn)):
+    row = conn.execute("SELECT * FROM works WHERE id=?", (work_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, f"work {work_id} not found")
+    sets, args = [], []
+    if body.title is not None:
+        if not body.title.strip():
+            raise HTTPException(400, "title must not be blank")
+        sets.append("title=?")
+        args.append(body.title.strip())
+    if body.logline is not None:
+        sets.append("logline=?")
+        args.append(body.logline)
+    if not sets:
+        raise HTTPException(400, "no valid work fields")
+    args.append(work_id)
+    conn.execute(f"UPDATE works SET {', '.join(sets)} WHERE id=?", args)
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM works WHERE id=?",
+                             (work_id,)).fetchone())
