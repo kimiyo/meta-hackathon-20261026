@@ -14,6 +14,18 @@ async function req(path, options = {}) {
 
 export const api = {
   health: () => req("/health"),
-  // Phase 3+: works & designs
+  works: () => req("/works"),
+  createWork: (title, logline) =>
+    req("/works", { method: "POST", body: JSON.stringify({ title, logline }) }),
+  work: (id) => req(`/works/${id}`),
+  createDesign: (workId, body) =>
+    req(`/works/${workId}/designs`, { method: "POST", body: JSON.stringify(body) }),
+  design: (id) => req(`/designs/${id}`),
+  approveDesign: (id) => req(`/designs/${id}/approve`, { method: "POST" }),
+  patchOutline: (designId, ep, body) =>
+    req(`/designs/${designId}/outlines/${ep}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   // Phase 4-6: episodes, entities, ops
 };

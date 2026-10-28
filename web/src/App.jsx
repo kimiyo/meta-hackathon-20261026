@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
+import Design from "./pages/Design.jsx";
 
 const TABS = ["작품 · 설계", "집필 모니터", "작가 검토", "엔티티 브라우저"];
 
@@ -35,8 +36,13 @@ export default function App() {
         ))}
       </nav>
       <main>
-        <h2>{TABS[tab]}</h2>
-        <p>Phase 0 뼈대 화면입니다. 실제 화면은 Phase 3·6에서 구현됩니다.</p>
+        {tab === 0 && <Design />}
+        {tab !== 0 && (
+          <div>
+            <h2>{TABS[tab]}</h2>
+            <p>Phase 6에서 구현됩니다.</p>
+          </div>
+        )}
       </main>
     </div>
   );

@@ -80,3 +80,36 @@ def test_entities_api(api_client):
 def test_alias_resolve_api(api_client):
     r = api_client.post("/api/v1/aliases/999/resolve", json={"entity_id": "ch_0001"})
     assert r.status_code == 404
+
+
+def test_works_designs_api(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_planning import FakeMeta
+
+    app.dependency_overrides[get_meta] = lambda: FakeMeta(12)
+    try:
+        r = api_client.post("/api/v1/works", json={"title": "달빛 서점"})
+        assert r.status_code == 200
+        wid = r.json()["id"]
+        r = api_client.get("/api/v1/works")
+        assert len(r.json()["works"]) == 1
+        r = api_client.post(f"/api/v1/works/{wid}/designs",
+                            json={"keywords": "서점", "total_episodes": 12})
+        assert r.status_code == 200, r.text
+        did = r.json()["design_id"]
+        assert r.json()["outline_count"] == 12
+        r = api_client.get(f"/api/v1/designs/{did}")
+        assert len(r.json()["outlines"]) == 12
+        r = api_client.post(f"/api/v1/designs/{did}/approve")
+        assert r.json()["status"] == "approved"
+        r = api_client.patch(f"/api/v1/designs/{did}/outlines/3",
+                             json={"title": "바뀐제목"})
+        assert r.json()["updated"] is True
+        r = api_client.get(f"/api/v1/designs/{did}")
+        assert r.json()["outlines"][2]["title"] == "바뀐제목"
+        r = api_client.post("/api/v1/works/999/designs",
+                            json={"keywords": "x", "total_episodes": 5})
+        assert r.status_code == 404
+    finally:
+        del app.dependency_overrides[get_meta]
