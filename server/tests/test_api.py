@@ -1,0 +1,81 @@
+"""Phase 2: budget recording/aggregation + memory API (mocked AI: none)."""
+import pytest
+from fastapi.testclient import TestClient
+
+from app import budget as budgetmod
+from app import db as dbmod
+from app import memory
+from app.errors import BudgetExceeded
+from app.routes.deps import get_conn
+
+
+@pytest.fixture()
+def conn(tmp_path):
+    c = dbmod.connect(tmp_path / "t.db")
+    yield c
+    c.close()
+
+
+def _rec(**kw):
+    base = {"bundle": "drafting", "episode_no": 1, "model": "m",
+            "input_tokens": 100, "output_tokens": 200, "latency_ms": 5,
+            "ok": 1, "error": ""}
+    base.update(kw)
+    return base
+
+
+def test_record_and_daily_usage(conn):
+    budgetmod.record_llm_call(conn, _rec())
+    budgetmod.record_llm_call(conn, _rec(input_tokens=50, output_tokens=50))
+    u = budgetmod.daily_usage(conn)
+    assert (u["input_tokens"], u["output_tokens"], u["calls"]) == (150, 250, 2)
+
+
+def test_check_budget_raises_when_exhausted(conn):
+    budgetmod.record_llm_call(conn, _rec(input_tokens=900, output_tokens=100))
+    with pytest.raises(BudgetExceeded):
+        budgetmod.check_budget(conn, 1000)
+    s = budgetmod.budget_status(conn, 2000)
+    assert s["remaining"] == 1000
+
+
+@pytest.fixture()
+def api_client(tmp_path, monkeypatch):
+    db_path = tmp_path / "api.db"
+
+    def _override():
+        c = dbmod.connect(db_path)
+        try:
+            yield c
+        finally:
+            c.close()
+
+    from app.main import app
+    app.dependency_overrides[get_conn] = _override
+    seed = dbmod.connect(db_path)
+    memory.create_entity(seed, entity_id="ch_0001", type_="character",
+                         name="서연", first_episode=1)
+    seed.close()
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_entities_api(api_client):
+    r = api_client.get("/api/v1/entities")
+    assert r.status_code == 200
+    assert r.json()["entities"][0]["entity_id"] == "ch_0001"
+    r = api_client.get("/api/v1/entities?q=서연")
+    assert len(r.json()["entities"]) == 1
+    r = api_client.get("/api/v1/entities/ch_0001/state?as_of_episode=1")
+    assert r.json()["attributes"] == {}
+    r = api_client.get("/api/v1/entities/nope/state?as_of_episode=1")
+    assert r.status_code == 404
+    r = api_client.get("/api/v1/entities/ch_0001/history")
+    assert r.json()["history"] == []
+    r = api_client.get("/api/v1/episodes/1/proposals")
+    assert r.json()["items"] == []
+
+
+def test_alias_resolve_api(api_client):
+    r = api_client.post("/api/v1/aliases/999/resolve", json={"entity_id": "ch_0001"})
+    assert r.status_code == 404
