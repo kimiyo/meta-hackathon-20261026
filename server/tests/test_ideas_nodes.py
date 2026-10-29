@@ -527,3 +527,49 @@ def test_advance_marks_writing_stage(client, fakes):
     finally:
         del app.dependency_overrides[get_meta]
     assert c.get(f"/api/v1/works/{w['uid']}").json()["stage"] == "writing"
+
+
+def test_chat_blank_proposal_title_falls_back_to_summary(client):
+    """Blank AI titles must not reach the buttons as bare '무제'.
+
+    Regression: the model returned title:"" so every proposal button
+    read '+ [인물] 무제' and the entries were indistinguishable.
+    """
+    from app.main import app
+    from app.routes.ideas import get_meta as ideas_meta
+
+    class BlankTitleFake:
+        def chat_json(self, *, bundle, episode, system, user, schema,
+                      max_tokens, work_id=None):
+            assert schema is sch.IdeaChatOut
+            return sch.IdeaChatOut.model_validate(
+                {"reply": "정리했어요", "choices": [],
+                 "settings": [
+                     {"category": "character", "title": "  ",
+                      "summary": "마법을 숨기고 사는 엄마", "detail": "d"},
+                     {"category": "world", "title": "",
+                      "summary": "", "detail": ""}],
+                 "synopsis_proposal": "",
+                 "structure": None}).model_dump()
+
+    c, _ = client
+    app.dependency_overrides[ideas_meta] = lambda: BlankTitleFake()
+    try:
+        w = _mkwork(c)
+        tid = c.post(f"/api/v1/works/{w['uid']}/threads",
+                     json={"title": "t"}).json()["id"]
+        r = c.post(f"/api/v1/threads/{tid}/messages", json={"content": "hi"})
+        assert r.status_code == 200, r.text
+        stored = r.json()["assistant"]["proposals"]["settings"]
+        assert stored[0]["title"] == "마법을 숨기고 사는 엄마"
+        assert stored[1]["title"] == "무제"
+    finally:
+        del app.dependency_overrides[ideas_meta]
+
+
+def test_ideas_chat_prompt_requires_setting_titles():
+    """The chat prompt must tell the model to fill every title."""
+    from pathlib import Path
+    text = (Path(__file__).parent.parent / "app" / "prompts"
+            / "ideas_chat.txt").read_text(encoding="utf-8")
+    assert "title" in text

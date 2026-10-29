@@ -94,6 +94,8 @@ function closeDialog() {
 }
 
 async function submitDialog() {
+  const btn = $("btn-novel-dialog-confirm");
+  if (btn.disabled) return; // Enter + 클릭 중복 발화 방지
   const title = $("novel-dialog-title-input").value.trim();
   if (!title) {
     showError("novel-dialog-error", "소설 제목을 입력하세요.");
@@ -104,7 +106,6 @@ async function submitDialog() {
     showError("novel-dialog-error", "제목은 최대 80자까지 입력할 수 있습니다.");
     return;
   }
-  const btn = $("btn-novel-dialog-confirm");
   btn.disabled = true;
   btn.textContent = "만드는 중…";
   showError("novel-dialog-error", "");
@@ -139,12 +140,13 @@ function closeDelete() {
 
 async function submitDelete() {
   if (!pendingDelete) return;
+  const btn = $("btn-novel-delete-confirm");
+  if (btn.disabled) return;
   const typed = $("novel-delete-title-input").value;
   if (typed !== pendingDelete.title) {
     showError("novel-delete-dialog-error", "작품 제목을 동일하게 입력하세요.");
     return;
   }
-  const btn = $("btn-novel-delete-confirm");
   btn.disabled = true;
   btn.textContent = "삭제 중…";
   try {

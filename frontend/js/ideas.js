@@ -128,8 +128,15 @@ function normCategory(c) {
   return CATEGORIES.includes(c) ? c : "misc";
 }
 
+function propTitle(p) {
+  const t = (p.title || "").trim();
+  if (t) return t;
+  const head = (p.summary || "").trim().split("\n")[0].slice(0, 30).trim();
+  return head || "무제";
+}
+
 function findSetting(p) {
-  const title = p.title || "무제";
+  const title = propTitle(p);
   return settings.find((s) => s.category === normCategory(p.category) && s.title === title);
 }
 
@@ -155,7 +162,7 @@ function proposalsHtml(m) {
     .some((k) => st[k] !== null && st[k] !== undefined);
   if (!sps.length && !syn && !hasStruct) return "";
   const settingBtns = sps.map((p, i) => {
-    const title = p.title || "무제";
+    const title = propTitle(p);
     const cat = CAT_LABEL[normCategory(p.category)];
     const tip = tipAttr(`${p.summary || ""}\n${p.detail || ""}`);
     const s = findSetting(p);
@@ -327,7 +334,7 @@ async function applySettingProposal(msgId, idx) {
     } else {
       await api.createSetting(key, {
         category: normCategory(p.category),
-        title: p.title || "무제",
+        title: propTitle(p),
         summary: p.summary || "",
         detail: p.detail || "",
         status: "applied",

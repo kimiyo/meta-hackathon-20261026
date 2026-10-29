@@ -114,6 +114,22 @@ def _resolve_refs(conn: sqlite3.Connection, work_id: int, refs: list[str],
     return setting_lines, node_lines, unknown
 
 
+def _normalize_setting_proposals(items: list | None) -> list:
+    """Fill blank proposal titles so buttons stay distinguishable.
+
+    The prompt requires titles, but a blank may still slip through;
+    fall back to the summary head, then to '무제'.
+    """
+    out = []
+    for s in items or []:
+        s = dict(s)
+        if not (s.get("title") or "").strip():
+            head = (s.get("summary") or "").strip().split("\n")[0][:30]
+            s["title"] = head.strip() or "무제"
+        out.append(s)
+    return out
+
+
 def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
                   user_msg: dict, history: int = 12,
                   include_synopsis: bool | None = None,
@@ -209,7 +225,7 @@ def post_message(thread_id: int, body: MessageIn,
     assistant = ideas.add_message(
         conn, thread_id, "assistant", out.get("reply", ""),
         out.get("refs", []), out.get("choices", []),
-        {"settings": out.get("settings", []),
+        {"settings": _normalize_setting_proposals(out.get("settings", [])),
          "synopsis_proposal": out.get("synopsis_proposal", ""),
          "structure": out.get("structure")})
     touch_work(conn, w["id"])
