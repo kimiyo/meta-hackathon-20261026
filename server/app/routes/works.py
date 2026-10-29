@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from .. import planning
 from ..db import find_work, new_uid, now_iso, touch_work
 from ..errors import LLMStepError
+from ..ideas import check_total_episodes
 from .deps import get_conn
 
 router = APIRouter(prefix="/api/v1", tags=["works"])
@@ -88,8 +89,10 @@ def create_design(key: str, body: DesignIn,
                   conn: sqlite3.Connection = Depends(get_conn),
                   meta=Depends(get_meta)):
     work = _work_or_404(conn, key)
-    if body.total_episodes < 1 or body.total_episodes > 200:
-        raise HTTPException(400, "total_episodes must be 1..200")
+    try:
+        check_total_episodes(body.total_episodes)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     try:
         out = planning.generate_design(
             meta, conn, work_id=work["id"], keywords=body.keywords,

@@ -99,7 +99,7 @@ export default function Design() {
         <input
           type="number"
           min={1}
-          max={200}
+          max={300}
           value={form.total}
           onChange={(e) => setForm({ ...form, total: Number(e.target.value) })}
           style={{ width: 80 }}

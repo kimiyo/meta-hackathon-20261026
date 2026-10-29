@@ -209,6 +209,18 @@ def delete_setting(conn: sqlite3.Connection, setting_id: int) -> dict:
 STRUCTURE_DEFAULTS = {"use_part": False, "use_chapter": False,
                       "total_episodes": 25, "parts": []}
 PARTS_MAX = 20
+MAX_TOTAL_EPISODES = 300
+
+
+def check_total_episodes(total) -> None:
+    """Validate a total episode count; over-limit says so explicitly."""
+    if not isinstance(total, int) or isinstance(total, bool) or total < 1:
+        raise ValueError(
+            f"total_episodes must be an integer 1..{MAX_TOTAL_EPISODES}")
+    if total > MAX_TOTAL_EPISODES:
+        raise ValueError(
+            f"total_episodes {total} exceeds the episode limit"
+            f" of {MAX_TOTAL_EPISODES}")
 
 
 def parse_structure(raw: str) -> dict:
@@ -237,9 +249,7 @@ def update_structure(conn: sqlite3.Connection, work_id: int,
     if work["ideas_locked"]:
         raise ValueError("ideas handed off (read-only)")
     total = structure.get("total_episodes", 25)
-    if not isinstance(total, int) or isinstance(total, bool) \
-            or not 1 <= total <= 200:
-        raise ValueError("total_episodes must be 1..200")
+    check_total_episodes(total)
     parts = structure.get("parts", [])
     if not isinstance(parts, list) or len(parts) > PARTS_MAX:
         raise ValueError(f"parts must be a list of ≤{PARTS_MAX}")
@@ -280,6 +290,9 @@ def build_migration_tree(structure: dict, plan: dict) -> tuple[list, dict]:
     counts = {"parts": 0, "chapters": 0, "episodes": 0, "stub_episodes": 0}
     used: set[int] = set()
     tree: list = []
+    # Guard against runaway AI plans; 2x the episode limit keeps headroom
+    # for parts/chapters on top of a full-size plan.
+    placed_cap = MAX_TOTAL_EPISODES * 2
     state: dict = {"last_container": None, "placed": 0}
 
     def _next_free() -> int:
@@ -290,7 +303,7 @@ def build_migration_tree(structure: dict, plan: dict) -> tuple[list, dict]:
 
     def _walk(raw_nodes: list, out: list) -> None:
         for raw in raw_nodes:
-            if state["placed"] >= 400:
+            if state["placed"] >= placed_cap:
                 return
             n = _sanitize_plan_node(raw)
             kind = n["kind"]
@@ -325,7 +338,7 @@ def build_migration_tree(structure: dict, plan: dict) -> tuple[list, dict]:
     raw_tree = plan.get("tree") or [] if isinstance(plan, dict) else []
     _walk(raw_tree, tree)
     if isinstance(total, int) and not isinstance(total, bool) \
-            and 1 <= total <= 200:
+            and 1 <= total <= MAX_TOTAL_EPISODES:
         dest = state["last_container"]["children"] \
             if state["last_container"] is not None else tree
         for ep_no in range(1, total + 1):
@@ -364,8 +377,7 @@ def handoff_migrate(conn: sqlite3.Connection, work_id: int,
         raise ValueError("ideas already handed off (read-only)")
     structure = parse_structure(work["structure_json"])
     total = structure["total_episodes"]
-    if not 1 <= total <= 200:
-        raise ValueError("total_episodes must be 1..200")
+    check_total_episodes(total)
     syn = get_synopsis(conn, work_id)
     settings = list_settings(conn, work_id)
     excerpt = (syn["content"] or "")[:500]

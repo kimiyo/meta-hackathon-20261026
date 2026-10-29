@@ -18,6 +18,8 @@ let msgMode = "select";
 let sending = false;
 let structure = { use_part: false, use_chapter: false, total_episodes: 25, parts: [] };
 
+const EPISODE_LIMIT = 300;
+
 const CATEGORIES = ["character", "world", "event", "part", "misc"];
 const CAT_LABEL = {
   character: "인물", world: "세계관", event: "사건", part: "Part 이야기", misc: "기타",
@@ -450,9 +452,24 @@ function collectStructure() {
   };
 }
 
+function totalError(total, where) {
+  if (!Number.isInteger(total) || total < 1) {
+    return `총 화수는 1~${EPISODE_LIMIT} 사이의 정수여야 합니다 (${where}: ${total}).`;
+  }
+  if (total > EPISODE_LIMIT) {
+    return `총 화수 상한(${EPISODE_LIMIT}화)을 초과했습니다 (${where}: ${total}화).`;
+  }
+  return "";
+}
+
 async function saveStructure() {
   await run(async () => {
     const body = collectStructure();
+    const err = totalError(body.total_episodes, "입력값");
+    if (err) {
+      showError("ideas-error", `${err} ${EPISODE_LIMIT}화 이하로 입력하세요.`);
+      return;
+    }
     const auto = normalizeStructure(body);
     structure = await api.putStructure(getWork().uid || getWork().id, body);
     renderStructure();
@@ -529,6 +546,11 @@ async function applyStructProposal(msgId) {
   await run(async () => {
     const merged = mergeStructure(prop);
     const auto = normalizeStructure(merged);
+    const err = totalError(merged.total_episodes, "AI 제안");
+    if (err) {
+      showError("ideas-error", `${err} AI에게 ${EPISODE_LIMIT}화 이하로 다시 제안해 달라고 물어보세요.`);
+      return;
+    }
     structure = await api.putStructure(getWork().uid || getWork().id, merged);
     renderStructure();
     renderChat();

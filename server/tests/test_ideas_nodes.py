@@ -573,3 +573,37 @@ def test_ideas_chat_prompt_requires_setting_titles():
     text = (Path(__file__).parent.parent / "app" / "prompts"
             / "ideas_chat.txt").read_text(encoding="utf-8")
     assert "title" in text
+
+
+def test_ideas_chat_prompt_states_episode_limit():
+    """The model must know total_episodes is capped at 300.
+
+    Regression: it proposed 201 episodes, the server rejected the
+    structure update with 400, and the apply button silently did nothing.
+    """
+    from pathlib import Path
+    text = (Path(__file__).parent.parent / "app" / "prompts"
+            / "ideas_chat.txt").read_text(encoding="utf-8")
+    assert "1~300" in text or "1..300" in text
+
+
+def test_structure_accepts_up_to_300(client, fakes):
+    c, _ = client
+    w = _mkwork(c)
+    r = c.put(f"/api/v1/works/{w['uid']}/structure",
+              json={"use_part": True, "use_chapter": True,
+                    "total_episodes": 300,
+                    "parts": [{"title": "1부", "summary": "시작"}]})
+    assert r.status_code == 200, r.text
+    assert r.json()["total_episodes"] == 300
+
+
+def test_structure_rejects_over_limit_total(client, fakes):
+    c, _ = client
+    w = _mkwork(c)
+    r = c.put(f"/api/v1/works/{w['uid']}/structure",
+              json={"use_part": True, "use_chapter": True,
+                    "total_episodes": 301,
+                    "parts": [{"title": "1부", "summary": "시작"}]})
+    assert r.status_code == 400, r.text
+    assert "exceeds" in r.text and "300" in r.text
