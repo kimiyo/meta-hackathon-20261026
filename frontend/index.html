@@ -15,15 +15,18 @@
   <div class="spacer"></div>
   <div class="ops-strip">
     <span class="health-dot ops-chip" id="health-chip"><i></i> 확인 중…</span>
-    <span class="ops-chip" id="budget-chip">토큰 —</span>
+    <button class="ops-chip" id="budget-chip" title="AI 호출 로그 보기">토큰 —</button>
   </div>
 </header>
 
 <nav class="tabs" id="tabs">
-  <button data-screen="s1" class="active"><span class="n">1</span>작품 · 설계</button>
-  <button data-screen="s2"><span class="n">2</span>집필 모니터</button>
-  <button data-screen="s3"><span class="n">3</span>작가 검토</button>
-  <button data-screen="s4"><span class="n">4</span>엔티티 브라우저</button>
+  <button data-screen="ideas" class="active"><span class="n">1</span>아이디어 / 구조</button>
+  <button data-screen="sdesign"><span class="n">2</span>세부 설계</button>
+  <button data-screen="s2"><span class="n">3</span>집필 모니터</button>
+  <button data-screen="s3"><span class="n">4</span>작가 검토</button>
+  <button data-screen="s4"><span class="n">5</span>엔티티 브라우저</button>
+  <span class="tabs-spacer"></span>
+  <button id="btn-export" style="display:none">Export</button>
 </nav>
 
 <main>
@@ -32,42 +35,164 @@
   <div id="home-error"></div>
   <div class="card">
     <h3>새 소설 만들기</h3>
-    <p class="muted small">버튼을 누르면 입력창이 뜹니다. 제목을 입력하면 새 소설을 만들고 바로 스튜디오로 들어갑니다.</p>
+    <p class="muted small">버튼을 누르면 입력창이 뜹니다. 제목을 입력하면 새 소설을 만들고 아이디어 화면으로 들어갑니다.</p>
     <div class="btn-row">
       <button class="btn primary" id="btn-home-create">새로 만들기 · 시작</button>
     </div>
   </div>
   <div class="card">
     <h3>내 소설 목록 <span class="hint" id="home-count"></span></h3>
-    <div id="home-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0 12px">
+    <input type="text" id="home-search" placeholder="제목 검색" style="margin-bottom:10px">
+    <div id="home-list" class="home-grid">
       <span class="muted small">불러오는 중…</span>
     </div>
   </div>
 </section>
 
-<!-- ════════════ 화면 1 · 작품/설계 ════════════ -->
-<section class="screen" id="s1">
-  <div id="design-error"></div>
-  <div class="grid-2">
+<!-- ════════════ 화면 1 · 아이디어/구조 ════════════ -->
+<section class="screen" id="ideas">
+  <div id="ideas-error"></div>
+  <div id="ideas-locked" class="notice warn" style="display:none">설계로 인계되어 읽기 전용입니다. 줄거리 개정이 내려가면 이 화면이 아니라 세부 설계에서 이어가세요.</div>
+  <div class="grid-ideas">
+    <div class="card">
+      <h3>아이디어 대화 <span class="hint">AI와 소재·줄거리·설정 논의</span></h3>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <select id="thread-select" style="flex:1"></select>
+        <button class="btn sm" id="btn-thread-new" style="white-space:nowrap">새 대화</button>
+      </div>
+      <div id="chat-messages" class="chat-box"></div>
+      <div id="choice-row" class="btn-row"></div>
+      <label class="f">대화를 메시지에 포함</label>
+      <div class="seg" id="msg-mode"><button data-mmode="all">전부 포함</button><button data-mmode="none">전부 포함 않음</button><button data-mmode="select">선택</button></div>
+      <label class="f">메시지 (@설정제목·@노드ID로 기존 자료 포함)</label>
+      <textarea id="chat-input" placeholder="아이디어를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+      <div class="btn-row">
+        <button class="btn primary" id="btn-chat-send">전송</button>
+      </div>
+    </div>
     <div>
       <div class="card">
-        <h3>설계도 생성 <span class="hint">기획 AI · 10화 단위 분할 생성</span></h3>
-        <label class="f">키워드</label>
-        <input type="text" id="design-keywords" placeholder="쉼표 구분 (예: 헌책방, 달빛, 비밀 결사)">
-        <label class="f">총 회차</label>
-        <input type="number" id="design-total" value="20" min="1" max="200">
-        <label class="f">제약 조건</label>
-        <textarea id="design-constraints" placeholder="줄바꿈 구분"></textarea>
+        <h3><input type="checkbox" class="inc" id="syn-include" checked title="대화를 메시지에 포함"> 전체 줄거리 <span class="hint" id="synopsis-meta"></span></h3>
+        <div id="synopsis-view" class="synopsis-view"></div>
+      </div>
+      <div class="card">
+        <h3 class="split"><span><input type="checkbox" class="inc" id="struct-include" checked title="대화를 메시지에 포함"> <button class="linkbtn" id="struct-toggle">▾ 작품 구조</button> <span class="hint">줄거리와 함께 필수</span></span><span class="small muted" id="struct-summary" style="display:none"></span></h3>
+        <div id="struct-collapsed-parts" style="display:none"></div>
+        <div id="struct-body">
+          <div class="struct-row">
+            <select id="st-level">
+              <option value="part">Part(부) 사용</option>
+              <option value="chapter">Chapter(장)만 사용</option>
+              <option value="none">Part·Chapter 사용 안 함</option>
+            </select>
+            <label class="f">총 Episode</label>
+            <input type="number" id="st-total" value="25" min="1" max="200">
+            <span class="small muted">화</span>
+          </div>
+          <label class="f">Part 구성 <span class="hint">각 Part의 개략 요약</span></label>
+          <div id="part-list"></div>
+          <div class="btn-row">
+            <button class="btn sm" id="btn-part-add">Part 추가</button>
+            <button class="btn sm primary" id="btn-struct-save">저장</button>
+            <span class="small muted" id="struct-info"></span>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="split"><span>설정정보 <span class="hint">인물·세계관·사건·Part 이야기</span></span>
+          <span class="h3-right"><span class="seg" id="setting-mode"><button data-mode="one">한줄</button><button data-mode="flow">이어서</button><button data-mode="full">전체</button></span></span>
+        </h3>
+        <div id="setting-list"></div>
+      </div>
+      <div class="card">
+        <h3>설계로 인계</h3>
         <div class="btn-row">
-          <button class="btn primary" id="btn-create-design">설계도 생성</button>
+          <button class="btn primary" id="btn-handoff">아이디어 마무리 → 소설설계로</button>
         </div>
       </div>
     </div>
-    <div id="design-detail"><div class="card"><span class="muted">작품을 선택하면 설계도가 표시됩니다.</span></div></div>
   </div>
 </section>
 
-<!-- ════════════ 화면 2 · 집필 모니터 ════════════ -->
+<!-- ════════════ 화면 2 · 세부 설계 ════════════ -->
+<section class="screen" id="sdesign">
+  <div id="sdesign-error"></div>
+  <div class="card"><div id="design-meta"><span class="muted">설계 정보</span></div></div>
+  <div id="sdesign-mtabs" class="btn-row">
+    <button class="btn sm active" data-mpane="tree">구조</button>
+    <button class="btn sm" data-mpane="editor">설계</button>
+    <button class="btn sm" data-mpane="partner">설계 파트너</button>
+  </div>
+  <div class="grid-design">
+    <div class="card mpane-active" id="pane-tree">
+      <h3>소설 구조 <span class="hint">작품 → Part → 장 → 화 → 장면</span></h3>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input type="text" id="tree-search" placeholder="검색" style="flex:1">
+        <button class="btn sm" id="btn-tree-search">검색</button>
+      </div>
+      <div class="btn-row" id="tree-mode" style="margin-top:0">
+        <button class="btn sm" data-mode="one">한줄</button>
+        <button class="btn sm" data-mode="flow">이어서</button>
+        <button class="btn sm" data-mode="full">전체</button>
+      </div>
+      <label class="small"><input type="checkbox" id="show-archived" style="width:auto"> 보관함 표시</label>
+      <div id="tree-list" style="margin-top:8px"></div>
+      <h3 style="margin-top:12px">노드 추가 <span class="hint">선택 노드 아래에 생성</span></h3>
+      <div style="display:flex;gap:8px">
+        <select id="node-add-kind" style="flex:1">
+          <option value="part">Part</option>
+          <option value="chapter">Chapter</option>
+          <option value="episode">Episode</option>
+          <option value="scene">Scene</option>
+        </select>
+        <input type="text" id="node-add-title" placeholder="제목" style="flex:2">
+        <button class="btn sm primary" id="btn-node-add">추가</button>
+      </div>
+    </div>
+    <div class="card" id="pane-editor">
+      <h3>설계 편집 <span class="hint" id="node-id-label">-</span></h3>
+      <label class="f">제목</label>
+      <input type="text" id="node-title">
+      <label class="f">줄거리</label>
+      <textarea id="node-logline" style="min-height:90px"></textarea>
+      <label class="f">상세 (JSON)</label>
+      <textarea id="node-body" class="mono" style="min-height:120px;font-size:12px"></textarea>
+      <div class="btn-row">
+        <button class="btn sm primary" id="btn-node-save">저장</button>
+        <button class="btn sm" id="btn-node-archive">보관</button>
+        <button class="btn sm" id="btn-write-jump" style="display:none">이 화 집필하기 →</button>
+        <span class="small muted" id="node-save-info"></span>
+      </div>
+      <div id="node-inherited" style="margin-top:12px"></div>
+      <div id="children-rollup" style="margin-top:12px"></div>
+    </div>
+    <div class="card" id="pane-partner">
+      <h3>설계 파트너 <span class="hint">선택 노드 기준 AI 협업</span></h3>
+      <div id="partner-messages" class="chat-box"></div>
+      <label class="f">참조 (@ 없이 쉼표 구분)</label>
+      <input type="text" id="partner-refs" placeholder="예: E001, C002">
+      <label class="f">메시지</label>
+      <textarea id="partner-input" placeholder="선택 노드에 대해 질문 (Enter 전송)"></textarea>
+      <div class="btn-row">
+        <button class="btn primary sm" id="btn-partner-send">전송</button>
+      </div>
+      <h3 style="margin-top:12px">하위 설계 <span class="hint">Chapter 선택 → Episode 설계</span></h3>
+      <div style="display:flex;gap:8px">
+        <select id="expand-kind" style="flex:1">
+          <option value="">자동 (바로 아래 수준)</option>
+          <option value="part">Part</option>
+          <option value="chapter">Chapter</option>
+          <option value="episode">Episode</option>
+          <option value="scene">Scene</option>
+        </select>
+        <button class="btn sm" id="btn-expand">Expand</button>
+      </div>
+      <div id="proposal-list" style="margin-top:8px"><span class="muted small">제안 없음</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════ 화면 3 · 집필 모니터 ════════════ -->
 <section class="screen" id="s2">
   <div id="monitor-error"></div>
   <div class="grid-monitor">
@@ -98,7 +223,7 @@
   </div>
 </section>
 
-<!-- ════════════ 화면 3 · 작가 검토 ════════════ -->
+<!-- ════════════ 화면 4 · 작가 검토 ════════════ -->
 <section class="screen" id="s3">
   <div id="review-error"></div>
   <div id="review-notice"></div>
@@ -142,7 +267,7 @@
   </div>
 </section>
 
-<!-- ════════════ 화면 4 · 엔티티 브라우저 ════════════ -->
+<!-- ════════════ 화면 5 · 엔티티 브라우저 ════════════ -->
 <section class="screen" id="s4">
   <div id="entities-error"></div>
   <div class="grid-2">
@@ -171,11 +296,25 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-dialog-title">
     <h3 id="novel-dialog-title">새 소설 만들기</h3>
     <div id="novel-dialog-error"></div>
-    <label class="f">소설 제목</label>
-    <input type="text" id="novel-dialog-title-input" placeholder="새 소설 제목">
+    <label class="f">소설 제목 (필수, 최대 80자)</label>
+    <input type="text" id="novel-dialog-title-input" placeholder="새 소설 제목" maxlength="80">
     <div class="btn-row" style="justify-content:flex-end">
       <button class="btn ghost" id="btn-novel-dialog-cancel">취소</button>
       <button class="btn primary" id="btn-novel-dialog-confirm">만들기 · 시작</button>
+    </div>
+  </div>
+</div>
+
+<div id="novel-delete-dialog-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-delete-dialog-title">
+    <h3 id="novel-delete-dialog-title">소설 삭제</h3>
+    <div id="novel-delete-dialog-error"></div>
+    <p class="small">‘<b id="novel-delete-name"></b>’을(를) 영구 삭제합니다. 계속하려면 제목을 동일하게 입력하세요. AI 사용 기록은 유지됩니다.</p>
+    <label class="f">소설 제목 확인</label>
+    <input type="text" id="novel-delete-title-input" placeholder="소설 제목 입력">
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-novel-delete-cancel">취소</button>
+      <button class="btn danger" id="btn-novel-delete-confirm">영구 삭제</button>
     </div>
   </div>
 </div>
@@ -184,11 +323,37 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-info-dialog-title">
     <h3 id="novel-info-dialog-title">소설 정보 수정</h3>
     <div id="novel-info-dialog-error"></div>
-    <label class="f">소설 제목</label>
-    <input type="text" id="novel-info-title-input" placeholder="소설 제목">
+    <label class="f">소설 제목 (최대 80자)</label>
+    <input type="text" id="novel-info-title-input" placeholder="소설 제목" maxlength="80">
     <div class="btn-row" style="justify-content:flex-end">
       <button class="btn ghost" id="btn-novel-info-cancel">취소</button>
       <button class="btn primary" id="btn-novel-info-save">저장</button>
+    </div>
+  </div>
+</div>
+
+<div id="handoff-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="handoff-dialog-title">
+    <h3 id="handoff-dialog-title">설계로 인계 확인</h3>
+    <div id="handoff-dialog-error"></div>
+    <div id="handoff-preview"></div>
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-handoff-cancel">취소</button>
+      <button class="btn primary" id="btn-handoff-confirm">AI로 옮기고 인계하기</button>
+    </div>
+  </div>
+</div>
+
+<div id="ailog-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal fullscreen" role="dialog" aria-modal="true" aria-labelledby="ailog-title">
+    <div class="ailog-head-row">
+      <h3 id="ailog-title">AI 호출 로그 <span class="chip" id="ailog-sub"></span></h3>
+      <button class="btn sm" id="btn-ailog-close">닫기</button>
+    </div>
+    <div id="ailog-error"></div>
+    <div class="ailog-grid">
+      <div id="ailog-list"></div>
+      <div id="ailog-detail"></div>
     </div>
   </div>
 </div>

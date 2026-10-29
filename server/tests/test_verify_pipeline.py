@@ -43,7 +43,8 @@ class ScriptedMeta:
             "issues": [], "proofread_edits": []}
         self._qsch = qsch
 
-    def chat_json(self, *, bundle, episode, system, user, schema, max_tokens):
+    def chat_json(self, *, bundle, episode, system, user, schema, max_tokens,
+                  work_id=None):
         if bundle == "drafting":
             return dsch.DraftOutput.model_validate(
                 {"manuscript": self.manuscript, "lookup_requests": []}).model_dump()

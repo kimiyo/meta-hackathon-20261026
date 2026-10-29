@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
+import { getWork } from "./work.js";
 
 // 화면 2 · 집필 모니터 (web/src/pages/Monitor.jsx 이식)
 const ORDER = ["PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED", "COMMITTED"];
@@ -226,13 +227,42 @@ export function initMonitor() {
     .works()
     .then(async (w) => {
       if (!w.works.length) return;
-      const full = await api.work(w.works[0].id);
+      const cur = getWork();
+      const target = cur ? cur.uid || cur.id : w.works[0].uid || w.works[0].id;
+      const full = await api.work(target);
       if (full.latest_design) {
         $("monitor-design-id").value = full.latest_design.id;
         await load(full.latest_design.id);
       }
     })
     .catch(() => {});
+  document.addEventListener("write-episode", (e) => {
+    const { designId, ep } = e.detail ?? {};
+    if (!designId) return;
+    run(async () => {
+      $("monitor-design-id").value = designId;
+      await load(designId);
+      const row = rows.find((r) => r.episode_no === ep);
+      if (row?.job) {
+        detail = { ep, hasJob: true, ...(await api.episode(ep)) };
+        renderDetail();
+      }
+      await refreshCalls();
+    });
+  });
+  document.addEventListener("enter-screen", (e) => {
+    if (e.detail?.section !== "s2") return;
+    const cur = getWork();
+    if (!cur) return;
+    run(async () => {
+      const full = await api.work(cur.uid || cur.id);
+      const did = full.latest_design?.id;
+      if (did && String($("monitor-design-id").value).trim() !== String(did)) {
+        $("monitor-design-id").value = did;
+        await load(did);
+      }
+    });
+  });
   refreshCalls();
   refreshBudgetChips();
 }

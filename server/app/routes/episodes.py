@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import state_machine
+from ..db import touch_work
 from ..errors import LLMStepError
 from .deps import get_conn
 from .works import get_meta
@@ -18,19 +19,36 @@ class AdvanceIn(BaseModel):
     design_id: int | None = None
 
 
+def _mark_writing(conn: sqlite3.Connection, episode_no: int,
+                  design_id: int | None) -> None:
+    """Flag the owning work as past design once writing starts."""
+    if design_id is None:
+        job = state_machine.get_job(conn, episode_no)
+        design_id = job.get("design_id") if job else None
+    if design_id is None:
+        return
+    row = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
+                       (design_id,)).fetchone()
+    if row:
+        touch_work(conn, row["work_id"], stage="writing")
+        conn.commit()
+
+
 @router.post("/episodes/{episode_no}/advance")
 def advance_episode(episode_no: int, body: AdvanceIn,
                     conn: sqlite3.Connection = Depends(get_conn),
                     meta=Depends(get_meta)):
     try:
-        return state_machine.advance(conn, meta, episode_no,
-                                     design_id=body.design_id)
+        out = state_machine.advance(conn, meta, episode_no,
+                                    design_id=body.design_id)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
     except NotImplementedError as e:
         raise HTTPException(501, str(e))
     except LLMStepError as e:
         raise HTTPException(502, f"{e.reason}: {e.detail}")
+    _mark_writing(conn, episode_no, body.design_id)
+    return out
 
 
 @router.get("/episodes/{episode_no}")
@@ -101,8 +119,8 @@ def design_episodes(design_id: int,
     return {"design_id": design_id, "episodes": [
         {"episode_no": o["episode_no"], "title": o["title"],
          "job": ({k: jobs[o["episode_no"]][k] for k in
-                  ("state", "attempt", "manuscript_revision_id",
-                   "proposal_set_id", "last_error")}
+                 ("state", "attempt", "manuscript_revision_id",
+                  "proposal_set_id", "last_error")}
                  if o["episode_no"] in jobs else None)}
         for o in outlines]}
 

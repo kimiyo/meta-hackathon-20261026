@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from .. import budget as budgetmod
 from .. import db as dbmod
+from ..db import find_work
 from .deps import get_conn
 
 router = APIRouter(prefix="/api/v1", tags=["ops"])
@@ -27,6 +28,19 @@ def llm_calls(bundle: str | None = None, episode: int | None = None,
     sql += " ORDER BY id DESC LIMIT ?"
     args.append(min(limit, 200))
     return {"calls": [dict(r) for r in conn.execute(sql, args)]}
+
+
+@router.get("/works/{key}/ai-log")
+def work_ai_log(key: str, limit: int = 50,
+                conn: sqlite3.Connection = Depends(get_conn)):
+    """This work's AI calls, newest first, with prompts and outputs."""
+    w = find_work(conn, key)
+    if not w:
+        raise HTTPException(404, f"work {key} not found")
+    rows = conn.execute(
+        "SELECT * FROM llm_calls WHERE work_id=? ORDER BY id DESC LIMIT ?",
+        (w["id"], min(limit, 200))).fetchall()
+    return {"work_id": w["id"], "calls": [dict(r) for r in rows]}
 
 
 @router.get("/ops/budget")

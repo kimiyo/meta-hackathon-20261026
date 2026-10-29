@@ -103,6 +103,12 @@ def _run_draft(conn, meta, job: dict, max_tokens: int) -> dict:
     return {"episode_no": episode_no, **_public(job), "revision": rev}
 
 
+def _work_of(conn, design_id: int) -> int | None:
+    row = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
+                       (design_id,)).fetchone()
+    return row["work_id"] if row else None
+
+
 def _extract_and_verify(conn, meta, episode_no: int, design_id: int,
                         revision_id: int, manuscript: str,
                         max_tokens: int) -> tuple[dict, dict]:
@@ -114,12 +120,14 @@ def _extract_and_verify(conn, meta, episode_no: int, design_id: int,
         memory.discard_proposal_set(conn, ps["proposal_set_id"])
     ext = extraction.extract_changes(
         meta, conn, episode_no=episode_no, revision_id=revision_id,
-        manuscript=manuscript, max_tokens=max_tokens)
+        manuscript=manuscript, max_tokens=max_tokens,
+        work_id=_work_of(conn, design_id))
     outline = drafting.get_outline(conn, design_id, episode_no)
     ver = verification.verify_proposals(
         meta, conn, episode_no=episode_no, revision_id=revision_id,
         proposal_set_id=ext["proposal_set_id"], manuscript=manuscript,
-        world_rules=outline.get("constraints", []), max_tokens=max_tokens)
+        world_rules=outline.get("constraints", []), max_tokens=max_tokens,
+        work_id=_work_of(conn, design_id))
     return ext, ver
 
 
@@ -143,7 +151,8 @@ def _run_verify_batch(conn, meta, job: dict, max_tokens: int) -> dict:
         qual = quality.run_quality(
             meta, conn, episode_no=episode_no,
             revision_id=job["manuscript_revision_id"],
-            manuscript=rev_row["text"], outline=outline, max_tokens=max_tokens)
+            manuscript=rev_row["text"], outline=outline, max_tokens=max_tokens,
+            work_id=_work_of(conn, job["design_id"]))
         if qual["new_revision"]:
             job["manuscript_revision_id"] = qual["new_revision"]["revision_id"]
             ext, ver = _extract_and_verify(

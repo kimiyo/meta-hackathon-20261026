@@ -149,7 +149,7 @@ def draft_episode(meta, conn, *, design_id: int, work_id: int, episode_no: int,
         base_input["author_instruction"] = author_instruction
 
     out = meta.chat_json(
-        bundle="drafting", episode=episode_no, system=PROMPT,
+        bundle="drafting", episode=episode_no, system=PROMPT, work_id=work_id,
         user="다음 입력으로 원고를 써라. 스켈레톤: "
              '{"manuscript": str, "lookup_requests": [...]}\n'
              + json.dumps(base_input, ensure_ascii=False),
@@ -159,7 +159,7 @@ def draft_episode(meta, conn, *, design_id: int, work_id: int, episode_no: int,
     if lookups:
         results = execute_lookups(conn, lookups, episode_no)
         out = meta.chat_json(
-            bundle="drafting", episode=episode_no, system=PROMPT,
+            bundle="drafting", episode=episode_no, system=PROMPT, work_id=work_id,
             user="조회 결과를 반영해 원고를 확정하라. 스켈레톤: "
                  '{"manuscript": str, "lookup_requests": []}\n원고 초안: '
                  + out["manuscript"][:4000]

@@ -53,10 +53,10 @@ def _resolve_ref(conn, ref: str) -> tuple[str | None, str]:
 
 
 def extract_changes(meta, conn: sqlite3.Connection, *, episode_no: int,
-                    revision_id: int, manuscript: str,
+                    revision_id: int, manuscript: str, work_id: int | None = None,
                     max_tokens: int = 8000) -> dict:
     out = meta.chat_json(
-        bundle="entity", episode=episode_no, system=PROMPT,
+        bundle="entity", episode=episode_no, system=PROMPT, work_id=work_id,
         user="다음 입력에서 변경 항목을 추출하라. 스켈레톤: "
              '{"items": [{"entity_ref": str, "candidate_name": str, "operation": str, '
              '"attribute_path": str, "old_value": any, "new_value": any, '

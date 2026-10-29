@@ -35,7 +35,8 @@ class FakeMeta:
         self.total = total
         self.calls = 0
 
-    def chat_json(self, *, bundle, episode, system, user, schema, max_tokens):
+    def chat_json(self, *, bundle, episode, system, user, schema, max_tokens,
+                  work_id=None):
         self.calls += 1
         if schema is sch.ConceptOutput:
             return sch.ConceptOutput.model_validate(_concept()).model_dump()

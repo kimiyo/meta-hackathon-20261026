@@ -18,10 +18,10 @@ COHERENCE_MIN = 0.6
 
 
 def run_quality(meta, conn: sqlite3.Connection, *, episode_no: int,
-                revision_id: int, manuscript: str, outline: dict,
+                revision_id: int, manuscript: str, outline: dict, work_id: int | None = None,
                 max_tokens: int = 8000) -> dict:
     out = meta.chat_json(
-        bundle="quality", episode=episode_no, system=PROMPT,
+        bundle="quality", episode=episode_no, system=PROMPT, work_id=work_id,
         user="다음 원고를 평가·교정하라. 스켈레톤: "
              '{"scores": {"immersion": number, "tension": number, '
              '"coherence": number}, "issues": [str], '

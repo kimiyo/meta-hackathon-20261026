@@ -26,6 +26,7 @@ def _skeleton_outline(start: int) -> str:
 
 def generate_concept(meta, *, keywords: str, total_episodes: int,
                      constraints: list[str], prev_feedback: str = "",
+                     work_id: int | None = None,
                      max_tokens: int) -> dict:
     user = (
         f"키워드: {keywords}\n총 회차: {total_episodes}\n"
@@ -37,12 +38,13 @@ def generate_concept(meta, *, keywords: str, total_episodes: int,
         + '"summary": str}], "warnings": []}'
     )
     return meta.chat_json(bundle="planning", episode=None, system=PROMPT,
-                          user=user, schema=sch.ConceptOutput,
+                          user=user, schema=sch.ConceptOutput, work_id=work_id,
                           max_tokens=max_tokens)
 
 
 def generate_outline_batch(meta, *, keywords: str, concept: dict, start: int,
                            end: int, constraints: list[str], prev_summary: str,
+                           work_id: int | None = None,
                            max_tokens: int) -> dict:
     user = (
         f"키워드: {keywords}\n컨셉: {json.dumps(concept, ensure_ascii=False)}\n"
@@ -54,7 +56,7 @@ def generate_outline_batch(meta, *, keywords: str, concept: dict, start: int,
     if prev_summary:
         user += f"\n앞 구간(연속성 유지): {prev_summary}"
     return meta.chat_json(bundle="planning", episode=None, system=PROMPT,
-                          user=user, schema=sch.OutlineBatch,
+                          user=user, schema=sch.OutlineBatch, work_id=work_id,
                           max_tokens=max_tokens)
 
 
@@ -66,7 +68,7 @@ def generate_design(meta, conn: sqlite3.Connection, *, work_id: int,
     constraints = constraints or []
     concept_out = generate_concept(
         meta, keywords=keywords, total_episodes=total_episodes,
-        constraints=constraints, prev_feedback=prev_feedback,
+        constraints=constraints, prev_feedback=prev_feedback, work_id=work_id,
         max_tokens=max_tokens)
     merged: list[dict] = []
     prev_summary = ""
@@ -75,7 +77,7 @@ def generate_design(meta, conn: sqlite3.Connection, *, work_id: int,
         batch = generate_outline_batch(
             meta, keywords=keywords, concept=concept_out["concept"],
             start=start, end=end, constraints=constraints,
-            prev_summary=prev_summary, max_tokens=max_tokens)
+            prev_summary=prev_summary, max_tokens=max_tokens, work_id=work_id)
         merged.extend(batch["episode_outlines"])
         prev_summary = "; ".join(
             f"EP{o['episode_no']}:{o['title']}" for o in batch["episode_outlines"])

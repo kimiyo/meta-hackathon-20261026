@@ -9,7 +9,7 @@ from . import budget as budgetmod
 from . import db as dbmod
 from .config import PROJECT_ROOT, load_settings
 from .meta_client import build_client
-from .routes import entities, episodes, ops, works
+from .routes import entities, episodes, ideas, nodes, ops, works
 
 settings = load_settings()
 
@@ -41,6 +41,8 @@ def get_meta_client():
 app.include_router(entities.router)
 app.include_router(works.router)
 app.include_router(episodes.router)
+app.include_router(ideas.router)
+app.include_router(nodes.router)
 app.include_router(ops.router)
 
 

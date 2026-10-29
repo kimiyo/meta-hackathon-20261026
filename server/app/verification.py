@@ -34,7 +34,7 @@ def _excerpt(text: str, start: int | None, end: int | None, window: int = 200) -
 
 def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
                      revision_id: int, proposal_set_id: int, manuscript: str,
-                     world_rules: list[str] | None = None,
+                     world_rules: list[str] | None = None, work_id: int | None = None,
                      max_tokens: int = 8000) -> dict:
     items = [i for i in memory.get_proposals(conn, episode_no)
              if i["proposal_set_id"] == proposal_set_id]
@@ -66,7 +66,7 @@ def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
         "story_time": i["story_time"], "evidence_quote": i["evidence_quote"],
     } for i in judgeable]
     out = meta.chat_json(
-        bundle="verify", episode=episode_no, system=PROMPT,
+        bundle="verify", episode=episode_no, system=PROMPT, work_id=work_id,
         user="다음 변경안을 판정하라. 스켈레톤: "
              '{"verdicts": [{"item_id": int, "verdict": str, "reason": str, '
              '"counter_evidence_quote": str}]}\n'

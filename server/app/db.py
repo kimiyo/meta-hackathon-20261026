@@ -5,6 +5,7 @@ Foreign keys on. Times are UTC ISO8601 TEXT.
 from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,10 +16,15 @@ DDL = """
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS works (
   id INTEGER PRIMARY KEY,
+  uid TEXT NOT NULL DEFAULT '',
   title TEXT NOT NULL,
   logline TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
-  created_at TEXT NOT NULL
+  stage TEXT NOT NULL DEFAULT 'ideas',
+  structure_json TEXT NOT NULL DEFAULT '{}',
+  ideas_locked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS story_designs (
   id INTEGER PRIMARY KEY,
@@ -154,12 +160,16 @@ CREATE TABLE IF NOT EXISTS llm_calls (
   ts TEXT NOT NULL,
   bundle TEXT NOT NULL,
   episode_no INTEGER,
+  work_id INTEGER,
   model TEXT NOT NULL,
   input_tokens INTEGER DEFAULT 0,
   output_tokens INTEGER DEFAULT 0,
   latency_ms INTEGER DEFAULT 0,
   ok INTEGER NOT NULL,
-  error TEXT DEFAULT ''
+  error TEXT DEFAULT '',
+  prompt_system TEXT NOT NULL DEFAULT '',
+  prompt_user TEXT NOT NULL DEFAULT '',
+  output_text TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS style_policies (
   id INTEGER PRIMARY KEY,
@@ -169,11 +179,68 @@ CREATE TABLE IF NOT EXISTS style_policies (
   feedback TEXT DEFAULT '',
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS idea_threads (
+  id INTEGER PRIMARY KEY,
+  work_id INTEGER NOT NULL REFERENCES works(id),
+  title TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS idea_messages (
+  id INTEGER PRIMARY KEY,
+  thread_id INTEGER NOT NULL REFERENCES idea_threads(id),
+  role TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  refs_json TEXT NOT NULL DEFAULT '[]',
+  choices_json TEXT NOT NULL DEFAULT '[]',
+  proposals_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_synopsis (
+  work_id INTEGER PRIMARY KEY REFERENCES works(id),
+  content TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS synopsis_revisions (
+  id INTEGER PRIMARY KEY,
+  work_id INTEGER NOT NULL REFERENCES works(id),
+  version INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS setting_entries (
+  id INTEGER PRIMARY KEY,
+  work_id INTEGER NOT NULL REFERENCES works(id),
+  code TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'misc',
+  title TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'draft',
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS design_nodes (
+  id TEXT PRIMARY KEY,
+  design_id INTEGER NOT NULL REFERENCES story_designs(id),
+  parent_id TEXT REFERENCES design_nodes(id),
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  logline TEXT NOT NULL DEFAULT '',
+  body_json TEXT NOT NULL DEFAULT '{}',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
 """
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def new_uid(nbytes: int = 9) -> str:
+    """URL-safe per-work public id (12 chars). Uniqueness enforced in Python."""
+    return secrets.token_urlsafe(nbytes)
 
 
 def db_path() -> Path:
@@ -198,8 +265,47 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+def find_work(conn: sqlite3.Connection, key) -> dict | None:
+    """Resolve a work by public uid or integer id. Returns None when missing.
+
+    Uid wins on ambiguous all-digit keys so a work is always reachable
+    through its own uid.
+    """
+    row = conn.execute("SELECT * FROM works WHERE uid=?",
+                       (str(key),)).fetchone()
+    if row is None:
+        try:
+            row = conn.execute("SELECT * FROM works WHERE id=?",
+                               (int(key),)).fetchone()
+        except (ValueError, TypeError):
+            row = None
+    return dict(row) if row else None
+
+
+def touch_work(conn: sqlite3.Connection, work_id: int,
+               stage: str | None = None) -> None:
+    """Bump updated_at (and optionally stage). Caller commits."""
+    if stage is None:
+        conn.execute("UPDATE works SET updated_at=? WHERE id=?",
+                     (now_iso(), work_id))
+    else:
+        conn.execute("UPDATE works SET updated_at=?, stage=? WHERE id=?",
+                     (now_iso(), stage, work_id))
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     for sql in (
+        "ALTER TABLE works ADD COLUMN uid TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE works ADD COLUMN stage TEXT NOT NULL DEFAULT 'ideas'",
+        "ALTER TABLE works ADD COLUMN structure_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE works ADD COLUMN ideas_locked INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE works ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE idea_messages ADD COLUMN proposals_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE llm_calls ADD COLUMN work_id INTEGER",
+        "ALTER TABLE llm_calls ADD COLUMN prompt_system TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE llm_calls ADD COLUMN prompt_user TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE llm_calls ADD COLUMN output_text TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE setting_entries ADD COLUMN code TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE episode_jobs ADD COLUMN fix_instruction TEXT DEFAULT ''",
         "ALTER TABLE change_proposals ADD COLUMN events_json TEXT DEFAULT '[]'",
         "ALTER TABLE episode_jobs ADD COLUMN quality_json TEXT DEFAULT '{}'",
@@ -210,3 +316,29 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass  # already migrated
+    # Backfill pre-UID rows.
+    for row in conn.execute("SELECT id FROM works WHERE uid IS NULL OR uid=''"):
+        conn.execute("UPDATE works SET uid=? WHERE id=?", (new_uid(), row["id"]))
+    conn.execute("UPDATE works SET updated_at=created_at"
+                 " WHERE updated_at IS NULL OR updated_at=''")
+    # Backfill per-work D-number codes for pre-existing settings.
+    for w in conn.execute("SELECT DISTINCT work_id FROM setting_entries"):
+        wid = w["work_id"]
+        top = conn.execute(
+            "SELECT code FROM setting_entries WHERE work_id=? AND code LIKE 'D%'"
+            " ORDER BY code DESC LIMIT 1", (wid,)).fetchone()
+        n = 0
+        if top and top["code"]:
+            try:
+                n = int(top["code"][1:])
+            except ValueError:
+                n = 0
+        rows = conn.execute(
+            "SELECT id FROM setting_entries"
+            " WHERE work_id=? AND (code IS NULL OR code='') ORDER BY id",
+            (wid,)).fetchall()
+        for r in rows:
+            n += 1
+            conn.execute("UPDATE setting_entries SET code=? WHERE id=?",
+                         (f"D{n:03d}", r["id"]))
+    conn.commit()

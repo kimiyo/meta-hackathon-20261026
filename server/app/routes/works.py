@@ -1,4 +1,4 @@
-"""Works & designs routes (§5.1)."""
+"""Works & designs routes (§5.1). Work keys accept integer id or uid."""
 from __future__ import annotations
 
 import json
@@ -8,16 +8,25 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import planning
-from ..db import now_iso
+from ..db import find_work, new_uid, now_iso, touch_work
 from ..errors import LLMStepError
 from .deps import get_conn
 
 router = APIRouter(prefix="/api/v1", tags=["works"])
 
+TITLE_MAX = 80
+
 
 def get_meta():
     from ..main import get_meta_client
     return get_meta_client()
+
+
+def _work_or_404(conn: sqlite3.Connection, key: str) -> dict:
+    w = find_work(conn, key)
+    if not w:
+        raise HTTPException(404, f"work {key} not found")
+    return w
 
 
 class WorkIn(BaseModel):
@@ -27,28 +36,42 @@ class WorkIn(BaseModel):
 
 @router.post("/works")
 def create_work(body: WorkIn, conn: sqlite3.Connection = Depends(get_conn)):
-    cur = conn.execute("INSERT INTO works(title, logline, created_at) VALUES(?,?,?)",
-                       (body.title, body.logline, now_iso()))
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(400, "title must not be blank")
+    if len(title) > TITLE_MAX:
+        raise HTTPException(400, f"title must be ≤{TITLE_MAX} chars")
+    uid, ts = new_uid(), now_iso()
+    cur = conn.execute(
+        "INSERT INTO works(uid, title, logline, created_at, updated_at)"
+        " VALUES(?,?,?,?,?)",
+        (uid, title, body.logline, ts, ts))
     conn.commit()
-    return {"id": cur.lastrowid, "title": body.title, "logline": body.logline}
+    return dict(conn.execute("SELECT * FROM works WHERE id=?",
+                             (cur.lastrowid,)).fetchone())
 
 
 @router.get("/works")
 def list_works(conn: sqlite3.Connection = Depends(get_conn)):
-    return {"works": [dict(r) for r in
-                      conn.execute("SELECT * FROM works ORDER BY id")]}
+    rows = conn.execute(
+        "SELECT w.*, (SELECT COUNT(*) FROM episode_jobs j"
+        " JOIN story_designs d ON d.id=j.design_id"
+        " WHERE d.work_id=w.id AND j.state='COMMITTED')"
+        " AS completed_episodes,"
+        " (SELECT scope_total_episodes FROM story_designs"
+        " WHERE work_id=w.id ORDER BY version DESC LIMIT 1)"
+        " AS total_episodes"
+        " FROM works w ORDER BY w.updated_at DESC, w.id DESC").fetchall()
+    return {"works": [dict(r) for r in rows]}
 
 
-@router.get("/works/{work_id}")
-def get_work(work_id: int, conn: sqlite3.Connection = Depends(get_conn)):
-    row = conn.execute("SELECT * FROM works WHERE id=?", (work_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, f"work {work_id} not found")
-    work = dict(row)
+@router.get("/works/{key}")
+def get_work(key: str, conn: sqlite3.Connection = Depends(get_conn)):
+    work = _work_or_404(conn, key)
     latest = conn.execute(
         "SELECT id, version, scope_total_episodes, status, approved_at"
         " FROM story_designs WHERE work_id=? ORDER BY version DESC LIMIT 1",
-        (work_id,)).fetchone()
+        (work["id"],)).fetchone()
     work["latest_design"] = dict(latest) if latest else None
     return work
 
@@ -60,21 +83,23 @@ class DesignIn(BaseModel):
     prev_feedback: str = ""
 
 
-@router.post("/works/{work_id}/designs")
-def create_design(work_id: int, body: DesignIn,
+@router.post("/works/{key}/designs")
+def create_design(key: str, body: DesignIn,
                   conn: sqlite3.Connection = Depends(get_conn),
                   meta=Depends(get_meta)):
-    if not conn.execute("SELECT 1 FROM works WHERE id=?", (work_id,)).fetchone():
-        raise HTTPException(404, f"work {work_id} not found")
+    work = _work_or_404(conn, key)
     if body.total_episodes < 1 or body.total_episodes > 200:
         raise HTTPException(400, "total_episodes must be 1..200")
     try:
-        return planning.generate_design(
-            meta, conn, work_id=work_id, keywords=body.keywords,
+        out = planning.generate_design(
+            meta, conn, work_id=work["id"], keywords=body.keywords,
             total_episodes=body.total_episodes, constraints=body.constraints,
             prev_feedback=body.prev_feedback)
     except LLMStepError as e:
         raise HTTPException(502, f"planning failed: {e.reason} {e.detail}")
+    touch_work(conn, work["id"])
+    conn.commit()
+    return out
 
 
 @router.get("/designs/{design_id}")
@@ -87,10 +112,14 @@ def get_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn)):
 
 @router.post("/designs/{design_id}/approve")
 def approve_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn)):
-    if not conn.execute("SELECT 1 FROM story_designs WHERE id=?",
-                        (design_id,)).fetchone():
+    row = conn.execute("SELECT * FROM story_designs WHERE id=?",
+                       (design_id,)).fetchone()
+    if not row:
         raise HTTPException(404, f"design {design_id} not found")
-    return planning.approve_design(conn, design_id)
+    out = planning.approve_design(conn, design_id)
+    touch_work(conn, row["work_id"])
+    conn.commit()
+    return out
 
 
 class OutlinePatch(BaseModel):
@@ -120,16 +149,16 @@ class WorkPatch(BaseModel):
     logline: str | None = None
 
 
-@router.patch("/works/{work_id}")
-def patch_work(work_id: int, body: WorkPatch,
+@router.patch("/works/{key}")
+def patch_work(key: str, body: WorkPatch,
                conn: sqlite3.Connection = Depends(get_conn)):
-    row = conn.execute("SELECT * FROM works WHERE id=?", (work_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, f"work {work_id} not found")
+    work = _work_or_404(conn, key)
     sets, args = [], []
     if body.title is not None:
         if not body.title.strip():
             raise HTTPException(400, "title must not be blank")
+        if len(body.title.strip()) > TITLE_MAX:
+            raise HTTPException(400, f"title must be ≤{TITLE_MAX} chars")
         sets.append("title=?")
         args.append(body.title.strip())
     if body.logline is not None:
@@ -137,8 +166,44 @@ def patch_work(work_id: int, body: WorkPatch,
         args.append(body.logline)
     if not sets:
         raise HTTPException(400, "no valid work fields")
-    args.append(work_id)
+    args.append(work["id"])
     conn.execute(f"UPDATE works SET {', '.join(sets)} WHERE id=?", args)
+    touch_work(conn, work["id"])
     conn.commit()
     return dict(conn.execute("SELECT * FROM works WHERE id=?",
-                             (work_id,)).fetchone())
+                             (work["id"],)).fetchone())
+
+
+class WorkDeleteIn(BaseModel):
+    title: str
+
+
+@router.delete("/works/{key}")
+def delete_work(key: str, body: WorkDeleteIn,
+                conn: sqlite3.Connection = Depends(get_conn)):
+    """Permanent delete after title confirmation. AI usage logs stay.
+
+    Work-scoped rows go; global episode_jobs/manuscript_revisions rows stay
+    (episode numbers are global) and become orphans of the deleted design.
+    """
+    work = _work_or_404(conn, key)
+    if (body.title or "") != work["title"]:
+        raise HTTPException(400, "title does not match")
+    wid = work["id"]
+    conn.execute("DELETE FROM idea_messages WHERE thread_id IN"
+                 " (SELECT id FROM idea_threads WHERE work_id=?)", (wid,))
+    conn.execute("DELETE FROM idea_threads WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM story_synopsis WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM synopsis_revisions WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM setting_entries WHERE work_id=?", (wid,))
+    conn.execute("UPDATE design_nodes SET parent_id=NULL WHERE design_id IN"
+                 " (SELECT id FROM story_designs WHERE work_id=?)", (wid,))
+    conn.execute("DELETE FROM design_nodes WHERE design_id IN"
+                 " (SELECT id FROM story_designs WHERE work_id=?)", (wid,))
+    conn.execute("DELETE FROM episode_outlines WHERE design_id IN"
+                 " (SELECT id FROM story_designs WHERE work_id=?)", (wid,))
+    conn.execute("DELETE FROM story_designs WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM style_policies WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM works WHERE id=?", (wid,))
+    conn.commit()
+    return {"deleted": wid}

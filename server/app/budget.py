@@ -10,12 +10,17 @@ from .errors import BudgetExceeded
 
 def record_llm_call(conn: sqlite3.Connection, record: dict) -> None:
     conn.execute(
-        "INSERT INTO llm_calls(ts, bundle, episode_no, model, input_tokens,"
-        " output_tokens, latency_ms, ok, error) VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO llm_calls(ts, bundle, episode_no, work_id, model,"
+        " input_tokens, output_tokens, latency_ms, ok, error,"
+        " prompt_system, prompt_user, output_text)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (record.get("ts", now_iso()), record["bundle"], record.get("episode_no"),
-         record["model"], record.get("input_tokens", 0),
+         record.get("work_id"), record["model"], record.get("input_tokens", 0),
          record.get("output_tokens", 0), record.get("latency_ms", 0),
-         record.get("ok", 0), (record.get("error", "") or "")[:300]),
+         record.get("ok", 0), (record.get("error", "") or "")[:300],
+         record.get("prompt_system", "") or "",
+         record.get("prompt_user", "") or "",
+         record.get("output_text", "") or ""),
     )
     conn.commit()
 

@@ -31,7 +31,7 @@ cp .env.example .env
 # .env에 MODEL_API_KEY 입력
 
 # 2. 서버 의존성 + 테스트
-python3 -m venv .venv
+python -m venv .venv
 .venv/bin/pip install -r server/requirements.txt
 cd server && ../.venv/bin/python -m pytest -q
 
@@ -43,6 +43,26 @@ cd web && npm install && npm run dev
 
 # 5. 웹 프로덕션 빌드 (FastAPI가 / 에서 서빙)
 cd web && npm run build
+```
+
+Windows PowerShell에서는 가상환경 경로가 `Scripts` 아래입니다:
+
+```powershell
+# 1. 환경 변수
+Copy-Item .env.example .env
+# .env에 MODEL_API_KEY 입력
+
+# 2. 서버 의존성 + 테스트
+python -m venv .venv
+.venv\Scripts\pip install -r server/requirements.txt
+cd server; ..\.venv\Scripts\python -m pytest -q
+
+# 3. 서버 기동 (http://127.0.0.1:8000, health: /api/v1/health)
+..\.venv\Scripts\python -m uvicorn app.main:app --port 8000
+
+# 4-5. 웹 개발 서버 / 프로덕션 빌드
+cd web; npm install; npm run dev
+cd web; npm run build
 ```
 
 ## 핵심 흐름

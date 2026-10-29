@@ -1,37 +1,86 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
 
-// 메인 · 소설 목록. 선택/생성 시 enter-work 이벤트를 쏘면 app.js가 스튜디오로 진입한다.
+// 메인 · 소설 목록. 선택/생성 시 enter-work 이벤트(uid)를 쏘면 app.js가 라우팅한다.
+let cache = [];
+let pendingDelete = null;
+
+const STAGE_LABEL = { ideas: "아이디어/구조", design: "세부 설계", writing: "집필" };
+const STAGE_SCREEN = { ideas: "ideas", design: "design", writing: "monitor" };
+
+export function stageScreen(stage) {
+  return STAGE_SCREEN[stage] ?? "ideas";
+}
+
+function fmtDate(iso) {
+  if (!iso) return "-";
+  return String(iso).slice(0, 16).replace("T", " ");
+}
+
+function cardHtml(w) {
+  const done = w.completed_episodes ?? 0;
+  const total = w.total_episodes ?? "?";
+  return `<div class="work-item" data-uid="${esc(w.uid || w.id)}">
+      <div class="t">${esc(w.title)}</div>
+      <div class="meta">
+        <span class="chip">${esc(STAGE_LABEL[w.stage] ?? w.stage ?? "")}</span>
+        <span class="chip mono">EP ${esc(done)}/${esc(total)}</span>
+        <span class="muted small">${esc(fmtDate(w.updated_at || w.created_at))}</span>
+      </div>
+      <div class="meta muted">${esc(w.logline ?? "")}</div>
+      <div class="btn-row">
+        <button class="btn sm primary" data-enter>이어 쓰기</button>
+        <button class="btn sm" data-delete>삭제</button>
+      </div>
+    </div>`;
+}
+
 export async function refreshHome() {
   const box = $("home-list");
   showError("home-error", "");
+  const q = ($("home-search")?.value ?? "").trim();
   try {
     const { works } = await api.works();
-    const list = works ?? [];
-    $("home-count").textContent = `${list.length}편`;
-    if (!list.length) {
+    cache = works ?? [];
+    $("home-count").textContent = `${cache.length}편 · 최근 수정 순`;
+    const list = q ? cache.filter((w) => (w.title ?? "").includes(q)) : cache;
+    if (!cache.length) {
       box.innerHTML = `<span class="muted">아직 소설이 없습니다. 위 버튼으로 새로 만드세요.</span>`;
       return;
     }
-    box.innerHTML = list
-      .map(
-        (w) => `<div class="work-item" data-enter="${esc(w.id)}">
-          <div class="t">${esc(w.title)}</div>
-          <div class="meta">${esc(w.logline ?? "")}</div>
-        </div>`
-      )
-      .join("");
-    box.querySelectorAll("[data-enter]").forEach((el) => {
+    if (!list.length) {
+      box.innerHTML = `<span class="muted">‘${esc(q)}’ 검색 결과가 없습니다.</span>
+        <div class="btn-row"><button class="btn sm" id="btn-home-clear">전체 소설 보기</button></div>`;
+      $("btn-home-clear").addEventListener("click", () => {
+        $("home-search").value = "";
+        refreshHome();
+      });
+      return;
+    }
+    box.innerHTML = list.map(cardHtml).join("");
+    box.querySelectorAll(".work-item").forEach((el) => {
+      const uid = el.dataset.uid;
+      el.querySelector("[data-enter]").addEventListener("click", (e) => {
+        e.stopPropagation();
+        document.dispatchEvent(new CustomEvent("enter-work", { detail: uid }));
+      });
+      el.querySelector("[data-delete]").addEventListener("click", (e) => {
+        e.stopPropagation();
+        openDelete(uid);
+      });
       el.addEventListener("click", () => {
-        document.dispatchEvent(
-          new CustomEvent("enter-work", { detail: Number(el.dataset.enter) })
-        );
+        document.dispatchEvent(new CustomEvent("enter-work", { detail: uid }));
       });
     });
   } catch (e) {
+    box.innerHTML = `<span class="muted small">불러오기 실패.</span>
+      <div class="btn-row"><button class="btn sm" id="btn-home-retry">재시도</button></div>`;
+    $("btn-home-retry").addEventListener("click", refreshHome);
     showError("home-error", String(e));
   }
 }
+
+// ---- 새 소설 다이얼로그 ----
 
 function openDialog() {
   $("novel-dialog-title-input").value = "";
@@ -51,6 +100,10 @@ async function submitDialog() {
     $("novel-dialog-title-input").focus();
     return;
   }
+  if (title.length > 80) {
+    showError("novel-dialog-error", "제목은 최대 80자까지 입력할 수 있습니다.");
+    return;
+  }
   const btn = $("btn-novel-dialog-confirm");
   btn.disabled = true;
   btn.textContent = "만드는 중…";
@@ -58,12 +111,51 @@ async function submitDialog() {
   try {
     const w = await api.createWork(title, "");
     closeDialog();
-    document.dispatchEvent(new CustomEvent("enter-work", { detail: w.id }));
+    document.dispatchEvent(new CustomEvent("enter-work", { detail: w.uid || w.id }));
   } catch (e) {
     showError("novel-dialog-error", String(e));
   } finally {
     btn.disabled = false;
     btn.textContent = "만들기 · 시작";
+  }
+}
+
+// ---- 삭제 확인 다이얼로그 (제목을 동일하게 입력) ----
+
+function openDelete(uid) {
+  pendingDelete = cache.find((w) => String(w.uid || w.id) === String(uid)) ?? null;
+  if (!pendingDelete) return;
+  $("novel-delete-name").textContent = pendingDelete.title;
+  $("novel-delete-title-input").value = "";
+  showError("novel-delete-dialog-error", "");
+  $("novel-delete-dialog-backdrop").style.display = "";
+  $("novel-delete-title-input").focus();
+}
+
+function closeDelete() {
+  pendingDelete = null;
+  $("novel-delete-dialog-backdrop").style.display = "none";
+}
+
+async function submitDelete() {
+  if (!pendingDelete) return;
+  const typed = $("novel-delete-title-input").value;
+  if (typed !== pendingDelete.title) {
+    showError("novel-delete-dialog-error", "작품 제목을 동일하게 입력하세요.");
+    return;
+  }
+  const btn = $("btn-novel-delete-confirm");
+  btn.disabled = true;
+  btn.textContent = "삭제 중…";
+  try {
+    await api.deleteWork(pendingDelete.uid || pendingDelete.id, typed);
+    closeDelete();
+    refreshHome();
+  } catch (e) {
+    showError("novel-delete-dialog-error", String(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "영구 삭제";
   }
 }
 
@@ -74,12 +166,23 @@ export function initHome() {
   $("novel-dialog-backdrop").addEventListener("click", (e) => {
     if (e.target === $("novel-dialog-backdrop")) closeDialog();
   });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && $("novel-dialog-backdrop").style.display !== "none") {
-      closeDialog();
-    }
-  });
   $("novel-dialog-title-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") submitDialog();
   });
+  $("btn-novel-delete-cancel").addEventListener("click", closeDelete);
+  $("btn-novel-delete-confirm").addEventListener("click", submitDelete);
+  $("novel-delete-dialog-backdrop").addEventListener("click", (e) => {
+    if (e.target === $("novel-delete-dialog-backdrop")) closeDelete();
+  });
+  $("novel-delete-title-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitDelete();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if ($("novel-dialog-backdrop").style.display !== "none") closeDialog();
+      if ($("novel-delete-dialog-backdrop").style.display !== "none") closeDelete();
+    }
+  });
+  $("home-search")?.addEventListener("input", () => refreshHome());
+  document.addEventListener("work-renamed", () => refreshHome());
 }
