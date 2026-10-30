@@ -72,7 +72,7 @@
     </div>
     <div>
       <div class="card">
-        <h3><input type="checkbox" class="inc" id="syn-include" checked title="대화를 메시지에 포함"> 전체 줄거리 <span class="hint" id="synopsis-meta"></span></h3>
+        <h3><input type="checkbox" class="inc" id="syn-include" checked title="대화를 메시지에 포함"> 전체 줄거리 <span class="hint" id="synopsis-meta"></span><span class="hint" id="synopsis-edit-hint">클릭하여 편집</span></h3>
         <div id="synopsis-view" class="synopsis-view"></div>
       </div>
       <div class="card">
@@ -89,7 +89,10 @@
             <input type="number" id="st-total" value="25" min="1" max="300">
             <span class="small muted">화</span>
           </div>
-          <label class="f">Part 구성 <span class="hint">각 Part의 개략 요약</span></label>
+          <div class="part-mode-row">
+            <label class="f">Part 구성 <span class="hint">각 Part의 개략 요약</span></label>
+            <span class="seg" id="part-mode"><button data-pmode="one">한줄</button><button data-pmode="flow">이어서</button><button data-pmode="full">전체</button></span>
+          </div>
           <div id="part-list"></div>
           <div class="btn-row">
             <button class="btn sm" id="btn-part-add">Part 추가</button>

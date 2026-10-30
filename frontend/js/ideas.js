@@ -3,11 +3,14 @@ import { $, esc, showError } from "./util.js";
 import { getWork } from "./work.js";
 
 // 화면 · 아이디어/구조. 채팅(좌) + 전체 줄거리(우상) + 설정정보(우하).
-// 설정·줄거리는 AI 답변에 붙는 제안 버튼으로만 반영된다.
+// 줄거리는 직접 inline 편집 + AI 제안 반영, 설정은 AI 답변의 제안 버튼으로 반영된다.
 let threads = [];
 let threadId = null;
 let messages = [];
 let synopsis = { content: "", version: 0 };
+let synEditing = false;
+let synDraft = "";
+let synSaving = false;
 let settings = [];
 let busy = false;
 let loadedUid = null;
@@ -18,6 +21,7 @@ let expandedSettings = new Set();
 let msgMode = "select";
 let sending = false;
 let structure = { use_part: false, use_chapter: false, total_episodes: 25, parts: [] };
+let expandedParts = new Set();
 
 const EPISODE_LIMIT = 300;
 
@@ -32,6 +36,15 @@ function mode() {
 function setMode(m) {
   localStorage.setItem("ideas-mode", m);
   renderSettings();
+}
+
+function partMode() {
+  const m = localStorage.getItem("part-mode");
+  return m === "flow" || m === "full" ? m : "one";
+}
+function setPartMode(m) {
+  localStorage.setItem("part-mode", m);
+  renderParts();
 }
 
 function locked() {
@@ -59,6 +72,10 @@ export async function enterIdeas() {
   if (loadedUid !== (w.uid || w.id)) {
     loadedUid = w.uid || w.id;
     threadId = null;
+    synEditing = false;
+    synDraft = "";
+    synSaving = false;
+    expandedParts = new Set();
   }
   await run(async () => {
     const t = await api.threads(w.uid || w.id);
@@ -110,7 +127,7 @@ function renderAll() {
   renderHandoff();
   const banner = $("ideas-locked");
   if (banner) banner.style.display = locked() ? "" : "none";
-  document.querySelectorAll("#ideas input, #ideas textarea, #ideas select, #ideas button")
+  document.querySelectorAll("#ideas input, #ideas textarea, #ideas select, #ideas button:not([data-collapse])")
     .forEach((el) => {
       if (el.closest("#ideas-locked")) return;
       if (el.id === "thread-select" || el.id === "struct-toggle") return;
@@ -364,6 +381,7 @@ async function applySynProposal(msgId) {
   const m = messages.find((x) => x.id === msgId);
   const proposal = m?.proposals?.synopsis_proposal || "";
   if (!proposal || isSynApplied(proposal)) return;
+  synEditing = false;
   await run(async () => {
     synopsis = await api.putSynopsis(getWork().uid || getWork().id, proposal);
     renderSynopsis();
@@ -371,13 +389,102 @@ async function applySynProposal(msgId) {
   });
 }
 
-// ---- 전체 줄거리 (읽기 전용) ----
+// ---- 전체 줄거리 (inline 편집: 클릭→편집, 포커스 이동→자동 저장) ----
 
 function renderSynopsis() {
   $("synopsis-meta").textContent = `v${synopsis.version} · ${synopsis.updated_at ? String(synopsis.updated_at).slice(0, 16).replace("T", " ") : "-"}`;
-  $("synopsis-view").innerHTML = synopsis.content
+  const hint = $("synopsis-edit-hint");
+  if (hint) hint.style.display = locked() ? "none" : "";
+  const view = $("synopsis-view");
+  if (synEditing && !locked()) {
+    view.classList.add("editing");
+    view.classList.remove("editable");
+    view.removeAttribute("title");
+    view.innerHTML = "";
+    const ta = document.createElement("textarea");
+    ta.id = "synopsis-edit";
+    ta.value = synDraft;
+    ta.placeholder = "전체 줄거리를 입력하세요.";
+    const autoresize = () => {
+      ta.style.height = "auto";
+      ta.style.height = `${ta.scrollHeight}px`;
+    };
+    ta.addEventListener("input", () => {
+      synDraft = ta.value;
+      autoresize();
+    });
+    ta.addEventListener("blur", () => {
+      saveSynopsisEdit();
+    });
+    ta.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        synEditing = false;
+        renderSynopsis();
+      }
+    });
+    view.appendChild(ta);
+    const sub = document.createElement("div");
+    sub.className = "small muted synopsis-hint";
+    sub.textContent = synSaving ? "저장 중…" : "편집 후 다른 곳을 클릭하면 자동 저장됩니다 (Esc: 취소)";
+    view.appendChild(sub);
+    autoresize();
+    if (document.activeElement !== ta) {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+    }
+    return;
+  }
+  view.classList.remove("editing");
+  const canEdit = !locked();
+  view.classList.toggle("editable", canEdit);
+  if (canEdit) view.title = "클릭하여 편집";
+  else view.removeAttribute("title");
+  view.innerHTML = synopsis.content
     ? esc(synopsis.content).replace(/\n/g, "<br>")
-    : `<span class="muted">아직 줄거리가 없습니다. AI와 대화한 뒤 제안 버튼을 눌러 반영하세요.</span>`;
+    : `<span class="muted">아직 줄거리가 없습니다. 클릭하여 직접 쓰거나, AI와 대화한 뒤 제안 버튼을 눌러 반영하세요.</span>`;
+}
+
+function enterSynopsisEdit() {
+  if (synEditing || synSaving || locked()) return;
+  synEditing = true;
+  synDraft = synopsis.content || "";
+  renderSynopsis();
+}
+
+// blur 시 자동 저장. AI 대화 중에도 동작해야 하므로 busy와 무관한 독립 저장이다.
+async function saveSynopsisEdit() {
+  if (!synEditing || synSaving) return;
+  const next = synDraft;
+  if (next === (synopsis.content || "")) {
+    synEditing = false;
+    renderSynopsis();
+    return;
+  }
+  const key = getWork().uid || getWork().id;
+  synSaving = true;
+  const sub = document.querySelector("#synopsis-view .synopsis-hint");
+  if (sub) sub.textContent = "저장 중…";
+  try {
+    showError("ideas-error", "");
+    for (;;) {
+      const target = synDraft;
+      if (target === (synopsis.content || "")) break;
+      const saved = await api.putSynopsis(key, target);
+      if ((getWork()?.uid || getWork()?.id) !== key) return;
+      synopsis = saved;
+      if (synDraft === (saved.content || "")) break;
+      // 저장 중에 이어서 입력된 내용이 있으면 한 번 더 저장한다.
+    }
+    synEditing = false;
+    renderSynopsis();
+    renderChat();
+  } catch (e) {
+    showError("ideas-error", String(e));
+    renderSynopsis();
+  } finally {
+    synSaving = false;
+  }
 }
 
 // ---- 작품 구조 ----
@@ -433,37 +540,96 @@ function applyStructCollapsed() {
   const cp = $("struct-collapsed-parts");
   if (collapsed) {
     cp.style.display = "";
-    cp.innerHTML = (structure.parts ?? []).map((p) =>
-      `<div class="cpart"><b>${esc(p.title || "무제")}</b> - ${esc(p.summary || "")}</div>`).join("");
+    cp.innerHTML = (structure.parts ?? []).map((p, i) =>
+      `<div class="cpart"><span class="pnum">${i + 1}</span> <b>${esc(p.title || "무제")}</b> - ${esc(p.summary || "")}</div>`).join("");
   } else {
     cp.style.display = "none";
     cp.innerHTML = "";
   }
 }
 
-function renderParts() {
-  const box = $("part-list");
-  box.innerHTML = (structure.parts ?? []).map((p, i) => `
-    <div class="part-row" data-part="${i}">
-      <input type="text" data-f="title" value="${esc(p.title)}" placeholder="Part 제목">
-      <input type="text" data-f="summary" value="${esc(p.summary)}" placeholder="개략 요약">
-      <button class="btn sm" data-del>삭제</button>
-    </div>`).join("") || `<span class="muted small">Part 없음</span>`;
-  box.querySelectorAll("[data-del]").forEach((b) => {
-    b.addEventListener("click", () => {
-      structure.parts = collectParts();
-      structure.parts.splice(Number(b.closest("[data-part]").dataset.part), 1);
-      renderParts();
-      scheduleStructureSave();
-    });
-  });
+function partRowHtml(p, i) {
+  const m = partMode();
+  const expanded = m !== "full" && expandedParts.has(i);
+  const title = (p.title || "").trim() || "무제";
+  if (m === "one" && !expanded) {
+    return `<div class="part one-line" data-part="${i}"><span class="pnum">${i + 1}</span><span class="pline"><b>${esc(title)}</b> ${esc(p.summary || "")}</span></div>`;
+  }
+  if (m === "flow" && !expanded) {
+    return `<div class="part" data-part="${i}">
+      <div class="part-head"><span class="pnum">${i + 1}</span><b>${esc(title)}</b></div>
+      ${p.summary ? `<div class="small">${esc(p.summary).replace(/\n/g, "<br>")}</div>` : ""}
+    </div>`;
+  }
+  return `<div class="part editing" data-part="${i}">
+    <div class="part-title-row"><span class="pnum">${i + 1}</span><input type="text" data-f="title" value="${esc(p.title || "")}" placeholder="Part 제목"></div>
+    <textarea data-f="summary" rows="3" placeholder="개략 요약">${esc(p.summary || "")}</textarea>
+    <div class="btn-row"><button class="btn sm" data-del>삭제</button>${expanded ? `<button class="btn sm" data-collapse>접기</button>` : ""}</div>
+  </div>`;
 }
 
+function renderParts() {
+  document.querySelectorAll("#part-mode button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.pmode === partMode()));
+  const box = $("part-list");
+  box.dataset.mode = partMode();
+  const parts = structure.parts ?? [];
+  box.innerHTML = parts.map(partRowHtml).join("") || `<span class="muted small">Part 없음</span>`;
+  box.querySelectorAll("[data-part]").forEach((row) => {
+    const i = Number(row.dataset.part);
+    row.querySelector("[data-del]")?.addEventListener("click", () => deletePart(i));
+    row.querySelector("[data-collapse]")?.addEventListener("click", () => {
+      expandedParts.delete(i);
+      renderParts();
+    });
+    if (partMode() !== "full" && !expandedParts.has(i)) {
+      row.classList.add("expandable");
+      row.addEventListener("click", (e) => {
+        if (e.target.closest("input, button, textarea, select, a")) return;
+        expandedParts.add(i);
+        renderParts();
+      });
+    } else {
+      row.classList.add("expanded");
+    }
+  });
+  if (locked()) {
+    box.querySelectorAll("input, textarea, button:not([data-collapse])").forEach((el) => {
+      el.disabled = true;
+    });
+  }
+}
+
+function deletePart(i) {
+  structure.parts = collectParts();
+  structure.parts.splice(i, 1);
+  const next = new Set();
+  expandedParts.forEach((x) => {
+    if (x < i) next.add(x);
+    else if (x > i) next.add(x - 1);
+  });
+  expandedParts = next;
+  renderParts();
+  scheduleStructureSave();
+}
+
+// 저장 모델(structure.parts)이 기준이다. 화면에 편집 칸이 있으면 그 값을 쓰고,
+// 보기 전용(한줄·이어서) 행은 저장 모델 값을 그대로 둔다. 입력 이벤트마다
+// 저장 모델에 실시간 반영하므로 모드 전환·자동저장 시점에 내용이 지워지지 않는다.
 function collectParts() {
-  return [...$("part-list").querySelectorAll("[data-part]")].map((row) => ({
-    title: row.querySelector('[data-f="title"]').value,
-    summary: row.querySelector('[data-f="summary"]').value,
+  const out = (structure.parts ?? []).map((p) => ({
+    title: p.title ?? "",
+    summary: p.summary ?? "",
   }));
+  $("part-list").querySelectorAll("[data-part]").forEach((row) => {
+    const i = Number(row.dataset.part);
+    if (!Number.isFinite(i) || i < 0 || i >= out.length) return;
+    const t = row.querySelector('[data-f="title"]');
+    const s = row.querySelector('[data-f="summary"]');
+    if (t) out[i].title = t.value;
+    if (s) out[i].summary = s.value;
+  });
+  return out;
 }
 
 function collectStructure() {
@@ -600,6 +766,7 @@ async function applyStructProposal(msgId) {
       return;
     }
     structure = await api.putStructure(getWork().uid || getWork().id, merged);
+    expandedParts = new Set();
     renderStructure();
     renderChat();
     if (auto) $("struct-info").textContent = "반영됨 (Part 사용을 함께 켰습니다)";
@@ -865,6 +1032,7 @@ export function initIdeas() {
     renderThreads();
     renderChat();
   }));
+  $("synopsis-view").addEventListener("click", enterSynopsisEdit);
   $("btn-chat-send").addEventListener("click", sendChat);
   $("chat-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -874,6 +1042,8 @@ export function initIdeas() {
   });
   document.querySelectorAll("#setting-mode button").forEach((b) =>
     b.addEventListener("click", () => setMode(b.dataset.mode)));
+  document.querySelectorAll("#part-mode button").forEach((b) =>
+    b.addEventListener("click", () => setPartMode(b.dataset.pmode)));
   $("setting-all").addEventListener("change", (e) => {
     includedSettings = e.target.checked
       ? new Set(settings.map((s) => s.id))
@@ -895,11 +1065,19 @@ export function initIdeas() {
   $("st-level").addEventListener("change", scheduleStructureSave);
   $("st-total").addEventListener("input", scheduleStructureSave);
   $("part-list").addEventListener("input", (e) => {
-    if (e.target.closest("[data-part]")) scheduleStructureSave();
+    const row = e.target.closest("[data-part]");
+    if (!row) return;
+    const i = Number(row.dataset.part);
+    const f = e.target.dataset.f;
+    if ((structure.parts ?? [])[i] && (f === "title" || f === "summary")) {
+      structure.parts[i][f] = e.target.value;
+    }
+    scheduleStructureSave();
   });
   $("btn-part-add").addEventListener("click", () => {
     structure.parts = collectParts();
     structure.parts.push({ title: "", summary: "" });
+    if (partMode() !== "full") expandedParts.add(structure.parts.length - 1);
     renderParts();
     const rows = $("part-list").querySelectorAll("[data-part]");
     rows[rows.length - 1]?.querySelector('[data-f="title"]')?.focus();
