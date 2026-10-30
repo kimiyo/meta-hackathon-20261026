@@ -63,7 +63,14 @@ def health() -> JSONResponse:
     })
 
 
+class NoStoreStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
 # Serve the static frontend (plain HTML/CSS/JS, no build step) at /.
 _dist = PROJECT_ROOT / "frontend"
 if _dist.is_dir():
-    app.mount("/", StaticFiles(directory=_dist, html=True), name="spa")
+    app.mount("/", NoStoreStaticFiles(directory=_dist, html=True), name="spa")

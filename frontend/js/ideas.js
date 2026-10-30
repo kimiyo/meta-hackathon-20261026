@@ -88,14 +88,14 @@ function updateMsgModeSeg() {
     b.classList.toggle("active", b.dataset.mmode === msgMode));
 }
 
-// 포함 기본값: 줄거리 체크, 설정 전부 언체크, 대화는 마지막만 체크.
+// 포함 기본값: 줄거리·구조 체크, 설정 전부 언체크, 대화는 마지막 2개(직전 질문+답변) 체크.
 // 화면 진입과 AI 응답 반환 시점에 리셋한다. 이후에는 자유롭게 수정.
 function resetInclusionDefaults() {
   $("syn-include").checked = true;
   $("struct-include").checked = true;
   includedSettings = new Set();
   const ids = messages.map((m) => m.id);
-  includedMessages = new Set(ids.length ? [ids[ids.length - 1]] : []);
+  includedMessages = new Set(ids.slice(-2));
   msgMode = "select";
   updateMsgModeSeg();
 }
@@ -182,7 +182,15 @@ function proposalsHtml(m) {
   const structBtn = hasStruct
     ? `<button class="btn sm proposal-btn" data-msg="${m.id}" data-struct="1"${isStructApplied(st) ? " disabled" : ""}${isStructApplied(st) ? "" : structTip(st)}>${isStructApplied(st) ? "✓ 구조 반영됨" : `구조에 반영 (${structBits(st).join("·")})`}</button>`
     : "";
-  return `<div class="proposals"><div class="small muted"><b>바로 반영</b> — 누르면 설정·줄거리·구조에 즉시 적용됩니다 (AI 호출 없음)</div>
+  const pendingSettings = sps.some((p) => {
+    const s = findSetting(p);
+    return !s || !sameContent(s, p);
+  });
+  const pendingSyn = !!syn && !isSynApplied(syn);
+  const pendingStruct = !!hasStruct && !isStructApplied(st);
+  const allDone = !pendingSettings && !pendingSyn && !pendingStruct;
+  const allBtn = `<button class="btn sm proposal-btn" data-msg="${m.id}" data-apply-all title="설정·줄거리·구조 제안을 한꺼번에 적용합니다 (AI 호출 없음)"${allDone ? " disabled" : ""}>${allDone ? "✓ 모두 반영됨" : "모두 반영"}</button>`;
+  return `<div class="proposals"><div class="proposals-head"><span class="small muted"><b>바로 반영</b></span>${allBtn}</div>
     <div class="btn-row" style="margin-top:6px">${settingBtns}${synBtn}${structBtn}</div></div>`;
 }
 
@@ -252,6 +260,9 @@ function renderChat() {
   box.querySelectorAll("[data-struct]").forEach((b) => {
     b.addEventListener("click", () => applyStructProposal(Number(b.dataset.msg)));
   });
+  box.querySelectorAll("[data-apply-all]").forEach((b) => {
+    b.addEventListener("click", () => applyAllProposals(Number(b.dataset.msg)));
+  });
   const last = [...messages].reverse().find((m) => m.role === "assistant");
   const choices = (last && last.id === messages[messages.length - 1]?.id)
     ? (last.choices ?? []) : [];
@@ -290,7 +301,7 @@ async function sendChat() {
   renderChat();
   const send = $("btn-chat-send");
   const orig = send.textContent;
-  send.textContent = "전송 중… (취소 불가)";
+  send.textContent = "처리 중…";
   await run(async () => {
     const out = await api.postMessage(sentTid, content, parseMentions(content), null, {
       include_synopsis: $("syn-include").checked,
@@ -558,6 +569,16 @@ async function applyStructProposal(msgId) {
   });
 }
 
+async function applyAllProposals(msgId) {
+  const m = messages.find((x) => x.id === msgId);
+  const n = m?.proposals?.settings?.length ?? 0;
+  for (let i = 0; i < n; i++) {
+    await applySettingProposal(msgId, i);
+  }
+  await applySynProposal(msgId);
+  await applyStructProposal(msgId);
+}
+
 export async function exportIdeasMarkdown() {
   const w = getWork();
   if (!w) return;
@@ -615,6 +636,13 @@ function settingRowHtml(s) {
   </div>`;
 }
 
+function syncSettingAll() {
+  const all = $("setting-all");
+  if (!all) return;
+  all.checked = settings.length > 0 && settings.every((s) => includedSettings.has(s.id));
+  all.indeterminate = !all.checked && settings.some((s) => includedSettings.has(s.id));
+}
+
 function renderSettings() {
   document.querySelectorAll("#setting-mode button").forEach((b) =>
     b.classList.toggle("active", b.dataset.mode === mode()));
@@ -622,6 +650,7 @@ function renderSettings() {
   box.dataset.mode = mode();
   if (!settings.length) {
     box.innerHTML = `<span class="muted small">설정이 없습니다. AI와 대화한 뒤 제안 버튼을 눌러 반영하세요.</span>`;
+    syncSettingAll();
     return;
   }
   box.innerHTML = settings.map(settingRowHtml).join("");
@@ -631,10 +660,12 @@ function renderSettings() {
     el.querySelector("[data-inc-setting]").addEventListener("change", (e) => {
       if (e.target.checked) includedSettings.add(id);
       else includedSettings.delete(id);
+      syncSettingAll();
     });
     el.querySelector("[data-edit]")?.addEventListener("click", () => openSettingEditor(el, s));
     el.querySelector("[data-del]")?.addEventListener("click", () => deleteSettingFlow(s));
   });
+  syncSettingAll();
 }
 
 function openSettingEditor(el, s) {
@@ -783,6 +814,12 @@ export function initIdeas() {
   });
   document.querySelectorAll("#setting-mode button").forEach((b) =>
     b.addEventListener("click", () => setMode(b.dataset.mode)));
+  $("setting-all").addEventListener("change", (e) => {
+    includedSettings = e.target.checked
+      ? new Set(settings.map((s) => s.id))
+      : new Set();
+    renderSettings();
+  });
   document.querySelectorAll("#msg-mode button").forEach((b) =>
     b.addEventListener("click", () => {
       msgMode = b.dataset.mmode;
@@ -790,7 +827,7 @@ export function initIdeas() {
       else if (msgMode === "none") includedMessages = new Set();
       else {
         const ids = messages.map((m) => m.id);
-        includedMessages = new Set(ids.length ? [ids[ids.length - 1]] : []);
+        includedMessages = new Set(ids.slice(-2));
       }
       updateMsgModeSeg();
       renderChat();
