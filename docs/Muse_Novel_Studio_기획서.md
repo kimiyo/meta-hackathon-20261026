@@ -1,4 +1,6 @@
-# Muse Novel Studio
+# StorySpine (구 Muse Novel Studio)
+
+브랜드 업데이트(2026-10-30): 서비스명은 **StorySpine**, 시각 방향은 **C안 · Story Architecture**로 확정했다. 브랜드 표현은 [브랜드 기획안](StorySpine_브랜드_기획안.md)과 [이미지·사용 가이드](branding/README.md)를 따른다. 기존 문서 파일명은 참조 호환을 위해 유지하며, 아래 기능 기획은 이 브랜드 업데이트로 변경하지 않는다.
 
 Meta AI 기반 장편 웹소설 자동 창작 플랫폼 종합 기획서
 

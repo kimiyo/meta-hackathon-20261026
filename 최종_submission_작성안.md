@@ -1,4 +1,6 @@
-# 웹소설 코파이럿 — 최종 Submission 준비 자료와 작성안
+# StorySpine — 최종 Submission 준비 자료와 작성안
+
+브랜드 업데이트: 2026-10-30. 프로젝트명은 **StorySpine**, 시각 방향은 **C안 · Story Architecture**로 확정했다. 제출 설명과 발표·영상 표지에는 `StorySpine`과 `Give your story a spine.`을 사용한다. 열린 책과 중심축 심벌, 책 사이로 이어지는 길을 이미지 기준으로 삼는다. [브랜드 기획안](docs/StorySpine_브랜드_기획안.md), [채택 이미지와 사용 가이드](docs/branding/README.md)를 따른다. 현재 저장된 것은 채택 보드이며 개별 아이콘·히어로 및 발표용 완성 파일은 후속 제작 대상이다.
 
 기준: 2026년 10월 28일 사용자가 첨부한 **Submit Project 화면**, 지원서 기록, 기존 준비 계획.
 

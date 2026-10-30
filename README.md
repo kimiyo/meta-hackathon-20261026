@@ -1,4 +1,12 @@
-# Muse Novel Studio
+# StorySpine
+
+**이야기의 뼈대를 세우고, 완결까지 함께.**
+
+*Give your story a spine.*
+
+StorySpine은 기획·집필·설정 검토를 연결하는 AI 소설 창작 스튜디오입니다. 이전 명칭은 Muse Novel Studio입니다.
+
+브랜드는 **C안 · Story Architecture**로 확정했습니다. [브랜드 기획안](docs/StorySpine_브랜드_기획안.md)과 [브랜드 이미지·사용 가이드](docs/branding/README.md)를 참고하세요. 현재 이미지 자료는 채택 보드이며, 개별 배포 에셋 제작과 앱 화면 적용은 후속 작업입니다.
 
 웹소설 연재 코파이럿. 기획→집필→추출→검증→품질→승인→커밋 파이프라인으로
 장편 연재의 설정·연속성을 관리한다. 모든 AI 호출은 Meta Model API(`muse-spark-1.3`)만 사용한다.
