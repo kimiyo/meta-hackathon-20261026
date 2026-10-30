@@ -7,6 +7,8 @@
 | [브랜드 기획안](../StorySpine_브랜드_기획안.md) | 이름·메시지·시각 정체성·발표 전략 | C안 결정 반영 |
 | [채택 방향과 사용 가이드](storyspine/README.md) | 브랜드 적용 기준과 제작 현황 | 현재 기준 |
 | [브랜드 보드 v1](storyspine/storyspine-brand-board-v1.png) | 채택한 C안의 로고·아이콘·히어로·발표·마케팅 방향 | 채택 원본 보드 |
+| [한국어 마케팅 이미지 v1](storyspine/marketing/README.md) | 한 장짜리 광고 PNG, 카피와 생성 프롬프트 | 제작 완료 |
+| [해커톤 심사위원용 영문 이미지](storyspine/marketing/hackathon-en-v1.md) | 설정 충돌 문제·Meta AI 활용·작가 결정권을 강조한 광고 | 제작 완료 |
 | [시안 및 생성 프롬프트](storyspine-concepts/README.md) | A·B·C 비교와 제작 기록 | 보관 자료 |
 
 브랜드 보드는 여러 적용 예시를 담은 하나의 PNG다. 투명 로고, favicon, 앱 아이콘, hero 등의 개별 배포 파일은 아직 제작하지 않았다. 이 보드를 최종 배포용 아이콘 파일로 간주하지 않는다.

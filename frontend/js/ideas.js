@@ -14,6 +14,7 @@ let loadedUid = null;
 let pendingHandoffPlan = null;
 let includedMessages = new Set();
 let includedSettings = new Set();
+let expandedSettings = new Set();
 let msgMode = "select";
 let sending = false;
 let structure = { use_part: false, use_chapter: false, total_episodes: 25, parts: [] };
@@ -613,11 +614,12 @@ function settingRowHtml(s) {
   const inc = `<input type="checkbox" class="inc" data-inc-setting="${s.id}"${includedSettings.has(s.id) ? " checked" : ""} title="대화를 메시지에 포함">`;
   const codeChip = s.code ? `<span class="chip mono">${esc(s.code)}</span>` : "";
   const chips = `${codeChip}<span class="chip">${esc(CAT_LABEL[s.category] ?? s.category)}</span>`;
-  if (m === "one") {
+  const expanded = m !== "full" && expandedSettings.has(s.id);
+  if (m === "one" && !expanded) {
     const text = s.summary || (s.detail || "").split("\n")[0] || "";
     return `<div class="setting one-line" data-setting="${s.id}">${inc}${chips}<span class="sline"><b>${esc(s.title)}</b> ${esc(text)}</span></div>`;
   }
-  if (m === "flow") {
+  if (m === "flow" && !expanded) {
     return `<div class="setting" data-setting="${s.id}">
       <div class="setting-head">${inc}${chips}<b>${esc(s.title)}</b></div>
       ${s.summary ? `<div class="small">${esc(s.summary).replace(/\n/g, "<br>")}</div>` : ""}
@@ -664,6 +666,23 @@ function renderSettings() {
     });
     el.querySelector("[data-edit]")?.addEventListener("click", () => openSettingEditor(el, s));
     el.querySelector("[data-del]")?.addEventListener("click", () => deleteSettingFlow(s));
+    if (mode() !== "full") {
+      if (expandedSettings.has(id)) {
+        el.classList.add("expanded");
+        el.querySelector(".btn-row")?.insertAdjacentHTML("beforeend", `<button class="btn sm" data-collapse>접기</button>`);
+        el.querySelector("[data-collapse]")?.addEventListener("click", () => {
+          expandedSettings.delete(id);
+          renderSettings();
+        });
+      } else {
+        el.classList.add("expandable");
+        el.addEventListener("click", (e) => {
+          if (e.target.closest("input, button, textarea, select, a")) return;
+          expandedSettings.add(id);
+          renderSettings();
+        });
+      }
+    }
   });
   syncSettingAll();
 }
