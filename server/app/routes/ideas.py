@@ -27,6 +27,9 @@ EXTRACT_PROMPT = (Path(__file__).parent.parent / "prompts"
                   / "ideas_extract.txt").read_text(encoding="utf-8")
 HANDOFF_PROMPT = (Path(__file__).parent.parent / "prompts"
                   / "handoff_migrate.txt").read_text(encoding="utf-8")
+# Covers reasoning + visible JSON (both count toward max_tokens). Single
+# idea_chat calls measured up to 7,936 under the old 8,000 cap.
+IDEA_MAX_TOKENS = 16000
 
 
 def _work(conn: sqlite3.Connection, key: str) -> dict:
@@ -114,20 +117,147 @@ def _resolve_refs(conn: sqlite3.Connection, work_id: int, refs: list[str],
     return setting_lines, node_lines, unknown
 
 
-def _normalize_setting_proposals(items: list | None) -> list:
-    """Fill blank proposal titles so buttons stay distinguishable.
+def _normalize_setting_proposals(items: list | None,
+                                 settings: list[dict] = ()) -> list:
+    """Fill blank titles and drop codes that do not belong to this work.
 
     The prompt requires titles, but a blank may still slip through;
-    fall back to the summary head, then to '무제'.
+    fall back to the summary head, then to '무제'. A code the model
+    invented would make the button patch nothing, so it is cleared and
+    the proposal becomes a new entry.
     """
+    known = {s["code"] for s in settings if s.get("code")}
     out = []
     for s in items or []:
         s = dict(s)
         if not (s.get("title") or "").strip():
             head = (s.get("summary") or "").strip().split("\n")[0][:30]
             s["title"] = head.strip() or "무제"
+        code = (s.get("code") or "").strip().upper()
+        s["code"] = code if code in known else ""
         out.append(s)
     return out
+
+
+def _normalize_merge(codes: list | None, proposals: list,
+                     settings: list[dict]) -> list[dict]:
+    """Merge targets → existing entries, never the entry being written."""
+    by_code = {s["code"]: s for s in settings if s.get("code")}
+    keep = {p["code"] for p in proposals if p.get("code")}
+    out, seen = [], set()
+    for c in codes or []:
+        c = str(c).strip().upper()
+        if c in by_code and c not in keep and c not in seen:
+            seen.add(c)
+            s = by_code[c]
+            out.append({"code": c, "category": s["category"],
+                        "title": s["title"]})
+    return out
+
+
+# Per-section character budgets. The model has a 1M-token window; these
+# bound latency/cost and, above all, keep the author's latest question whole.
+CTX_SYNOPSIS = 6000
+CTX_SETTINGS = 8000
+CTX_INDEX = 3000
+CTX_CONVO = 8000
+CTX_LAST = 4000
+INDEX_MAX = 100
+
+
+def _clip(text: str, limit: int) -> tuple[str, bool]:
+    text = text or ""
+    if len(text) <= limit:
+        return text, False
+    return text[:limit] + f"\n…(이하 {len(text) - limit}자 생략)", True
+
+
+def _clip_lines(lines: list[str], limit: int) -> list[str]:
+    """Keep whole lines up to limit; say how many were left out."""
+    out, used = [], 0
+    for i, ln in enumerate(lines):
+        if used + len(ln) > limit:
+            out.append(f"…({len(lines) - i}개 생략)")
+            break
+        out.append(ln)
+        used += len(ln) + 1
+    return out
+
+
+def _setting_line(s: dict, full: bool) -> str:
+    head = f"- {s['code'] or '번호없음'} [{s['category']}] {s['title']}"
+    if not full:
+        return head
+    return f"{head}: {s['summary']}\n  {s['detail']}"
+
+
+def _same_setting(s: dict, p: dict) -> bool:
+    return ((s.get("summary") or "") == (p.get("summary") or "")
+            and (s.get("detail") or "") == (p.get("detail") or ""))
+
+
+def _find_setting(settings: list[dict], p: dict) -> dict | None:
+    """Same rule as the screen: code first, then category + title."""
+    if p.get("code"):
+        for s in settings:
+            if s.get("code") == p["code"]:
+                return s
+    for s in settings:
+        if s["category"] == p.get("category") and s["title"] == p.get("title"):
+            return s
+    return None
+
+
+def _structure_applied(prop: dict, struct: dict) -> bool:
+    for k in ("use_part", "use_chapter", "total_episodes"):
+        if prop.get(k) is not None and prop[k] != struct.get(k):
+            return False
+    if prop.get("parts") is not None:
+        mine = [(p.get("title", ""), p.get("summary", "")) for p in prop["parts"]]
+        cur = [(p["title"], p["summary"]) for p in struct.get("parts", [])]
+        if mine != cur:
+            return False
+    return True
+
+
+def _proposal_digest(m: dict, settings: list[dict], syn: dict,
+                     struct: dict) -> str:
+    """One line telling the model what it proposed and what was applied.
+
+    The reply itself never carries proposal content, so without this the
+    next turn cannot know what it suggested or whether the author took it.
+    """
+    props = m.get("proposals") or {}
+    bits = []
+    sp = []
+    for p in props.get("settings") or []:
+        s = _find_setting(settings, p)
+        state = "반영됨" if s and _same_setting(s, p) else "미반영"
+        sp.append(f"[{p.get('category', 'misc')}]{p.get('title', '')}({state})")
+    if sp:
+        bits.append("설정 " + ", ".join(sp))
+    merged = props.get("merge_from") or []
+    if merged:
+        alive = {s["code"] for s in settings}
+        done = all(x["code"] not in alive for x in merged)
+        bits.append("통합 삭제 " + "·".join(x["code"] for x in merged)
+                    + f"({'반영됨' if done else '미반영'})")
+    sy = props.get("synopsis_proposal") or ""
+    if sy:
+        bits.append("줄거리 개정"
+                    f"({'반영됨' if sy == (syn['content'] or '') else '미반영'})")
+    st = props.get("structure")
+    if isinstance(st, dict) and any(st.get(k) is not None for k in
+                                    ("use_part", "use_chapter",
+                                     "total_episodes", "parts")):
+        desc = []
+        if st.get("total_episodes") is not None:
+            desc.append(f"총 {st['total_episodes']}화")
+        if st.get("parts") is not None:
+            desc.append(f"Part {len(st['parts'])}개")
+        bits.append(f"구조 {'·'.join(desc) or '변경'}"
+                    f"({'반영됨' if _structure_applied(st, struct) else '미반영'})")
+    return f"\n  (이 답변의 제안: {' / '.join(bits)})" if bits else ""
 
 
 def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
@@ -136,8 +266,12 @@ def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
                   include_settings: list[int] | None = None,
                   include_messages: list[int] | None = None,
                   include_structure: bool | None = None,
-                  refs: list[str] = []) -> str:
-    """Build the AI context. None fields keep the legacy behavior."""
+                  refs: list[str] = []) -> tuple[str, dict]:
+    """Build the AI context. None fields keep the legacy behavior.
+
+    Returns (text, info); info["synopsis_safe"] is False when the model
+    saw no synopsis or a clipped one, so a full rewrite would lose text.
+    """
     if include_messages is None:
         h = max(1, min(history or 12, 50))
         msgs = ideas.list_messages(conn, thread_id, 200)[-h:]
@@ -146,11 +280,10 @@ def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
         msgs = [m for m in ideas.list_messages(conn, thread_id, 10000)
                 if m["id"] in want and m["id"] != user_msg["id"]]
         msgs = msgs + [user_msg]  # the question itself is always included
-    convo = [f"{'작가' if m['role'] == 'user' else 'AI'}: {m['content']}"
-             for m in msgs]
     syn = ideas.get_synopsis(conn, work["id"])
-    parts = [f"작품: {work['title']}"]
     struct = ideas.parse_structure(work["structure_json"])
+    all_settings = ideas.list_settings(conn, work["id"])
+    parts = [f"작품: {work['title']}"]
     if include_structure is None:
         parts.append(f"현재 구조 결정: {work['structure_json']}")
     elif include_structure:
@@ -162,30 +295,36 @@ def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
         parts.append("[포함된 작품 구조]:\n" + "\n".join(plines))
     else:
         parts.append("[작품 구조 미포함]")
-    if include_synopsis is None:
-        parts.append(f"현재 전체 줄거리(v{syn['version']}):"
-                     f" {(syn['content'] or '')[:1500]}")
-    elif include_synopsis:
-        parts.append("[포함된 전체 줄거리]:\n"
-                     f"{(syn['content'] or '')[:2000]}")
-    else:
+    syn_text = syn["content"] or ""
+    if include_synopsis is False:
         parts.append("[전체 줄거리 미포함]")
-    all_settings = ideas.list_settings(conn, work["id"])
+        syn_safe = not syn_text  # nothing to lose on an empty synopsis
+    else:
+        shown, cut = _clip(syn_text, CTX_SYNOPSIS)
+        label = (f"현재 전체 줄거리(v{syn['version']}):" if include_synopsis
+                 is None else "[포함된 전체 줄거리]:")
+        if cut:
+            label += " (뒷부분 생략됨: 줄거리 전문 개정 금지)"
+        parts.append(f"{label}\n{shown}")
+        syn_safe = not cut
     skip: set[int] = set()
     if include_settings is None:
+        picked = all_settings[:30]
         parts.append("설정정보:")
-        parts += [f"- [{s['category']}] {s['title']}: {s['summary']}"
-                  for s in all_settings[:30]] or ["(없음)"]
-        skip = {s["id"] for s in all_settings[:30]}
-    elif include_settings:
+        parts += [f"- {s['code'] or '번호없음'} [{s['category']}] {s['title']}:"
+                  f" {s['summary']}" for s in picked] or ["(없음)"]
+    else:
         want_ids = set(include_settings)
         picked = [s for s in all_settings if s["id"] in want_ids]
         parts.append("[포함된 설정정보]:")
-        parts += [f"- [{s['category']}] {s['title']}: {s['summary']}\n"
-                  f"  {s['detail']}" for s in picked] or ["(선택 없음)"]
-        skip = {s["id"] for s in picked}
-    else:
-        parts.append("[포함된 설정정보]: (선택 없음)")
+        parts += _clip_lines([_setting_line(s, True) for s in picked],
+                             CTX_SETTINGS) or ["(선택 없음)"]
+        rest = [s for s in all_settings if s["id"] not in want_ids]
+        if rest:
+            parts.append("[다른 기존 설정 목록(제목만)]:")
+            parts += _clip_lines([_setting_line(s, False)
+                                  for s in rest[:INDEX_MAX]], CTX_INDEX)
+    skip = {s["id"] for s in picked}
     if refs:
         sl, nl, unk = _resolve_refs(conn, work["id"], list(refs), skip)
         if sl or nl or unk:
@@ -193,9 +332,26 @@ def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
             parts += sl + nl
             if unk:
                 parts.append(f"(확인 불가: {', '.join(unk)})")
+    convo = []
+    for m in msgs[:-1]:
+        if m["role"] == "user":
+            convo.append(f"작가: {m['content']}")
+        else:
+            convo.append(f"AI: {m['content']}"
+                         + _proposal_digest(m, all_settings, syn, struct))
+    # Older turns go first when over budget; the latest question stays whole.
+    convo.reverse()
+    convo = _clip_lines(convo, CTX_CONVO)
+    convo.reverse()
+    if msgs:
+        last = msgs[-1]
+        who = "작가" if last["role"] == "user" else "AI"
+        digest = "" if last["role"] == "user" else \
+            _proposal_digest(last, all_settings, syn, struct)
+        convo.append(f"{who}: {_clip(last['content'], CTX_LAST)[0]}{digest}")
     convo_label = "최근 대화:" if include_messages is None else "[포함된 대화]:"
     parts += ["", convo_label] + (convo or ["(없음)"])
-    return "\n".join(parts)[:7000]
+    return "\n".join(parts), {"synopsis_safe": syn_safe}
 
 
 @router.post("/threads/{thread_id}/messages")
@@ -209,24 +365,32 @@ def post_message(thread_id: int, body: MessageIn,
     if not content:
         raise HTTPException(400, "content must not be blank")
     user_msg = ideas.add_message(conn, thread_id, "user", content, body.refs)
+    ctx, info = _chat_context(
+        conn, w, thread_id, user_msg=user_msg,
+        history=body.history or 12,
+        include_synopsis=body.include_synopsis,
+        include_settings=body.include_settings,
+        include_messages=body.include_messages,
+        include_structure=body.include_structure, refs=body.refs)
     try:
         out = meta.chat_json(
-            bundle="idea_chat", episode=None, system=CHAT_PROMPT, work_id=w["id"],
-            user=_chat_context(
-                conn, w, thread_id, user_msg=user_msg,
-                history=body.history or 12,
-                include_synopsis=body.include_synopsis,
-                include_settings=body.include_settings,
-                include_messages=body.include_messages,
-                include_structure=body.include_structure, refs=body.refs),
-            schema=sch.IdeaChatOut, max_tokens=8000)
+            bundle="idea_chat", episode=None, system=CHAT_PROMPT,
+            work_id=w["id"], user=ctx, schema=sch.IdeaChatOut,
+            max_tokens=IDEA_MAX_TOKENS)
     except LLMStepError as e:
         raise HTTPException(502, f"idea_chat failed: {e.reason} {e.detail}")
+    settings = ideas.list_settings(conn, w["id"])
+    sps = _normalize_setting_proposals(out.get("settings", []), settings)
+    syn_prop = out.get("synopsis_proposal", "")
+    # A full rewrite from a missing/clipped synopsis would delete text.
+    syn_blocked = bool(syn_prop) and not info["synopsis_safe"]
     assistant = ideas.add_message(
         conn, thread_id, "assistant", out.get("reply", ""),
-        out.get("refs", []), out.get("choices", []),
-        {"settings": _normalize_setting_proposals(out.get("settings", [])),
-         "synopsis_proposal": out.get("synopsis_proposal", ""),
+        [], out.get("choices", []),
+        {"settings": sps,
+         "merge_from": _normalize_merge(out.get("merge_from"), sps, settings),
+         "synopsis_proposal": "" if syn_blocked else syn_prop,
+         "synopsis_blocked": syn_blocked,
          "structure": out.get("structure")})
     touch_work(conn, w["id"])
     conn.commit()
@@ -390,19 +554,21 @@ def extract(key: str, body: ExtractIn,
     msgs = ideas.list_messages(conn, thread_id, 200)[-body.limit:]
     syn = ideas.get_synopsis(conn, w["id"])
     settings = ideas.list_settings(conn, w["id"])[:30]
-    convo = "\n".join(
-        f"{'작가' if m['role'] == 'user' else 'AI'}: {m['content']}"
-        for m in msgs) or "(대화 없음)"
+    lines = [f"{'작가' if m['role'] == 'user' else 'AI'}: {m['content']}"
+             for m in msgs][::-1]
+    convo = "\n".join(_clip_lines(lines, CTX_CONVO)[::-1]) or "(대화 없음)"
     user = (f"작품: {w['title']}\n현재 구조 결정: {w['structure_json']}\n"
-            f"현재 전체 줄거리(v{syn['version']}):\n{syn['content'][:2000]}\n"
-            f"현재 설정정보:\n" + ("\n".join(
-                f"- [{s['category']}] {s['title']}: {s['summary']}"
-                for s in settings) or "(없음)") +
-            f"\n\n분석할 대화:\n{convo}")[:8000]
+            f"현재 전체 줄거리(v{syn['version']}):\n"
+            f"{_clip(syn['content'], CTX_SYNOPSIS)[0]}\n"
+            f"현재 설정정보:\n" + ("\n".join(_clip_lines(
+                [f"- {s['code'] or '번호없음'} [{s['category']}] {s['title']}:"
+                 f" {s['summary']}" for s in settings], CTX_SETTINGS))
+                or "(없음)") +
+            f"\n\n분석할 대화:\n{convo}")
     try:
         return meta.chat_json(bundle="idea_extract", episode=None,
                               system=EXTRACT_PROMPT, user=user,
-                              schema=sch.ExtractOut, max_tokens=8000,
+                              schema=sch.ExtractOut, max_tokens=IDEA_MAX_TOKENS,
                               work_id=w["id"])
     except LLMStepError as e:
         raise HTTPException(502, f"idea_extract failed: {e.reason} {e.detail}")

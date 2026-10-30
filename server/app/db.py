@@ -169,7 +169,9 @@ CREATE TABLE IF NOT EXISTS llm_calls (
   error TEXT DEFAULT '',
   prompt_system TEXT NOT NULL DEFAULT '',
   prompt_user TEXT NOT NULL DEFAULT '',
-  output_text TEXT NOT NULL DEFAULT ''
+  output_text TEXT NOT NULL DEFAULT '',
+  finish_reason TEXT NOT NULL DEFAULT '',
+  reasoning_tokens INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS style_policies (
   id INTEGER PRIMARY KEY,
@@ -305,6 +307,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE llm_calls ADD COLUMN prompt_system TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE llm_calls ADD COLUMN prompt_user TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE llm_calls ADD COLUMN output_text TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE llm_calls ADD COLUMN finish_reason TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE llm_calls ADD COLUMN reasoning_tokens INTEGER DEFAULT 0",
         "ALTER TABLE setting_entries ADD COLUMN code TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE episode_jobs ADD COLUMN fix_instruction TEXT DEFAULT ''",
         "ALTER TABLE change_proposals ADD COLUMN events_json TEXT DEFAULT '[]'",

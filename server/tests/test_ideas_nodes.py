@@ -32,6 +32,7 @@ class AssistFake:
     def __init__(self):
         self.last = {}
         self.calls = []
+        self.chat_out = None  # override the idea_chat output per test
 
     def chat_json(self, *, bundle, episode, system, user, schema, max_tokens,
                   work_id=None):
@@ -39,6 +40,8 @@ class AssistFake:
         self.calls.append({"bundle": bundle, "work_id": work_id})
         if bundle == "idea_chat":
             assert schema is sch.IdeaChatOut
+            if self.chat_out is not None:
+                return sch.IdeaChatOut.model_validate(self.chat_out).model_dump()
             return sch.IdeaChatOut.model_validate(
                 {"reply": "좋은 방향이에요", "choices": ["A안", "B안"],
                  "settings": [{"category": "world", "title": "달빛 규칙",
@@ -199,7 +202,8 @@ def test_message_inclusion_controls(client, fakes):
     assert r.status_code == 200, r.text
     u = fakes.last["idea_chat"]
     assert "달빛규칙" in u and "상세1" in u
-    assert "추적자" not in u
+    # 선택하지 않은 설정은 번호·제목만 색인으로 보인다 (중복 생성 방지)
+    assert f"{s2['code']} [character] 추적자" in u and "상세2" not in u
     assert "첫번째이야기" in u and "두번째질문" in u  # 질문은 항상 포함
     assert "[전체 줄거리 미포함]" in u
     assert "줄거리본문" not in u
@@ -607,3 +611,78 @@ def test_structure_rejects_over_limit_total(client, fakes):
                     "parts": [{"title": "1부", "summary": "시작"}]})
     assert r.status_code == 400, r.text
     assert "exceeds" in r.text and "300" in r.text
+
+
+def _thread_with(c, w):
+    return c.post(f"/api/v1/works/{w['uid']}/threads",
+                  json={"title": "t"}).json()["id"]
+
+
+def test_chat_code_match_merge_and_digest(client, fakes):
+    c, _ = client
+    w = _mkwork(c)
+    s1 = c.post(f"/api/v1/works/{w['uid']}/settings",
+                json={"category": "event", "title": "퇴사후반전",
+                      "summary": "a", "detail": "b"}).json()
+    s2 = c.post(f"/api/v1/works/{w['uid']}/settings",
+                json={"category": "event", "title": "퇴사후증명",
+                      "summary": "c", "detail": "d"}).json()
+    tid = _thread_with(c, w)
+    fakes.chat_out = {
+        "reply": "합쳤어요", "choices": [{"label": "A", "text": "상사 방해"}],
+        "settings": [{"code": "", "category": "event", "title": "퇴사당일역전",
+                      "summary": "합친 요약", "detail": "합친 상세"},
+                     {"code": "D999", "category": "world", "title": "가짜번호",
+                      "summary": "x", "detail": "y"}],
+        "merge_from": [s1["code"], s2["code"], "D999", s1["code"]]}
+    r = c.post(f"/api/v1/threads/{tid}/messages",
+               json={"content": "정리해 줘", "include_messages": []})
+    assert r.status_code == 200, r.text
+    a = r.json()["assistant"]
+    assert a["choices"] == ["A) 상사 방해"]  # 객체 선택지도 문자열로
+    assert a["proposals"]["settings"][1]["code"] == ""  # 없는 번호는 새 항목
+    assert [x["code"] for x in a["proposals"]["merge_from"]] == \
+        [s1["code"], s2["code"]]
+    # 다음 턴 이력에 이 답변의 제안과 반영 여부가 붙는다
+    r = c.post(f"/api/v1/threads/{tid}/messages",
+               json={"content": "다음", "include_messages": [a["id"]]})
+    u = fakes.last["idea_chat"]
+    assert "(이 답변의 제안: 설정 [event]퇴사당일역전(미반영)" in u
+    assert f"통합 삭제 {s1['code']}·{s2['code']}(미반영)" in u
+
+
+def test_chat_synopsis_guard_and_latest_question_kept(client, fakes):
+    c, _ = client
+    w = _mkwork(c)
+    long_syn = "가" * 7000
+    c.put(f"/api/v1/works/{w['uid']}/synopsis", json={"content": long_syn})
+    for i in range(40):
+        c.post(f"/api/v1/works/{w['uid']}/settings",
+               json={"category": "misc", "title": f"설정{i}",
+                     "summary": "요" * 200, "detail": "상" * 300})
+    ids = [s["id"] for s in c.get(
+        f"/api/v1/works/{w['uid']}/settings").json()["settings"]]
+    tid = _thread_with(c, w)
+    fakes.chat_out = {"reply": "r", "synopsis_proposal": "짧은 새 줄거리"}
+    question = "마지막질문" + "!" * 100
+    r = c.post(f"/api/v1/threads/{tid}/messages",
+               json={"content": question, "include_synopsis": True,
+                     "include_settings": ids, "include_messages": []})
+    u = fakes.last["idea_chat"]
+    assert u.rstrip().endswith(question)  # 큰 컨텍스트에서도 질문은 온전히
+    assert "뒷부분 생략됨" in u
+    props = r.json()["assistant"]["proposals"]
+    assert props["synopsis_proposal"] == "" and props["synopsis_blocked"]
+    # 줄거리를 빼고 보낸 턴의 전문 개정도 보류
+    c.put(f"/api/v1/works/{w['uid']}/synopsis", json={"content": "짧은 기존"})
+    r = c.post(f"/api/v1/threads/{tid}/messages",
+               json={"content": "q", "include_synopsis": False,
+                     "include_messages": []})
+    assert r.json()["assistant"]["proposals"]["synopsis_blocked"]
+    # 포함해서 보내면 그대로 제안
+    r = c.post(f"/api/v1/threads/{tid}/messages",
+               json={"content": "q", "include_synopsis": True,
+                     "include_messages": []})
+    props = r.json()["assistant"]["proposals"]
+    assert props["synopsis_proposal"] == "짧은 새 줄거리"
+    assert not props["synopsis_blocked"]

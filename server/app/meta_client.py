@@ -6,7 +6,7 @@ import json as _json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Literal, get_args, get_origin
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -21,9 +21,28 @@ RECOVERY_PROMPT = (
 )
 
 
+def _skeleton(tp: Any, seen: tuple = ()) -> Any:
+    """Example JSON value for a type: shows nesting and value shapes."""
+    if isinstance(tp, type) and issubclass(tp, BaseModel):
+        return {k: _skeleton(f.annotation, seen + (tp,))
+                for k, f in tp.model_fields.items()}
+    if get_origin(tp) is Literal:
+        return "|".join(str(a) for a in get_args(tp))
+    args = [a for a in get_args(tp) if a is not type(None)]
+    if get_origin(tp) is list:
+        if not args or args[0] in seen:  # recursive list: same shape again
+            return []
+        return [_skeleton(args[0], seen)]
+    if get_origin(tp) is dict or tp is dict:
+        return {}
+    if args:  # Optional / Union: show the non-null shape
+        return _skeleton(args[0], seen)
+    return {str: "", int: 0, bool: False, float: 0.0}.get(tp, None)
+
+
 def _recovery_prompt(schema: type[BaseModel]) -> str:
-    fields = ", ".join(schema.model_fields.keys())
-    return f"{RECOVERY_PROMPT} 최상위 키는 정확히 [{fields}] 이어야 한다."
+    return (f"{RECOVERY_PROMPT} 정확히 다음 형태여야 한다(값의 형태 포함): "
+            f"{_dump(_skeleton(schema))}")
 
 
 def _dump(obj: Any) -> str:
@@ -121,17 +140,18 @@ class MetaClient:
             prompt_ref + ":recovery",
         )
         parsed2 = self._parse_and_validate(raw2, schema)
-        total_in = usage["in"] + usage2["in"]
-        total_out = usage["out"] + usage2["out"]
+        # One row covers both calls; finish shows "first>recovery".
+        total = {"in": usage["in"] + usage2["in"],
+                 "out": usage["out"] + usage2["out"],
+                 "reasoning": usage["reasoning"] + usage2["reasoning"],
+                 "finish": f"{usage['finish']}>{usage2['finish']}"}
         user_stored = user + "\n\n[복구 재시도]\n" + recovery
         if parsed2 is not None:
-            self._record(bundle, episode, work_id,
-                         {"in": total_in, "out": total_out},
+            self._record(bundle, episode, work_id, total,
                          latency_ms + latency2, True, "", system, user_stored,
                          _dump(parsed2))
             return parsed2
-        self._record(bundle, episode, work_id,
-                     {"in": total_in, "out": total_out},
+        self._record(bundle, episode, work_id, total,
                      latency_ms + latency2, False, "json_schema_failed",
                      system, user_stored, raw2 or "")
         raise LLMStepError(bundle, episode, "json_schema_failed",
@@ -200,13 +220,19 @@ class MetaClient:
                     self._backoff(bundle, attempt, last_error, prompt_ref)
                     continue
                 try:
-                    content = body["choices"][0]["message"].get("content")
-                except (KeyError, IndexError, TypeError):
-                    content = None
+                    choice = body["choices"][0]
+                    content = choice["message"].get("content")
+                    finish = choice.get("finish_reason") or ""
+                except (KeyError, IndexError, TypeError, AttributeError):
+                    content, finish = None, ""
                 usage = body.get("usage", {}) or {}
+                details = usage.get("completion_tokens_details") or {}
                 return (content, {
                     "in": usage.get("prompt_tokens", 0),
                     "out": usage.get("completion_tokens", 0),
+                    "reasoning": details.get("reasoning_tokens", 0)
+                    if isinstance(details, dict) else 0,
+                    "finish": str(finish),
                 }, latency_ms)
         finally:
             if own_client:
@@ -247,6 +273,8 @@ class MetaClient:
             "model": self._model_id,
             "input_tokens": usage["in"],
             "output_tokens": usage["out"],
+            "reasoning_tokens": usage.get("reasoning", 0) or 0,
+            "finish_reason": usage.get("finish", ""),
             "latency_ms": latency_ms,
             "ok": 1 if ok else 0,
             "error": (error or "")[:300],

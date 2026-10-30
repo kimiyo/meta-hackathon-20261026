@@ -155,13 +155,25 @@ function propTitle(p) {
   return head || "무제";
 }
 
+// 제안의 code(D번호)가 있으면 그 항목, 없으면 분류+제목이 같은 항목을 수정 대상으로 본다.
 function findSetting(p) {
+  if (p.code) {
+    const byCode = settings.find((s) => s.code === p.code);
+    if (byCode) return byCode;
+  }
   const title = propTitle(p);
   return settings.find((s) => s.category === normCategory(p.category) && s.title === title);
 }
 
 function sameContent(s, p) {
-  return (s.summary || "") === (p.summary || "") && (s.detail || "") === (p.detail || "");
+  return (s.summary || "") === (p.summary || "") && (s.detail || "") === (p.detail || "")
+    && (!p.code || s.title === propTitle(p));
+}
+
+// 통합 제안에서 아직 남아 있는 원본 설정
+function pendingMerge(m) {
+  const codes = (m.proposals?.merge_from ?? []).map((x) => x.code);
+  return settings.filter((s) => codes.includes(s.code));
 }
 
 function tipAttr(text) {
@@ -180,7 +192,11 @@ function proposalsHtml(m) {
   const st = (props.structure && typeof props.structure === "object") ? props.structure : null;
   const hasStruct = st && ["use_part", "use_chapter", "total_episodes", "parts"]
     .some((k) => st[k] !== null && st[k] !== undefined);
-  if (!sps.length && !syn && !hasStruct) return "";
+  const merges = props.merge_from ?? [];
+  const blockedNote = props.synopsis_blocked
+    ? `<div class="small muted" style="margin-top:6px">줄거리 개정안은 보류했습니다. 줄거리가 대화에 포함되지 않았거나 일부만 전달되어, 반영하면 기존 내용이 사라질 수 있습니다. 줄거리를 포함해 다시 요청하세요.</div>`
+    : "";
+  if (!sps.length && !syn && !hasStruct && !merges.length) return blockedNote;
   const settingBtns = sps.map((p, i) => {
     const title = propTitle(p);
     const cat = CAT_LABEL[normCategory(p.category)];
@@ -192,8 +208,13 @@ function proposalsHtml(m) {
     if (sameContent(s, p)) {
       return `<button class="btn sm proposal-btn" data-msg="${m.id}" data-sp="${i}" disabled>✓ 반영됨</button>`;
     }
-    return `<button class="btn sm proposal-btn" data-msg="${m.id}" data-sp="${i}"${tip}>'${esc(title)}' 수정 반영</button>`;
+    const label = s.title === title ? `'${esc(title)}' 수정 반영` : `${esc(s.code || s.title)} → '${esc(title)}' 수정 반영`;
+    return `<button class="btn sm proposal-btn" data-msg="${m.id}" data-sp="${i}"${tip}>${label}</button>`;
   }).join("");
+  const mergeLeft = pendingMerge(m);
+  const mergeBtn = merges.length
+    ? `<button class="btn sm proposal-btn" data-msg="${m.id}" data-merge="1"${mergeLeft.length ? tipAttr(`통합되어 삭제할 원본:\n${mergeLeft.map((x) => `${x.code} [${CAT_LABEL[normCategory(x.category)]}] ${x.title}`).join("\n")}`) : " disabled"}>${mergeLeft.length ? `통합 원본 삭제 (${mergeLeft.map((x) => esc(x.code)).join("·")})` : "✓ 통합 정리됨"}</button>`
+    : "";
   const synBtn = syn
     ? `<button class="btn sm proposal-btn syn" data-msg="${m.id}" data-syn="1"${isSynApplied(syn) ? " disabled" : ""}${isSynApplied(syn) ? "" : tipAttr(syn)}>${isSynApplied(syn) ? "✓ 줄거리 반영됨" : "줄거리 변경 반영"}</button>`
     : "";
@@ -209,7 +230,7 @@ function proposalsHtml(m) {
   const allDone = !pendingSettings && !pendingSyn && !pendingStruct;
   const allBtn = `<button class="btn sm proposal-btn" data-msg="${m.id}" data-apply-all title="설정·줄거리·구조 제안을 한꺼번에 적용합니다 (AI 호출 없음)"${allDone ? " disabled" : ""}>${allDone ? "✓ 모두 반영됨" : "모두 반영"}</button>`;
   return `<div class="proposals"><div class="proposals-head"><span class="small muted"><b>바로 반영</b></span>${allBtn}</div>
-    <div class="btn-row" style="margin-top:6px">${settingBtns}${synBtn}${structBtn}</div></div>`;
+    <div class="btn-row" style="margin-top:6px">${settingBtns}${synBtn}${structBtn}${mergeBtn}</div>${blockedNote}</div>`;
 }
 
 let tipEl = null;
@@ -277,6 +298,9 @@ function renderChat() {
   });
   box.querySelectorAll("[data-struct]").forEach((b) => {
     b.addEventListener("click", () => applyStructProposal(Number(b.dataset.msg)));
+  });
+  box.querySelectorAll("[data-merge]").forEach((b) => {
+    b.addEventListener("click", () => applyMergeProposal(Number(b.dataset.msg)));
   });
   box.querySelectorAll("[data-apply-all]").forEach((b) => {
     b.addEventListener("click", () => applyAllProposals(Number(b.dataset.msg)));
@@ -361,7 +385,9 @@ async function applySettingProposal(msgId, idx) {
   await run(async () => {
     const key = getWork().uid || getWork().id;
     if (s) {
-      await api.patchSetting(s.id, { summary: p.summary || "", detail: p.detail || "" });
+      const patch = { summary: p.summary || "", detail: p.detail || "" };
+      if (p.code) patch.title = propTitle(p); // 번호로 지목한 수정은 제목 변경도 반영
+      await api.patchSetting(s.id, patch);
     } else {
       await api.createSetting(key, {
         category: normCategory(p.category),
@@ -372,6 +398,21 @@ async function applySettingProposal(msgId, idx) {
       });
     }
     settings = (await api.settings(key)).settings ?? [];
+    renderSettings();
+    renderChat();
+  });
+}
+
+// 통합 원본 삭제는 되돌릴 수 없으므로 확인 후 진행하며, '모두 반영'에는 포함하지 않는다.
+async function applyMergeProposal(msgId) {
+  const m = messages.find((x) => x.id === msgId);
+  const left = m ? pendingMerge(m) : [];
+  if (!left.length) return;
+  const names = left.map((x) => `${x.code} ${x.title}`).join(", ");
+  if (!confirm(`통합된 원본 설정 ${left.length}개를 삭제합니다: ${names}\n통합 항목을 먼저 반영했는지 확인하세요. 계속할까요?`)) return;
+  await run(async () => {
+    for (const s of left) await api.deleteSetting(s.id);
+    settings = (await api.settings(getWork().uid || getWork().id)).settings ?? [];
     renderSettings();
     renderChat();
   });

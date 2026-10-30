@@ -127,3 +127,31 @@ def test_budget_exceeded_skips_http():
         c.chat_json(bundle="planning", episode=None, system="s", user="u",
                     schema=ToySchema, max_tokens=100)
     assert recs[0]["error"] == "budget_exceeded"
+
+
+def test_records_finish_reason_and_reasoning_tokens():
+    recs = []
+    seen = []
+
+    def h(request):
+        body = json.loads(request.content.decode())
+        seen.append(body["messages"][-1]["content"])
+        if len(seen) == 1:
+            return httpx.Response(200, json={
+                "choices": [{"message": {"content": '{"answer": '},
+                             "finish_reason": "length"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 100,
+                          "completion_tokens_details": {"reasoning_tokens": 90}}})
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": '{"answer": "ok"}'},
+                         "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 40,
+                      "completion_tokens_details": {"reasoning_tokens": 30}}})
+
+    c = _client(h, recs)
+    assert c.chat_json(bundle="idea_chat", episode=None, system="s", user="u",
+                       schema=ToySchema, max_tokens=100) == {"answer": "ok"}
+    assert recs[0]["finish_reason"] == "length>stop"
+    assert (recs[0]["output_tokens"], recs[0]["reasoning_tokens"]) == (140, 120)
+    # the recovery prompt shows the exact JSON shape, not just key names
+    assert '{"answer": ""}' in seen[1]
