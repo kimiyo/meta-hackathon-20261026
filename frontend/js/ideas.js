@@ -395,12 +395,23 @@ function levelOf(s) {
 }
 
 function renderStructure() {
-  $("st-level").value = levelOf(structure);
-  $("st-total").value = structure.total_episodes ?? 25;
+  renderStructureControls();
   renderParts();
+}
+
+function renderStructureControls() {
+  setControlValues();
   $("struct-info").textContent = "";
   updateStructSummary();
   applyStructCollapsed();
+}
+
+// 자동저장 완료 후에도 입력 포커스가 날아가지 않도록 바뀐 값만 반영한다.
+function setControlValues() {
+  const lv = levelOf(structure);
+  if ($("st-level").value !== lv) $("st-level").value = lv;
+  const tv = String(structure.total_episodes ?? 25);
+  if ($("st-total").value !== tv) $("st-total").value = tv;
 }
 
 function updateStructSummary() {
@@ -443,6 +454,7 @@ function renderParts() {
       structure.parts = collectParts();
       structure.parts.splice(Number(b.closest("[data-part]").dataset.part), 1);
       renderParts();
+      scheduleStructureSave();
     });
   });
 }
@@ -474,17 +486,41 @@ function totalError(total, where) {
   return "";
 }
 
-async function saveStructure() {
+let structSaveTimer = null;
+let structSaveSeq = 0;
+const STRUCT_SAVE_DELAY = 700;
+
+function scheduleStructureSave() {
+  if (locked()) return;
+  $("struct-info").textContent = "입력 중…";
+  clearTimeout(structSaveTimer);
+  structSaveTimer = setTimeout(flushStructureSave, STRUCT_SAVE_DELAY);
+}
+
+async function flushStructureSave() {
+  clearTimeout(structSaveTimer);
+  structSaveTimer = null;
+  if (locked()) return;
+  if (busy) {
+    structSaveTimer = setTimeout(flushStructureSave, 600);
+    return;
+  }
+  const body = collectStructure();
+  const err = totalError(body.total_episodes, "입력값");
+  if (err) {
+    $("struct-info").textContent = `${err} ${EPISODE_LIMIT}화 이하로 입력하세요.`;
+    return;
+  }
+  const seq = ++structSaveSeq;
+  $("struct-info").textContent = "저장 중…";
   await run(async () => {
-    const body = collectStructure();
-    const err = totalError(body.total_episodes, "입력값");
-    if (err) {
-      showError("ideas-error", `${err} ${EPISODE_LIMIT}화 이하로 입력하세요.`);
-      return;
-    }
     const auto = normalizeStructure(body);
-    structure = await api.putStructure(getWork().uid || getWork().id, body);
-    renderStructure();
+    const saved = await api.putStructure(getWork().uid || getWork().id, body);
+    if (seq !== structSaveSeq) return;
+    structure = saved;
+    setControlValues();
+    updateStructSummary();
+    applyStructCollapsed();
     $("struct-info").textContent = auto ? "저장됨 (Part 사용을 함께 켰습니다)" : "저장됨";
   });
 }
@@ -611,10 +647,10 @@ export async function exportIdeasMarkdown() {
 
 function settingRowHtml(s) {
   const m = mode();
-  const inc = `<input type="checkbox" class="inc" data-inc-setting="${s.id}"${includedSettings.has(s.id) ? " checked" : ""} title="대화를 메시지에 포함">`;
-  const codeChip = s.code ? `<span class="chip mono">${esc(s.code)}</span>` : "";
-  const chips = `${codeChip}<span class="chip">${esc(CAT_LABEL[s.category] ?? s.category)}</span>`;
   const expanded = m !== "full" && expandedSettings.has(s.id);
+  const inc = `<input type="checkbox" class="inc" data-inc-setting="${s.id}"${includedSettings.has(s.id) ? " checked" : ""} title="대화를 메시지에 포함">`;
+  const codeChip = s.code ? `<span class="chip mono"${expanded ? ' data-collapse-chip title="클릭하면 원래 보기(한줄·이어서)로 접기"' : ""}>${esc(s.code)}</span>` : "";
+  const chips = `${codeChip}<span class="chip">${esc(CAT_LABEL[s.category] ?? s.category)}</span>`;
   if (m === "one" && !expanded) {
     const text = s.summary || (s.detail || "").split("\n")[0] || "";
     return `<div class="setting one-line" data-setting="${s.id}">${inc}${chips}<span class="sline"><b>${esc(s.title)}</b> ${esc(text)}</span></div>`;
@@ -669,6 +705,11 @@ function renderSettings() {
     if (mode() !== "full") {
       if (expandedSettings.has(id)) {
         el.classList.add("expanded");
+        el.querySelector("[data-collapse-chip]")?.addEventListener("click", (e) => {
+          e.stopPropagation();
+          expandedSettings.delete(id);
+          renderSettings();
+        });
         el.querySelector(".btn-row")?.insertAdjacentHTML("beforeend", `<button class="btn sm" data-collapse>접기</button>`);
         el.querySelector("[data-collapse]")?.addEventListener("click", () => {
           expandedSettings.delete(id);
@@ -851,12 +892,19 @@ export function initIdeas() {
       updateMsgModeSeg();
       renderChat();
     }));
+  $("st-level").addEventListener("change", scheduleStructureSave);
+  $("st-total").addEventListener("input", scheduleStructureSave);
+  $("part-list").addEventListener("input", (e) => {
+    if (e.target.closest("[data-part]")) scheduleStructureSave();
+  });
   $("btn-part-add").addEventListener("click", () => {
     structure.parts = collectParts();
     structure.parts.push({ title: "", summary: "" });
     renderParts();
+    const rows = $("part-list").querySelectorAll("[data-part]");
+    rows[rows.length - 1]?.querySelector('[data-f="title"]')?.focus();
+    scheduleStructureSave();
   });
-  $("btn-struct-save").addEventListener("click", saveStructure);
   $("struct-toggle").addEventListener("click", () => {
     localStorage.setItem("struct-collapsed", isStructCollapsed() ? "0" : "1");
     applyStructCollapsed();

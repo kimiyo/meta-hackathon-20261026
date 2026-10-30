@@ -355,6 +355,8 @@ h3 input[type="checkbox"].inc { margin-top: 0; }
 .setting-edit:empty { display: none; }
 .setting-edit { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
 .setting.expandable { cursor: pointer; }
+.setting.expanded [data-collapse-chip] { cursor: pointer; }
+.setting.expanded [data-collapse-chip]:hover { background: #dcefe9; }
 #setting-list[data-mode="one"] .setting.expanded, #setting-list[data-mode="flow"] .setting.expanded { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
 #setting-list[data-mode="one"] .setting,
 #setting-list[data-mode="flow"] .setting {
