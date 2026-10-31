@@ -17,7 +17,7 @@
 <body>
 
 <header class="topbar">
-  <div class="logo"><img class="brand-mark" src="./assets/symbol-paper.svg" alt="" width="22" height="22">StorySpine <span class="brand-sub">AI Novel Studio</span> <small id="model-info">연결 확인 중…</small></div>
+  <div class="logo"><img class="brand-mark" src="./assets/symbol-paper.svg" alt="" width="22" height="22">StorySpine <span class="brand-sub">AI Novel Studio</span> <button class="model-chip" id="model-info" title="모델 변경">연결 확인 중…</button></div>
   <button class="btn sm" id="btn-home" style="display:none;background:transparent;border-color:#4a524c;color:#e8e4d8;white-space:nowrap">← 작품 목록</button>
   <div class="work-pill" id="work-pill" title="클릭하여 소설 정보 수정" style="cursor:pointer">작품 없음</div>
   <div class="spacer"></div>
@@ -376,6 +376,24 @@
     <div class="ailog-grid">
       <div id="ailog-list"></div>
       <div id="ailog-detail"></div>
+    </div>
+  </div>
+</div>
+
+<div id="model-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="model-title">
+    <h3 id="model-title">모델 변경</h3>
+    <div id="model-error"></div>
+    <div id="model-list"></div>
+    <label class="f">다른 모델 ID (향후 버전 직접 입력)</label>
+    <input type="text" id="model-custom" placeholder="예: muse-spark-1.4" maxlength="128" autocomplete="off" spellcheck="false">
+    <div class="notice warn small" id="model-contrib-warn" style="display:none">contributor 모드는 전송한 콘텐츠가 학습에 사용될 수 있습니다.</div>
+    <label class="f">관리자 토큰 (서버에 설정된 경우에만)</label>
+    <input type="password" id="model-token" placeholder="ADMIN_TOKEN" autocomplete="off">
+    <p class="muted small" style="margin-top:8px">변경 전 연결을 확인합니다. 서버를 다시 시작하면 .env의 MODEL_TEXT_ID로 돌아갑니다.</p>
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-model-cancel">취소</button>
+      <button class="btn primary" id="btn-model-apply">변경하기</button>
     </div>
   </div>
 </div>

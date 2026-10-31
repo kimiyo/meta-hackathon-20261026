@@ -1,6 +1,9 @@
 """StorySpine API server."""
 from __future__ import annotations
 
+import threading
+from dataclasses import replace as _dc_replace
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +15,7 @@ from .meta_client import build_client
 from .routes import entities, episodes, ideas, nodes, ops, works
 
 settings = load_settings()
+_settings_lock = threading.Lock()
 
 app = FastAPI(title="StorySpine", version="0.2.0")
 
@@ -36,6 +40,29 @@ def get_meta_client():
     """One MetaClient per call site (stateless, sqlite-backed recording)."""
     return build_client(settings, recorder=_recorder,
                         budget_checker=_budget_checker)
+
+
+def current_settings():
+    """Current process settings (model may have been switched at runtime)."""
+    return settings
+
+
+def build_client_with_model(model_id: str):
+    """Temp client for verifying a candidate model (does not switch)."""
+    return build_client(_dc_replace(settings, model_text_id=model_id),
+                        recorder=_recorder, budget_checker=_budget_checker)
+
+
+def switch_model(model_id: str):
+    """Replace the process model id (thread-safe). Next AI call wins.
+
+    Runtime-only: a restart restores .env. All settings readers import
+    the module global at call time, so rebinding is safe.
+    """
+    global settings
+    with _settings_lock:
+        settings = _dc_replace(settings, model_text_id=model_id)
+        return settings
 
 
 app.include_router(entities.router)

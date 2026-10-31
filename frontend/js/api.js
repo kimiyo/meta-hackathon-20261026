@@ -59,6 +59,16 @@ export const api = {
     req(`/aliases/${id}/resolve`, { method: "POST", body: JSON.stringify(body) }),
   llmCalls: () => req("/ops/llm-calls?limit=20"),
   opsBudget: () => req("/ops/budget"),
+  model: () => req("/ops/model"),
+  setModel: (model, adminToken) =>
+    req("/ops/model", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(adminToken ? { "X-Admin-Token": adminToken } : {}),
+      },
+      body: JSON.stringify({ model }),
+    }),
   aiLog: (workKey, limit) => req(`/works/${workKey}/ai-log?limit=${limit ?? 50}`),
   // 아이디어
   threads: (workKey) => req(`/works/${workKey}/threads`),

@@ -8,6 +8,7 @@ import { initHome, refreshHome, stageScreen } from "./home.js";
 import { enterIdeas, initIdeas } from "./ideas.js";
 import { enterDesign, initDesign } from "./storydesign.js";
 import { initAiLog } from "./ailog.js";
+import { initModel } from "./model.js";
 import { SCREENS, current, go, novelPath, onChange } from "./router.js";
 
 // 탭 전환
@@ -93,6 +94,11 @@ document.addEventListener("work-renamed", async () => {
   if (w) document.title = `${w.title} · StorySpine`;
 });
 
+// 모델 변경 시 상단 칩 새로고침
+document.addEventListener("model-changed", () => {
+  refreshTopbar();
+});
+
 $("btn-home").addEventListener("click", () => go("/"));
 document.querySelector(".logo").style.cursor = "pointer";
 document.querySelector(".logo").addEventListener("click", () => go("/"));
@@ -123,6 +129,7 @@ initEntities();
 initHome();
 initIdeas();
 initAiLog();
+initModel();
 refreshTopbar();
 refreshBudgetChips();
 onChange(() => route());
