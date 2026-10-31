@@ -18,7 +18,7 @@ StorySpine은 기획·집필·설정 검토를 연결하는 AI 소설 창작 스
 ```text
 server/app/        FastAPI 서버 (유일 AI 출구 meta_client.py, 상태머신, 기억 저장소)
 server/tests/      pytest 스위트 (목/픽스처 중심, 실호출은 아래 재현 절차만)
-web/               Vite + React SPA (화면 4개, 빌드 후 FastAPI가 / 에서 서빙)
+frontend/          정적 프론트엔드 (HTML/CSS/JS, 빌드 없이 FastAPI가 / 에서 서빙)
 samples/           자작 샘플 케이스 (주입 실험용)
 evals/             실측·실험·평가 기록
 docs/              기획·설계 문서
@@ -46,11 +46,7 @@ cd server && ../.venv/bin/python -m pytest -q
 # 3. 서버 기동 (http://127.0.0.1:8000, health: /api/v1/health)
 ../.venv/bin/python -m uvicorn app.main:app --port 8000
 
-# 4. 웹 개발 서버 (http://127.0.0.1:5173, /api 프록시)
-cd web && npm install && npm run dev
-
-# 5. 웹 프로덕션 빌드 (FastAPI가 / 에서 서빙)
-cd web && npm run build
+# 4. 브라우저에서 http://127.0.0.1:8000 열기 (정적 서빙, 빌드 단계 없음)
 ```
 
 Windows PowerShell에서는 가상환경 경로가 `Scripts` 아래입니다:
@@ -68,9 +64,7 @@ cd server; ..\.venv\Scripts\python -m pytest -q
 # 3. 서버 기동 (http://127.0.0.1:8000, health: /api/v1/health)
 ..\.venv\Scripts\python -m uvicorn app.main:app --port 8000
 
-# 4-5. 웹 개발 서버 / 프로덕션 빌드
-cd web; npm install; npm run dev
-cd web; npm run build
+# 4. 브라우저에서 http://127.0.0.1:8000 열기 (정적 서빙, 빌드 단계 없음)
 ```
 
 ## 핵심 흐름

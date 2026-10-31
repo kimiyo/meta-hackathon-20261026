@@ -71,6 +71,6 @@ class NoStoreStaticFiles(StaticFiles):
 
 
 # Serve the static frontend (plain HTML/CSS/JS, no build step) at /.
-_dist = PROJECT_ROOT / "frontend"
-if _dist.is_dir():
-    app.mount("/", NoStoreStaticFiles(directory=_dist, html=True), name="spa")
+_frontend = PROJECT_ROOT / "frontend"
+if _frontend.is_dir():
+    app.mount("/", NoStoreStaticFiles(directory=_frontend, html=True), name="spa")

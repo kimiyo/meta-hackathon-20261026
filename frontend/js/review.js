@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
 
-// 화면 3 · 작가 검토 (web/src/pages/Review.jsx 이식)
+// 화면 3 · 작가 검토 (구 React판에서 이식)
 
 // 작은 단어 단위 diff (삽입/삭제만 표시)
 function diffWords(a, b) {

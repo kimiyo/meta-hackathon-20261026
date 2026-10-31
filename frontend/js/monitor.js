@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
 import { getWork } from "./work.js";
 
-// 화면 2 · 집필 모니터 (web/src/pages/Monitor.jsx 이식)
+// 화면 2 · 집필 모니터 (구 React판에서 이식)
 const ORDER = ["PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED", "COMMITTED"];
 const SHORT = { PLAN: "P", DRAFT: "D", VERIFY: "V", READY_FOR_REVIEW: "R", AUTHOR_APPROVED: "A", COMMITTED: "C" };
 const ONCLS = { PLAN: "on-p", DRAFT: "on-d", VERIFY: "on-v", READY_FOR_REVIEW: "on-r", AUTHOR_APPROVED: "on-a", COMMITTED: "on-c" };

@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
 
-// 화면 4 · 엔티티 브라우저 (web/src/pages/Entities.jsx 이식)
+// 화면 4 · 엔티티 브라우저 (구 React판에서 이식)
 let list = [];
 let sel = null;
 
