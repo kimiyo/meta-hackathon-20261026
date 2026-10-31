@@ -22,6 +22,11 @@ function setTreeMode(m) {
   renderTree();
 }
 
+function setPartnerCollapsed(collapsed) {
+  localStorage.setItem("design-partner-collapsed", collapsed ? "1" : "0");
+  document.querySelector(".grid-design")?.classList.toggle("partner-collapsed", collapsed);
+}
+
 async function run(fn, label) {
   if (busy) return;
   busy = true;
@@ -458,6 +463,9 @@ function initMobileTabs() {
 }
 
 export function initDesign() {
+  setPartnerCollapsed(localStorage.getItem("design-partner-collapsed") === "1");
+  $("btn-partner-collapse").addEventListener("click", () => setPartnerCollapsed(true));
+  $("btn-partner-expand").addEventListener("click", () => setPartnerCollapsed(false));
   document.querySelectorAll("#tree-mode button").forEach((b) =>
     b.addEventListener("click", () => setTreeMode(b.dataset.mode)));
   $("btn-tree-search").addEventListener("click", () => run(async () => {

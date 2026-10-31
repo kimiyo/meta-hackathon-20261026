@@ -94,8 +94,20 @@ section.screen.active { display: block; }
 .grid-monitor { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
 .grid-review { display: grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start; }
 .grid-ideas { display: grid; grid-template-columns: 400px 1fr; gap: 16px; align-items: start; }
-.grid-design { display: grid; grid-template-columns: 300px 1fr 340px; gap: 16px; align-items: start; }
-#pane-tree, #pane-partner { resize: horizontal; overflow: auto; min-width: 220px; max-width: 640px; }
+.grid-design { display: grid; grid-template-columns: 340px 1fr 360px; gap: 16px; align-items: start; }
+#pane-partner, #pane-editor { resize: horizontal; overflow: auto; min-width: 220px; max-width: 640px; }
+#pane-partner .pane-expand { display: none; }
+.grid-design.partner-collapsed { grid-template-columns: 44px 1fr 360px; }
+.grid-design.partner-collapsed #pane-partner { resize: none; min-width: 0; max-width: none; padding: 8px 6px; }
+.grid-design.partner-collapsed #pane-partner .partner-main { display: none; }
+.grid-design.partner-collapsed #pane-partner .pane-expand {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 7px;
+  padding: 10px 4px; cursor: pointer; color: var(--ink-soft);
+  font-family: var(--sans); font-size: 12px;
+}
+.grid-design.partner-collapsed #pane-partner .pane-expand:hover { border-color: var(--accent); color: var(--accent-deep); }
+#pane-partner .pane-expand .vlabel { writing-mode: vertical-rl; font-weight: 600; }
 .card {
   background: var(--card);
   border: 1px solid var(--line);
@@ -433,13 +445,19 @@ ul.tree li.collapsed > ul { display: none; }
 
 /* ── 반응형 ──────────────────────────────── */
 @media (max-width: 1100px) {
-  .grid-design { grid-template-columns: 260px 1fr 300px; }
+  .grid-design { grid-template-columns: 300px 1fr 320px; }
+  .grid-design.partner-collapsed { grid-template-columns: 44px 1fr 320px; }
   .grid-ideas { grid-template-columns: 340px 1fr; }
   .home-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 900px) {
   .grid-ideas, .grid-design, .grid-2, .grid-monitor, .grid-review { grid-template-columns: 1fr; }
-  #pane-tree, #pane-partner { resize: none; max-width: none; }
+  #pane-partner, #pane-editor { resize: none; max-width: none; }
+  .grid-design.partner-collapsed { grid-template-columns: 1fr; }
+  .grid-design.partner-collapsed #pane-partner { padding: 16px 18px; }
+  .grid-design.partner-collapsed #pane-partner .partner-main { display: block; }
+  .grid-design.partner-collapsed #pane-partner .pane-expand { display: none; }
+  #btn-partner-collapse { display: none; }
   #sdesign-mtabs { display: flex; }
   .grid-design .card { display: none; }
   .grid-design .card.mpane-active { display: block; }

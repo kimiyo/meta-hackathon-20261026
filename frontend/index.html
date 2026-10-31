@@ -138,11 +138,37 @@
   <div class="screen-lead"><b>이야기의 뼈대</b>작품의 방향과 전체 흐름을 함께 정리해 보세요.</div>
   <div class="card"><div id="design-meta"><span class="muted">설계 정보</span></div></div>
   <div id="sdesign-mtabs" class="btn-row">
+    <button class="btn sm" data-mpane="partner">설계 파트너</button>
     <button class="btn sm active" data-mpane="tree">구조</button>
     <button class="btn sm" data-mpane="editor">설계</button>
-    <button class="btn sm" data-mpane="partner">설계 파트너</button>
   </div>
   <div class="grid-design">
+    <div class="card" id="pane-partner">
+      <button class="pane-expand" id="btn-partner-expand" title="설계 파트너 펼치기"><span>▶</span><span class="vlabel">설계 파트너</span></button>
+      <div class="partner-main">
+      <h3 class="split"><span>설계 파트너 <span class="hint">선택 노드 기준 AI 협업</span></span><button class="btn sm" id="btn-partner-collapse" title="설계 파트너 접기">◀</button></h3>
+      <div id="partner-messages" class="chat-box"></div>
+      <label class="f">참조 (@ 없이 쉼표 구분)</label>
+      <input type="text" id="partner-refs" placeholder="예: E001, C002">
+      <label class="f">메시지</label>
+      <textarea id="partner-input" placeholder="선택 노드에 대해 질문 (Enter 전송)"></textarea>
+      <div class="btn-row">
+        <button class="btn primary sm" id="btn-partner-send">전송</button>
+      </div>
+      <h3 style="margin-top:12px">하위 설계 <span class="hint">Chapter 선택 → Episode 설계</span></h3>
+      <div style="display:flex;gap:8px">
+        <select id="expand-kind" style="flex:1">
+          <option value="">자동 (바로 아래 수준)</option>
+          <option value="part">Part</option>
+          <option value="chapter">Chapter</option>
+          <option value="episode">Episode</option>
+          <option value="scene">Scene</option>
+        </select>
+        <button class="btn sm" id="btn-expand">Expand</button>
+      </div>
+      <div id="proposal-list" style="margin-top:8px"><span class="muted small">제안 없음</span></div>
+      </div>
+    </div>
     <div class="card mpane-active" id="pane-tree">
       <h3>소설 구조 <span class="hint">작품 → Part → 장 → 화 → 장면</span></h3>
       <div style="display:flex;gap:8px;margin-bottom:8px">
@@ -184,29 +210,6 @@
       </div>
       <div id="node-inherited" style="margin-top:12px"></div>
       <div id="children-rollup" style="margin-top:12px"></div>
-    </div>
-    <div class="card" id="pane-partner">
-      <h3>설계 파트너 <span class="hint">선택 노드 기준 AI 협업</span></h3>
-      <div id="partner-messages" class="chat-box"></div>
-      <label class="f">참조 (@ 없이 쉼표 구분)</label>
-      <input type="text" id="partner-refs" placeholder="예: E001, C002">
-      <label class="f">메시지</label>
-      <textarea id="partner-input" placeholder="선택 노드에 대해 질문 (Enter 전송)"></textarea>
-      <div class="btn-row">
-        <button class="btn primary sm" id="btn-partner-send">전송</button>
-      </div>
-      <h3 style="margin-top:12px">하위 설계 <span class="hint">Chapter 선택 → Episode 설계</span></h3>
-      <div style="display:flex;gap:8px">
-        <select id="expand-kind" style="flex:1">
-          <option value="">자동 (바로 아래 수준)</option>
-          <option value="part">Part</option>
-          <option value="chapter">Chapter</option>
-          <option value="episode">Episode</option>
-          <option value="scene">Scene</option>
-        </select>
-        <button class="btn sm" id="btn-expand">Expand</button>
-      </div>
-      <div id="proposal-list" style="margin-top:8px"><span class="muted small">제안 없음</span></div>
     </div>
   </div>
 </section>
