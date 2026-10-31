@@ -3,7 +3,7 @@ import { $, esc, showError } from "./util.js";
 import { getWork } from "./work.js";
 import { go, novelPath } from "./router.js";
 
-// 화면 · 세부 설계. 구조 트리(좌) + 설계 편집(중) + 설계 파트너(우).
+// 화면 2 · 소설 설계. 구조 트리(좌) + 설계 편집(중) + 설계 파트너(우).
 let design = null;
 let nodes = [];
 let selectedId = null;
@@ -84,12 +84,13 @@ async function reloadNodes() {
 function renderDesignMeta() {
   const box = $("design-meta");
   if (!design) {
-    box.innerHTML = `<span class="muted">설계가 없습니다. 아이디어 화면에서 ‘소설설계로’ 인계하세요.</span>`;
+    box.innerHTML = `<span class="muted">설계가 없습니다. 아이디어 화면에서 인계하세요.</span>`;
     return;
   }
+  const stLabel = design.status === "draft" ? "작성 중" : design.status;
   const st = design.status === "approved"
-    ? `<span class="st-AUTHOR_APPROVED state-label">approved</span>`
-    : `<span class="chip mono">${esc(design.status)}</span>
+    ? `<span class="st-AUTHOR_APPROVED state-label">승인됨</span>`
+    : `<span class="chip">${esc(stLabel)}</span>
        <button class="btn sm primary" id="btn-design-approve">설계 승인</button>`;
   box.innerHTML = `<b>설계 v${esc(design.version)}</b> · ${esc(design.scope_total_episodes)}화 · ${st}`;
   $("btn-design-approve")?.addEventListener("click", () => run(async () => {

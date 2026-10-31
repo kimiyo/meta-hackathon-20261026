@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
 
-// 화면 4 · 엔티티 브라우저 (구 React판에서 이식)
+// 화면 5 · 설정 (구 React판에서 이식)
 let list = [];
 let sel = null;
 
@@ -19,7 +19,7 @@ async function search(query) {
 function renderList() {
   const box = $("ent-list");
   if (!list.length) {
-    box.innerHTML = `<span class="muted small">엔티티가 없습니다.</span>`;
+    box.innerHTML = `<span class="muted small">설정 항목이 없습니다.</span>`;
     return;
   }
   box.innerHTML = list

@@ -60,7 +60,7 @@ export const api = {
   llmCalls: () => req("/ops/llm-calls?limit=20"),
   opsBudget: () => req("/ops/budget"),
   aiLog: (workKey, limit) => req(`/works/${workKey}/ai-log?limit=${limit ?? 50}`),
-  // 아이디어/구조
+  // 아이디어
   threads: (workKey) => req(`/works/${workKey}/threads`),
   createThread: (workKey, title) =>
     req(`/works/${workKey}/threads`, {
@@ -108,7 +108,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(plan ?? {}),
     }),
-  // 세부 설계 트리
+  // 소설 설계 트리
   nodes: (designId, q, archived) => {
     const p = new URLSearchParams();
     if (q) p.set("q", q);

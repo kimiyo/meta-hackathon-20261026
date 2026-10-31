@@ -1,4 +1,4 @@
-"""Muse Novel Studio API server."""
+"""StorySpine API server."""
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -13,7 +13,7 @@ from .routes import entities, episodes, ideas, nodes, ops, works
 
 settings = load_settings()
 
-app = FastAPI(title="Muse Novel Studio", version="0.2.0")
+app = FastAPI(title="StorySpine", version="0.2.0")
 
 
 def _recorder(record: dict) -> None:

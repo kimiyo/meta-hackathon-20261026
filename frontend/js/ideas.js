@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
 import { getWork } from "./work.js";
 
-// 화면 · 아이디어/구조. 채팅(좌) + 전체 줄거리(우상) + 설정정보(우하).
+// 화면 1 · 아이디어. 채팅(좌) + 전체 줄거리(우상) + 설정정보(우하).
 // 줄거리는 직접 inline 편집 + AI 제안 반영, 설정은 AI 답변의 제안 버튼으로 반영된다.
 let threads = [];
 let threadId = null;
@@ -974,7 +974,7 @@ async function deleteSettingFlow(s) {
 // ---- 인계 ----
 
 function renderHandoff() {
-  $("btn-handoff").textContent = "아이디어 마무리 → 소설설계로";
+  $("btn-handoff").textContent = "아이디어 마무리 → 소설 설계로";
 }
 
 function handoffTreeHtml(nodes) {

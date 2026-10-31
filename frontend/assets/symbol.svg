@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="StorySpine 심벌">
+  <!-- StorySpine 심벌: 열린 책의 양쪽 페이지 + 중앙 축. 평면 단색(Forest). -->
+  <g fill="#214E40">
+    <path d="M13.9 5.5C10.2 3.6 6.3 3.6 3.5 5.2v21.6c2.8-1.6 6.7-1.6 10.4.3z"/>
+    <path d="M18.1 5.5c3.7-1.9 7.6-1.9 10.4-.3v21.6c-2.8-1.6-6.7-1.6-10.4.3z"/>
+    <rect x="14.9" y="4" width="2.2" height="24" rx="1"/>
+  </g>
+</svg>

@@ -21,6 +21,7 @@ function activateTab(sectionId) {
 
 // 메인(소설 목록) 보기
 function showHome() {
+  document.title = "StorySpine";
   document.querySelector("nav.tabs").style.display = "none";
   document.querySelectorAll("section.screen").forEach((s) =>
     s.classList.toggle("active", s.id === "home"));
@@ -37,7 +38,8 @@ async function showStudio(uid, screen) {
   document.querySelector("nav.tabs").style.display = "";
   $("btn-home").style.display = "";
   try {
-    await selectWorkByUid(uid);
+    const w = await selectWorkByUid(uid);
+    document.title = `${w.title} · StorySpine`;
   } catch {
     go("/");
     return;
@@ -82,6 +84,13 @@ document.addEventListener("enter-work", async (e) => {
   } catch {
     go("/");
   }
+});
+
+// 소설 제목 변경 시 브라우저 타이틀 동기화
+document.addEventListener("work-renamed", async () => {
+  const { getWork } = await import("./work.js");
+  const w = getWork();
+  if (w) document.title = `${w.title} · StorySpine`;
 });
 
 $("btn-home").addEventListener("click", () => go("/"));

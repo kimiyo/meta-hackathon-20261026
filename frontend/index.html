@@ -3,13 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Muse Novel Studio</title>
-<link rel="stylesheet" href="./styles.css?v=2">
+<title>StorySpine</title>
+<meta name="description" content="StorySpine은 아이디어를 작품 구조로 발전시키고, 회차별 집필과 설정 검토를 연결하는 AI 소설 창작 스튜디오입니다.">
+<meta property="og:title" content="StorySpine">
+<meta property="og:description" content="이야기의 뼈대를 세우고, 완결까지 함께.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#214E40">
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="stylesheet" href="./styles.css?v=3">
 </head>
 <body>
 
 <header class="topbar">
-  <div class="logo">Muse Novel Studio <small id="model-info">연결 확인 중…</small></div>
+  <div class="logo"><img class="brand-mark" src="./assets/symbol-paper.svg" alt="" width="22" height="22">StorySpine <span class="brand-sub">AI Novel Studio</span> <small id="model-info">연결 확인 중…</small></div>
   <button class="btn sm" id="btn-home" style="display:none;background:transparent;border-color:#4a524c;color:#e8e4d8;white-space:nowrap">← 작품 목록</button>
   <div class="work-pill" id="work-pill" title="클릭하여 소설 정보 수정" style="cursor:pointer">작품 없음</div>
   <div class="spacer"></div>
@@ -20,24 +28,31 @@
 </header>
 
 <nav class="tabs" id="tabs">
-  <button data-screen="ideas" class="active"><span class="n">1</span>아이디어 / 구조</button>
-  <button data-screen="sdesign"><span class="n">2</span>세부 설계</button>
-  <button data-screen="s2"><span class="n">3</span>집필 모니터</button>
+  <button data-screen="ideas" class="active"><span class="n">1</span>아이디어</button>
+  <button data-screen="sdesign"><span class="n">2</span>소설 설계</button>
+  <button data-screen="s2"><span class="n">3</span>집필</button>
   <button data-screen="s3"><span class="n">4</span>작가 검토</button>
-  <button data-screen="s4"><span class="n">5</span>엔티티 브라우저</button>
+  <button data-screen="s4"><span class="n">5</span>설정</button>
   <span class="tabs-spacer"></span>
-  <button id="btn-export" style="display:none">Export</button>
+  <button id="btn-export" style="display:none">내보내기</button>
 </nav>
 
 <main>
 <!-- ════════════ 메인 · 소설 목록 ════════════ -->
 <section class="screen active" id="home">
   <div id="home-error"></div>
+  <div class="brand-band">
+    <img class="brand-band-mark" src="./assets/symbol.svg" alt="" width="34" height="34">
+    <div>
+      <h2>이야기의 뼈대를 세우고, 완결까지 함께.</h2>
+      <p>아이디어를 설계하고, AI와 집필하고, 앞선 설정과의 연결을 검토하세요.</p>
+    </div>
+  </div>
   <div class="card">
     <h3>새 소설 만들기</h3>
-    <p class="muted small">버튼을 누르면 입력창이 뜹니다. 제목을 입력하면 새 소설을 만들고 아이디어 화면으로 들어갑니다.</p>
+    <p class="muted small">첫 아이디어에 이야기의 뼈대를 세워 보세요. 제목을 입력하면 새 소설을 만들고 아이디어 화면으로 들어갑니다.</p>
     <div class="btn-row">
-      <button class="btn primary" id="btn-home-create">새로 만들기 · 시작</button>
+      <button class="btn primary" id="btn-home-create">새 소설 시작하기</button>
     </div>
   </div>
   <div class="card">
@@ -49,10 +64,11 @@
   </div>
 </section>
 
-<!-- ════════════ 화면 1 · 아이디어/구조 ════════════ -->
+<!-- ════════════ 화면 1 · 아이디어 ════════════ -->
 <section class="screen" id="ideas">
   <div id="ideas-error"></div>
-  <div id="ideas-locked" class="notice warn" style="display:none">설계로 인계되어 읽기 전용입니다. 줄거리 개정이 내려가면 이 화면이 아니라 세부 설계에서 이어가세요.</div>
+  <div class="screen-lead"><b>이야기의 씨앗</b>어떤 이야기를 시작할까요? AI와 소재를 다듬고 줄거리와 설정을 정리하세요.</div>
+  <div id="ideas-locked" class="notice warn" style="display:none">설계로 인계되어 읽기 전용입니다. 줄거리 개정이 내려가면 이 화면이 아니라 소설 설계에서 이어가세요.</div>
   <div class="grid-ideas">
     <div class="card">
       <h3>아이디어 대화 <span class="hint">AI와 소재·줄거리·설정 논의</span></h3>
@@ -109,16 +125,17 @@
       <div class="card">
         <h3>설계로 인계</h3>
         <div class="btn-row">
-          <button class="btn primary" id="btn-handoff">아이디어 마무리 → 소설설계로</button>
+          <button class="btn primary" id="btn-handoff">아이디어 마무리 → 소설 설계로</button>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ════════════ 화면 2 · 세부 설계 ════════════ -->
+<!-- ════════════ 화면 2 · 소설 설계 ════════════ -->
 <section class="screen" id="sdesign">
   <div id="sdesign-error"></div>
+  <div class="screen-lead"><b>이야기의 뼈대</b>작품의 방향과 전체 흐름을 함께 정리해 보세요.</div>
   <div class="card"><div id="design-meta"><span class="muted">설계 정보</span></div></div>
   <div id="sdesign-mtabs" class="btn-row">
     <button class="btn sm active" data-mpane="tree">구조</button>
@@ -194,12 +211,13 @@
   </div>
 </section>
 
-<!-- ════════════ 화면 3 · 집필 모니터 ════════════ -->
+<!-- ════════════ 화면 3 · 집필 ════════════ -->
 <section class="screen" id="s2">
   <div id="monitor-error"></div>
+  <div class="screen-lead"><b>다음 화 쓰기</b>이번 화에서 달라질 것은 무엇인가요? 회차를 전진시켜 원고를 쓰고 검증하세요.</div>
   <div class="grid-monitor">
     <div class="card">
-      <h3>회차별 진행 <span class="hint">P/D/V/R/A/C</span></h3>
+      <h3>회차별 진행 <span class="hint">준비/초안/검토/대기/승인/확정</span></h3>
       <label class="f">설계 ID</label>
       <div style="display:flex;gap:8px">
         <input type="text" id="monitor-design-id" placeholder="설계 ID">
@@ -208,16 +226,16 @@
       <div class="small muted" id="monitor-budget" style="margin-top:10px">토큰 —</div>
       <div class="progress-10" id="monitor-progress" style="display:none"><i style="width:0%"></i></div>
       <table class="tbl" style="margin-top:10px">
-        <thead><tr><th>회차</th><th>게이트</th><th>상태</th><th></th></tr></thead>
+        <thead><tr><th>회차</th><th>진행</th><th>상태</th><th></th></tr></thead>
         <tbody id="ep-rows"><tr><td colspan="4"><span class="muted small">설계를 불러오세요.</span></td></tr></tbody>
       </table>
     </div>
     <div>
       <div class="card" id="ep-detail"><h3>회차 상세</h3><span class="muted">회차를 선택하면 상세 정보가 표시됩니다.</span></div>
       <div class="card">
-        <h3>LLM 호출 기록 <span class="hint">최근 20건 · llm_calls</span></h3>
+        <h3>AI 호출 기록 <span class="hint">최근 20건</span></h3>
         <table class="tbl">
-          <thead><tr><th>시각</th><th>bundle</th><th>회차</th><th>in/out</th><th>지연</th><th>결과</th></tr></thead>
+          <thead><tr><th>시각</th><th>작업</th><th>회차</th><th>in/out</th><th>지연</th><th>결과</th></tr></thead>
           <tbody id="calls-rows"><tr><td colspan="6"><span class="muted small">기록 없음</span></td></tr></tbody>
         </table>
       </div>
@@ -228,6 +246,7 @@
 <!-- ════════════ 화면 4 · 작가 검토 ════════════ -->
 <section class="screen" id="s3">
   <div id="review-error"></div>
+  <div class="screen-lead"><b>연결 살펴보기</b>앞선 설정과의 연결을 검토하고, 확정할 내용을 고르세요.</div>
   <div id="review-notice"></div>
   <div style="margin-bottom:14px;display:flex;gap:8px;align-items:center">
     <label class="f" style="margin:0">회차</label>
@@ -248,11 +267,11 @@
         <div class="small muted" id="manuscript-meta" style="margin-top:8px"></div>
       </div>
       <div class="card">
-        <h3>수정 요청 <span class="hint">request-change → DRAFT로 복귀 (원고·입력 보존)</span></h3>
+        <h3>수정 요청 <span class="hint">초안으로 복귀 (원고·입력 보존)</span></h3>
         <textarea id="change-req" placeholder="예: 타인의 이름을 받는 장면을 규칙 위반이 아니라 예외 거래로 고쳐줘."></textarea>
         <div class="btn-row">
           <button class="btn" id="btn-request-change">수정 요청 보내기</button>
-          <button class="btn primary" id="btn-approve-ep">승인 + 커밋</button>
+          <button class="btn primary" id="btn-approve-ep">확정하기</button>
         </div>
       </div>
     </div>
@@ -269,12 +288,13 @@
   </div>
 </section>
 
-<!-- ════════════ 화면 5 · 엔티티 브라우저 ════════════ -->
+<!-- ════════════ 화면 5 · 설정 ════════════ -->
 <section class="screen" id="s4">
   <div id="entities-error"></div>
+  <div class="screen-lead"><b>설정</b>흩어진 설정을 작품 안에서 연결하세요. 확정된 내용만 표시됩니다.</div>
   <div class="grid-2">
     <div class="card">
-      <h3>엔티티 검색 <span class="hint">MVP: character · location</span></h3>
+      <h3>설정 검색 <span class="hint">인물 · 장소</span></h3>
       <div style="display:flex;gap:8px">
         <input type="text" id="ent-search" placeholder="이름·ID 검색">
         <button class="btn sm" id="btn-ent-search" style="white-space:nowrap">검색</button>
@@ -282,9 +302,9 @@
       <div style="margin-top:10px" id="ent-list"><span class="muted small">불러오는 중…</span></div>
     </div>
     <div>
-      <div class="card" id="ent-detail"><h3>엔티티 상태</h3><span class="muted">엔티티를 선택하세요.</span></div>
+      <div class="card" id="ent-detail"><h3>설정 상태</h3><span class="muted">설정을 선택하세요.</span></div>
       <div class="card" id="ent-history-card" style="display:none">
-        <h3>속성 이력 타임라인 <span class="hint">entity_changes 순서 적용</span></h3>
+        <h3>속성 이력 타임라인 <span class="hint">변경 순서대로 표시</span></h3>
         <div class="timeline" id="ent-history"></div>
       </div>
     </div>
@@ -292,7 +312,7 @@
 </section>
 </main>
 
-<div class="footer-note">Muse Novel Studio — API 키 입력란 없음 · <a href="./manual.html">사용 설명서</a></div>
+<div class="footer-note">StorySpine · AI Novel Studio — API 키 입력란 없음 · <a href="./manual.html">사용 설명서</a> · Built with Meta Model API and Muse Spark.</div>
 
 <div id="novel-dialog-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-dialog-title">

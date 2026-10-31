@@ -1,7 +1,7 @@
 import { api } from "./api.js";
-import { $, esc, showError } from "./util.js";
+import { $, esc, showError, stateKo, verdictKo } from "./util.js";
 
-// 화면 3 · 작가 검토 (구 React판에서 이식)
+// 화면 4 · 작가 검토 (구 React판에서 이식)
 
 // 작은 단어 단위 diff (삽입/삭제만 표시)
 function diffWords(a, b) {
@@ -102,13 +102,13 @@ function renderNotice() {
     return;
   }
   if (job.state === "READY_FOR_REVIEW") {
-    box.innerHTML = `<div class="notice ok"><b>EP ${esc(job.episode_no)} · READY_FOR_REVIEW</b> — 승인하면 원고와 기억 변경안이 <b>원자적으로 커밋</b>됩니다. (멱등, 1회만 적용)</div>`;
+    box.innerHTML = `<div class="notice ok"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — 검토한 원고와 설정 변경을 확정할까요? 확정하면 한꺼번에 반영되며 되돌릴 수 없습니다.</div>`;
   } else if (job.state === "NEEDS_AUTHOR") {
-    box.innerHTML = `<div class="notice err"><b>EP ${esc(job.episode_no)} · NEEDS_AUTHOR</b> — ${esc(job.last_error || "작가 판정이 필요합니다.")}</div>`;
+    box.innerHTML = `<div class="notice err"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — ${esc(job.last_error || "작가 판정이 필요합니다.")}</div>`;
   } else {
     box.innerHTML = "";
   }
-  $("review-state").innerHTML = `상태: <b>${esc(job.state)}</b> · 시도 ${esc(job.attempt)}`;
+  $("review-state").innerHTML = `상태: <b>${esc(stateKo(job.state))}</b> · 시도 ${esc(job.attempt)}`;
 }
 
 function renderManuscript() {
@@ -147,7 +147,7 @@ function renderVerdicts() {
   box.innerHTML = items
     .map(
       (it) => `<div class="verdict-card">
-        <div class="verdict-head"><span class="${VCLASS[it.validation] ?? "v-deferred"}">${esc(it.validation)}</span><span class="op">${esc(it.operation)} · ${esc(it.entity_id || it.candidate_name || "")} ${esc(it.attribute_path || "")}</span></div>
+        <div class="verdict-head"><span class="${VCLASS[it.validation] ?? "v-deferred"}">${esc(verdictKo(it.validation))}</span><span class="op">${esc(it.operation)} · ${esc(it.entity_id || it.candidate_name || "")} ${esc(it.attribute_path || "")}</span></div>
         <div class="quote-box"><span class="src">신규</span>${esc(it.evidence_quote || "(인용 없음)")}</div>
         ${it.counter_quote ? `<div class="quote-box"><span class="src">기존 근거</span>${esc(it.counter_quote)}</div>` : ""}
         ${it.reason ? `<div class="reason">${esc(it.reason)}</div>` : ""}
@@ -168,7 +168,7 @@ function renderAliases() {
       (a) => `<div class="alias-card" data-alias="${esc(a.alias_id)}">
         <b>${esc(a.alias)}</b> <span class="small muted">— ${esc(a.basis)} (현재 연결: ${esc(a.canonical_name ?? "없음")})</span>
         <div class="btn-row">
-          <input type="text" placeholder="연결할 entity_id" data-ent-input style="width:140px" value="">
+          <input type="text" placeholder="연결할 인물 ID" data-ent-input style="width:140px" value="">
           <button class="btn sm" data-confirm>확정(빈칸=새 인물)</button>
           <button class="btn sm ghost" data-reject>기각</button>
         </div>
@@ -228,7 +228,7 @@ export function initReview() {
   $("btn-approve-ep").addEventListener("click", () =>
     run(async () => {
       const r = await api.approveEpisode(currentEp());
-      alert(`커밋 완료: ${r.commit.applied}건 반영`);
+      alert(`확정 완료: ${r.commit.applied}건 반영`);
       await load(currentEp());
     })
   );

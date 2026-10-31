@@ -6,9 +6,9 @@
 
 StorySpine은 기획·집필·설정 검토를 연결하는 AI 소설 창작 스튜디오입니다. 이전 명칭은 Muse Novel Studio입니다.
 
-브랜드는 **C안 · Story Architecture**로 확정했습니다. [브랜드 기획안](docs/StorySpine_브랜드_기획안.md)과 [브랜드 이미지·사용 가이드](docs/branding/README.md)를 참고하세요. 현재 이미지 자료는 채택 보드이며, 개별 배포 에셋 제작과 앱 화면 적용은 후속 작업입니다.
+브랜드는 **C안 · Story Architecture**로 확정했습니다. [브랜드 기획안](docs/StorySpine_브랜드_기획안.md)과 [브랜드 이미지·사용 가이드](docs/branding/README.md)를 참고하세요. 심벌·파비콘·앱 화면 표기 적용을 완료했습니다. 히어로·발표 자료는 후속 제작물입니다.
 
-웹소설 연재 코파이럿. 기획→집필→추출→검증→품질→승인→커밋 파이프라인으로
+AI 소설 창작 스튜디오. 기획→집필→추출→검증→품질→검토→확정 파이프라인으로
 장편 연재의 설정·연속성을 관리한다. 모든 AI 호출은 Meta Model API(`muse-spark-1.3`)만 사용한다.
 
 상세 명세는 [docs/구현계획.md](docs/구현계획.md) (문서 위계 최우선).
@@ -28,7 +28,7 @@ data/studio.db     SQLite 저장소 (git 무시, 실행 시 자동 생성)
 
 ## 준비물
 
-- Python 3.11+, Node 20+
+- Python 3.11+
 - Meta Model API 키 (`.env`의 `MODEL_API_KEY`, 커밋 금지)
 
 ## 실행
@@ -70,9 +70,9 @@ cd server; ..\.venv\Scripts\python -m pytest -q
 ## 핵심 흐름
 
 1. 작품 생성 → 설계도 생성(10화 단위 분할)·승인 — 화면 1
-2. 회차별 `advance`로 PLAN→DRAFT→VERIFY→READY 전진 — 화면 2
-3. 원고·검증 카드·별명 판정 검토 후 승인+커밋 (원자적·멱등) — 화면 3
-4. 엔티티 상태·이력 조회 (승인분만) — 화면 4
+2. 회차별 `advance`로 준비→초안→검토→대기 전진 — 화면 2
+3. 원고·검증 카드·별명 판정 검토 후 확정 (원자적·멱등) — 화면 3
+4. 설정 상태·이력 조회 (확정분만) — 화면 4
 
 ## 설정 (.env)
 
@@ -105,12 +105,12 @@ for EP in 1 2 3; do
     -d '{}' > /dev/null                          # DRAFT→VERIFY
   curl -s -X POST $BASE/episodes/$EP/advance -H 'Content-Type: application/json' \
     -d '{}'                                      # VERIFY→READY (판정 확인)
-  curl -s -X POST $BASE/episodes/$EP/approve     # 승인+커밋
+  curl -s -X POST $BASE/episodes/$EP/approve     # 확정
 done
 curl -s "$BASE/entities/ch_0001/state?as_of_episode=2"  # 다음화 반영 확인
 ```
 
-기대 결과: 3회차 연속 COMMITTED, EP2 시점 상태에 EP1 변경 반영.
+기대 결과: 3회차 연속 확정(COMMITTED), EP2 시점 상태에 EP1 변경 반영.
 실측 기준: 약 21 호출, 약 169k 토큰, 약 9분 (`evals/결과_20261028.md`).
 
 ## 보안

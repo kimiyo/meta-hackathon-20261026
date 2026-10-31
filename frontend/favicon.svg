@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- StorySpine favicon (Forest 바탕 + Paper 심벌). PNG 재생성:
+       rsvg-convert -w 16 -h 16 favicon.svg -o favicon-16.png (32/48 동일)
+       rsvg-convert -w 180 -h 180 favicon.svg -o apple-touch-icon.png -->
+  <rect width="32" height="32" fill="#214E40"/>
+  <g fill="#F7F4EC">
+    <path d="M13.9 5.5C10.2 3.6 6.3 3.6 3.5 5.2v21.6c2.8-1.6 6.7-1.6 10.4.3z"/>
+    <path d="M18.1 5.5c3.7-1.9 7.6-1.9 10.4-.3v21.6c-2.8-1.6-6.7-1.6-10.4.3z"/>
+    <rect x="14.9" y="4" width="2.2" height="24" rx="1"/>
+  </g>
+</svg>

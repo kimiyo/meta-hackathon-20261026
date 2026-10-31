@@ -1,10 +1,10 @@
 // 해시 라우터. 정적 서빙에서도 동작한다.
 //   #/                     메인(작품 목록)
-//   #/novels/{uid}/ideas    아이디어/구조
-//   #/novels/{uid}/design   세부 설계
-//   #/novels/{uid}/monitor  집필 모니터
+//   #/novels/{uid}/ideas    아이디어
+//   #/novels/{uid}/design   소설 설계
+//   #/novels/{uid}/monitor  집필
 //   #/novels/{uid}/review   작가 검토
-//   #/novels/{uid}/entities 엔티티 브라우저
+//   #/novels/{uid}/entities 설정
 export const SCREENS = {
   ideas: "ideas",
   design: "sdesign",

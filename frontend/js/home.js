@@ -5,7 +5,7 @@ import { $, esc, showError } from "./util.js";
 let cache = [];
 let pendingDelete = null;
 
-const STAGE_LABEL = { ideas: "아이디어/구조", design: "세부 설계", writing: "집필" };
+const STAGE_LABEL = { ideas: "아이디어", design: "소설 설계", writing: "집필" };
 const STAGE_SCREEN = { ideas: "ideas", design: "design", writing: "monitor" };
 
 export function stageScreen(stage) {
@@ -45,7 +45,7 @@ export async function refreshHome() {
     $("home-count").textContent = `${cache.length}편 · 최근 수정 순`;
     const list = q ? cache.filter((w) => (w.title ?? "").includes(q)) : cache;
     if (!cache.length) {
-      box.innerHTML = `<span class="muted">아직 소설이 없습니다. 위 버튼으로 새로 만드세요.</span>`;
+      box.innerHTML = `<span class="muted">첫 아이디어에 이야기의 뼈대를 세워 보세요.</span>`;
       return;
     }
     if (!list.length) {
@@ -73,7 +73,7 @@ export async function refreshHome() {
       });
     });
   } catch (e) {
-    box.innerHTML = `<span class="muted small">불러오기 실패.</span>
+    box.innerHTML = `<span class="muted small">작업을 마치지 못했습니다. 다시 시도해 주세요.</span>
       <div class="btn-row"><button class="btn sm" id="btn-home-retry">재시도</button></div>`;
     $("btn-home-retry").addEventListener("click", refreshHome);
     showError("home-error", String(e));

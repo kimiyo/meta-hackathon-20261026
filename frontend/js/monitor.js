@@ -1,8 +1,8 @@
 import { api } from "./api.js";
-import { $, esc, showError } from "./util.js";
+import { $, esc, showError, stateKo } from "./util.js";
 import { getWork } from "./work.js";
 
-// 화면 2 · 집필 모니터 (구 React판에서 이식)
+// 화면 3 · 집필 (구 React판에서 이식)
 const ORDER = ["PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED", "COMMITTED"];
 const SHORT = { PLAN: "P", DRAFT: "D", VERIFY: "V", READY_FOR_REVIEW: "R", AUTHOR_APPROVED: "A", COMMITTED: "C" };
 const ONCLS = { PLAN: "on-p", DRAFT: "on-d", VERIFY: "on-v", READY_FOR_REVIEW: "on-r", AUTHOR_APPROVED: "on-a", COMMITTED: "on-c" };
@@ -30,16 +30,16 @@ async function run(fn) {
 
 function badges(state) {
   if (!state) return `<span class="muted small">미시작</span>`;
-  if (state === "NEEDS_AUTHOR") return `<span class="st-NEEDS_AUTHOR state-label">NEEDS_AUTHOR</span>`;
+  if (state === "NEEDS_AUTHOR") return `<span class="st-NEEDS_AUTHOR state-label">${stateKo(state)}</span>`;
   const idx = ORDER.indexOf(state);
   return ORDER.map((s, i) =>
-    `<span class="badge${i <= idx ? " " + ONCLS[s] : ""}" title="${esc(s)}">${SHORT[s]}</span>`
+    `<span class="badge${i <= idx ? " " + ONCLS[s] : ""}" title="${esc(stateKo(s))}">${SHORT[s]}</span>`
   ).join("");
 }
 
 function stateLabel(state) {
   if (!state) return "-";
-  return `<span class="st-${esc(state)} state-label">${esc(state)}</span>`;
+  return `<span class="st-${esc(state)} state-label">${esc(stateKo(state))}</span>`;
 }
 
 function renderRows() {
@@ -121,9 +121,9 @@ function renderDetail() {
     ${verificationHtml()}
     ${qualityHtml()}
     <div class="btn-row">
-      <button class="btn primary" data-advance>다음 단계 전진 (advance)</button>
+      <button class="btn primary" data-advance>다음 단계로 전진</button>
     </div>
-    <div class="small muted" style="margin-top:6px">※ advance는 멱등하지 않습니다. 같은 상태에서 반복 호출하면 재시도 횟수를 소모합니다.</div>`;
+    <div class="small muted" style="margin-top:6px">※ 전진은 되돌릴 수 없습니다. 같은 상태에서 반복하면 재시도 횟수를 소모합니다.</div>`;
   box.querySelector("[data-advance]").addEventListener("click", () =>
     run(async () => {
       const btn = box.querySelector("[data-advance]");
@@ -136,7 +136,7 @@ function renderDetail() {
         await refreshCalls();
         await refreshBudgetChips();
       } finally {
-        btn.textContent = "다음 단계 전진 (advance)";
+        btn.textContent = "다음 단계로 전진";
       }
     })
   );
@@ -222,7 +222,7 @@ export function initMonitor() {
       if (did) await load(did);
     })
   );
-  // 첫 작품의 최신 설계로 자동 초기화 (React와 동일)
+  // 첫 작품의 최신 설계로 자동 초기화
   api
     .works()
     .then(async (w) => {
