@@ -15,6 +15,7 @@ const DESIGN_RESIZERS = [
 let design = null;
 let nodes = [];
 let treeNodeSettings = {}; // node_id -> own settings (트리 전체 보기용)
+let collapsedIds = new Set(); // 접힌 노드, 리렌더 유지용
 let selectedId = null;
 let editorNode = null;
 let partnerMsgs = [];
@@ -94,6 +95,7 @@ async function reloadNodes() {
   const q = $("tree-search").value.trim();
   const archived = $("show-archived").checked;
   nodes = (await api.nodes(design.id, q || null, archived)).nodes ?? [];
+  collapsedIds = new Set([...collapsedIds].filter((id) => nodes.some((n) => n.id === id)));
   treeNodeSettings = {};
   if (design) {
     try {
@@ -132,17 +134,18 @@ function childrenOf(parentId) {
 function nodeRowHtml(n) {
   const m = treeMode();
   const sel = n.id === selectedId ? " selected" : "";
+  const arch = n.archived ? " archived" : "";
   const kids = childrenOf(n.id).length;
   const toggle = kids ? `<span class="tw" data-toggle="${n.id}">▾</span>` : `<span class="tw empty">·</span>`;
   if (m === "one") {
-    return `<div class="tnode${sel}" data-node="${n.id}">${toggle}<span class="nid mono">${esc(n.id)}</span><span class="t oneline"><b>${esc(n.title)}</b>${n.logline ? ` <span class="muted">${esc(n.logline)}</span>` : ""}</span></div>`;
+    return `<div class="tnode${sel}${arch}" data-node="${n.id}">${toggle}<span class="nid mono" title="${esc(n.full_code ?? n.id)}">${esc(n.code ?? n.id)}</span><span class="t oneline"><b>${esc(n.title)}</b>${n.logline ? ` <span class="muted">${esc(n.logline)}</span>` : ""}</span></div>`;
   }
   if (m === "flow") {
-    return `<div class="tnode${sel}" data-node="${n.id}">${toggle}<span class="nid mono">${esc(n.id)}</span><span class="t flowline"><b>${esc(n.title)}</b>${n.logline ? ` <span class="muted">${esc(n.logline)}</span>` : ""}</span></div>`;
+    return `<div class="tnode${sel}${arch}" data-node="${n.id}">${toggle}<span class="nid mono" title="${esc(n.full_code ?? n.id)}">${esc(n.code ?? n.id)}</span><span class="t flowline"><b>${esc(n.title)}</b>${n.logline ? ` <span class="muted">${esc(n.logline)}</span>` : ""}</span></div>`;
   }
   const nss = treeNodeSettings[n.id] ?? [];
   const nsHtml = nss.length ? `<br>${nss.map((s) => `<span class="chip mono">${esc(s.code)}</span> <b>${esc(s.title)}</b>${s.summary ? ` <span class="small muted">${esc(s.summary)}</span>` : ""}`).join("<br>")}` : "";
-  return `<div class="tnode${sel}" data-node="${n.id}">${toggle}<span class="nid mono">${esc(n.id)}</span>
+  return `<div class="tnode${sel}${arch}" data-node="${n.id}">${toggle}<span class="nid mono" title="${esc(n.full_code ?? n.id)}">${esc(n.code ?? n.id)}</span>
     <span><b>[${esc(KIND_LABEL[n.kind] ?? n.kind)}] ${esc(n.title)}</b><br>
     <span class="small">${esc(n.logline)}</span>${nsHtml}</span></div>`;
 }
@@ -174,9 +177,10 @@ function renderTree() {
   box.querySelectorAll("[data-node]").forEach((el) => {
     el.addEventListener("click", (e) => {
       if (e.target.closest("[data-toggle]")) {
-        const li = el.parentElement;
-        li.classList.toggle("collapsed");
-        e.target.textContent = li.classList.contains("collapsed") ? "▸" : "▾";
+        const nid = el.dataset.node;
+        if (collapsedIds.has(nid)) collapsedIds.delete(nid);
+        else collapsedIds.add(nid);
+        applyCollapsedState();
         return;
       }
       selectedId = el.dataset.node;
@@ -184,11 +188,26 @@ function renderTree() {
       loadEditor();
     });
   });
+  applyCollapsedState();
   const kinds = $("node-add-kind");
   const st = structure();
   [...kinds.options].forEach((o) => {
     if (o.value === "part") o.disabled = st.use_part === false;
     if (o.value === "chapter") o.disabled = st.use_chapter === false;
+  });
+}
+
+function setAllCollapsed(collapsed) {
+  collapsedIds = new Set(collapsed ? nodes.map((n) => n.id) : []);
+  applyCollapsedState();
+}
+
+function applyCollapsedState() {
+  $("tree-list").querySelectorAll("[data-node]").forEach((el) => {
+    const collapsed = collapsedIds.has(el.dataset.node);
+    el.parentElement?.classList.toggle("collapsed", collapsed);
+    const tw = el.querySelector("[data-toggle]");
+    if (tw) tw.textContent = collapsed ? "▸" : "▾";
   });
 }
 
@@ -258,7 +277,6 @@ async function loadEditor() {
   await run(async () => {
     editorNode = await api.node(selectedId);
     renderEditor();
-    await loadNodeSettings();
   });
 }
 
@@ -283,77 +301,98 @@ function renderInherited(n) {
     (settings ? `<ul class="small ho-tree">${settings}</ul>` : "");
 }
 
-function renderEditor() {
-  const empty = !$("node-title");
-  if (empty) return;
-  if (!editorNode) {
-    $("node-id-label").textContent = "-";
-    $("node-title").value = "";
-    $("node-logline").value = "";
-    $("node-body").value = "";
-    renderInherited(null); clearNodeSettings();
-    $("children-rollup").innerHTML = `<span class="muted small">노드를 선택하세요.</span>`;
+function rollupMode() {
+  return localStorage.getItem("design-rollup-mode") === "flow" ? "flow" : "one";
+}
+
+function renderRollup(n) {
+  const box = $("children-rollup");
+  const kids = n?.children ?? [];
+  if (!kids.length) {
+    box.innerHTML = `<span class="muted small">하위 노드 없음. 오른쪽에서 Expand로 설계하세요.</span>`;
     return;
   }
-  const n = editorNode;
-  $("node-id-label").innerHTML = `<span class="mono">${esc(n.id)}</span> · ${esc(KIND_LABEL[n.kind] ?? n.kind)}${n.archived ? " · 보관됨" : ""}`;
-  if (document.activeElement !== $("node-title")) $("node-title").value = n.title ?? "";
-  if (document.activeElement !== $("node-logline")) $("node-logline").value = n.logline ?? "";
-  if (document.activeElement !== $("node-body")) {
-    $("node-body").value = JSON.stringify(n.body ?? {}, null, 2);
-  }
-  $("node-save-info").textContent = "";
-  renderInherited(n);
-  const kids = n.children ?? [];
-  $("children-rollup").innerHTML = kids.length
-    ? `<b class="small">하위 줄거리 (${kids.length})</b>` + kids.map((k) => `
-      <div class="rollup" data-goto="${k.id}"><span class="mono">${esc(k.id)}</span> <b>${esc(k.title)}</b><br>
-      <span class="small muted">${esc(k.logline)}</span></div>`).join("")
-    : `<span class="muted small">하위 노드 없음. 오른쪽에서 Expand로 설계하세요.</span>`;
-  $("children-rollup").querySelectorAll("[data-goto]").forEach((el) => {
+  const rm = rollupMode();
+  box.innerHTML = `<div class="rollup-head"><b class="small">하위 줄거리 (${kids.length})</b><span class="seg"><button data-rmode="one" data-role="design.editor.rollup-mode-one">한줄</button><button data-rmode="flow" data-role="design.editor.rollup-mode-flow">이어서</button></span></div>` + kids.map((k) => `
+    <div class="rollup-row ${rm}" data-goto="${k.id}" title="클릭하여 이동"><span class="chip mono blue" title="${esc(k.full_code ?? k.id)}">${esc(k.code ?? k.id)}</span> <b>${esc(k.title)}</b> <span class="small muted">${esc(k.logline)}</span></div>`).join("");
+  box.querySelectorAll("[data-rmode]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.rmode === rm);
+    b.addEventListener("click", () => {
+      localStorage.setItem("design-rollup-mode", b.dataset.rmode);
+      renderRollup(editorNode);
+    });
+  });
+  box.querySelectorAll("[data-goto]").forEach((el) => {
     el.addEventListener("click", () => {
       selectedId = el.dataset.goto;
       renderTree();
       loadEditor();
     });
   });
-  const canWrite = n.kind === "episode" && n.body && Number.isInteger(n.body.episode_no);
-  $("btn-write-jump").style.display = canWrite ? "" : "none";
-  $("btn-node-archive").textContent = n.archived ? "보관 해제" : "보관";
 }
 
-// ---- 노드별 설정 ----
+function renderEditor() {
+  const empty = !$("node-title");
+  if (empty) return;
+  if (!editorNode) {
+    $("node-id-label").textContent = "-";
+    $("btn-node-delete").disabled = true;
+    $("node-title").value = "";
+    $("node-logline").value = "";
+    renderInherited(null);
+    $("children-rollup").innerHTML = `<span class="muted small">노드를 선택하세요.</span>`;
+    return;
+  }
+  const n = editorNode;
+  $("node-id-label").innerHTML = `<span class="mono">${esc(n.full_code ?? n.id)}</span> · ${esc(KIND_LABEL[n.kind] ?? n.kind)}${n.archived ? " · 보관됨" : ""}`;
+  if (document.activeElement !== $("node-title")) $("node-title").value = n.title ?? "";
+  if (document.activeElement !== $("node-logline")) $("node-logline").value = n.logline ?? "";
+  $("node-save-info").textContent = "";
+  renderInherited(n);
+  renderRollup(n);
+  const canWrite = n.kind === "episode" && n.body && Number.isInteger(n.body.episode_no);
+  $("btn-write-jump").style.display = canWrite ? "" : "none";
+  $("btn-node-delete").disabled = !n.parent_id;
+}
+
+// ---- 노드 설정 다이얼로그 ----
 const NS_CATEGORIES = ["character", "world", "event", "misc"];
 const NS_CAT_LABEL = { character: "인물", world: "세계관", event: "사건", misc: "기타" };
+let nsDialogNode = null; // { id, title }
 let nsOwn = [];
 let nsInherited = [];
 let nsOverridden = [];
 let nsForm = null; // null | { mode: "add" } | { mode: "edit", id } | { mode: "override", code, from }
 
-function clearNodeSettings() {
-  nsOwn = [];
-  nsInherited = [];
-  nsOverridden = [];
+function openNsDialog() {
+  if (!editorNode) return;
+  nsDialogNode = { id: editorNode.id, title: editorNode.title,
+    fullCode: editorNode.full_code ?? editorNode.id };
+  $("ns-dialog-node").textContent = `${nsDialogNode.fullCode} · ${nsDialogNode.title}`;
   nsForm = null;
-  renderNodeSettings();
+  showError("ns-dialog-error", "");
+  $("ns-dialog-backdrop").style.display = "";
+  loadNsDialog();
 }
 
-async function loadNodeSettings() {
-  const nid = editorNode?.id;
-  if (!nid) {
-    clearNodeSettings();
-    return;
-  }
+function closeNsDialog() {
+  $("ns-dialog-backdrop").style.display = "none";
+  nsDialogNode = null;
+  nsForm = null;
+}
+
+async function loadNsDialog() {
+  if (!nsDialogNode) return;
   try {
-    const eff = await api.nodeSettings(nid);
-    if (editorNode?.id !== nid) return;
+    const eff = await api.nodeSettings(nsDialogNode.id);
+    if (!nsDialogNode) return;
     nsOwn = eff.own ?? [];
     nsInherited = eff.inherited ?? [];
     nsOverridden = eff.overridden ?? [];
     nsForm = null;
-    renderNodeSettings();
+    renderNsDialog();
   } catch (e) {
-    showError("sdesign-error", String(e));
+    showError("ns-dialog-error", String(e));
   }
 }
 
@@ -398,10 +437,10 @@ function nsFormHtml() {
     <button class="btn sm" data-ns-cancel data-role="design.editor.ns-form-cancel">취소</button></div>`;
 }
 
-function renderNodeSettings() {
-  const ownBox = $("ns-own-list");
-  const inhBox = $("ns-inherited-list");
-  const formBox = $("ns-form");
+function renderNsDialog() {
+  const ownBox = $("ns-dialog-own");
+  const inhBox = $("ns-dialog-inherited");
+  const formBox = $("ns-dialog-form");
   if (!ownBox || !inhBox || !formBox) return;
   ownBox.innerHTML = nsOwn.length ? nsOwn.map(nsOwnRowHtml).join("")
     : `<span class="muted small">이 노드의 설정 없음.</span>`;
@@ -416,13 +455,13 @@ function renderNodeSettings() {
     formBox.querySelector("[data-ns-save]").addEventListener("click", saveNsForm);
     formBox.querySelector("[data-ns-cancel]").addEventListener("click", () => {
       nsForm = null;
-      renderNodeSettings();
+      renderNsDialog();
     });
   }
   ownBox.querySelectorAll("[data-ns-edit]").forEach((b) => {
     b.addEventListener("click", () => {
       nsForm = { mode: "edit", id: Number(b.closest("[data-ns]").dataset.ns) };
-      renderNodeSettings();
+      renderNsDialog();
     });
   });
   ownBox.querySelectorAll("[data-ns-del]").forEach((b) => {
@@ -433,14 +472,14 @@ function renderNodeSettings() {
       const src = nsInherited.find((x) => x.id === Number(b.dataset.nsOverride));
       if (!src) return;
       nsForm = { mode: "override", code: src.code, from: src.id };
-      renderNodeSettings();
+      renderNsDialog();
     });
   });
 }
 
 async function saveNsForm() {
-  const box = $("ns-form");
-  if (!nsForm || !editorNode) return;
+  const box = $("ns-dialog-form");
+  if (!nsForm || !nsDialogNode) return;
   const data = {
     category: box.querySelector('[data-f="category"]').value,
     title: box.querySelector('[data-f="title"]').value,
@@ -451,54 +490,103 @@ async function saveNsForm() {
     if (nsForm.mode === "edit") {
       await api.patchNodeSetting(nsForm.id, data);
     } else {
-      await api.createNodeSetting(editorNode.id,
+      await api.createNodeSetting(nsDialogNode.id,
         nsForm.mode === "override" ? { ...data, code: nsForm.code } : data);
     }
-    await loadNodeSettings();
+    await reloadNodes();
+    renderTree();
+    await loadNsDialog();
   });
 }
 
 async function deleteNsFlow(id) {
   await run(async () => {
     await api.deleteNodeSetting(id);
-    await loadNodeSettings();
+    await reloadNodes();
+    renderTree();
+    await loadNsDialog();
   });
 }
 
-async function saveEditor() {
+// 제목·줄거리는 입력 후 자동 저장한다(스냅샷을 잡아 노드 전환과 섞이지 않게).
+let editorSaveTimer = null;
+
+function scheduleEditorSave() {
   if (!editorNode) return;
-  let body;
+  const snap = { id: editorNode.id, title: $("node-title").value, logline: $("node-logline").value };
+  $("node-save-info").textContent = "입력 중…";
+  clearTimeout(editorSaveTimer);
+  editorSaveTimer = setTimeout(() => flushEditorSave(snap), 700);
+}
+
+async function flushEditorSave(snap) {
+  if (!snap) return;
+  if (busy) {
+    editorSaveTimer = setTimeout(() => flushEditorSave(snap), 700);
+    return;
+  }
+  $("node-save-info").textContent = "저장 중…";
   try {
-    body = JSON.parse($("node-body").value || "{}");
-  } catch {
-    showError("sdesign-error", "상세(JSON) 파싱 실패. JSON 형식으로 입력하세요.");
-    return;
-  }
-  if (typeof body !== "object" || Array.isArray(body)) {
-    showError("sdesign-error", "상세는 JSON 객체여야 합니다.");
-    return;
-  }
-  await run(async () => {
-    editorNode = await api.patchNode(editorNode.id, {
-      title: $("node-title").value,
-      logline: $("node-logline").value,
-      body,
-    }).then(() => api.node(editorNode.id));
-    $("node-save-info").textContent = "저장됨";
+    await api.patchNode(snap.id, { title: snap.title, logline: snap.logline });
+    const fresh = await api.node(snap.id);
+    if (editorNode?.id === snap.id) editorNode = fresh;
     await reloadNodes();
     renderTree();
-    renderEditor();
-  });
+    if (editorNode?.id === snap.id) {
+      if (document.activeElement !== $("node-title")) $("node-title").value = fresh.title ?? "";
+      if (document.activeElement !== $("node-logline")) $("node-logline").value = fresh.logline ?? "";
+      $("node-save-info").textContent = "저장됨";
+    }
+  } catch (e) {
+    if (editorNode?.id === snap.id) $("node-save-info").textContent = "";
+    showError("sdesign-error", String(e));
+  }
 }
 
-async function toggleArchive() {
-  if (!editorNode) return;
+function subtreeStats(id) {
+  let count = 0;
+  let eps = 0;
+  const stack = [...childrenOf(id)];
+  while (stack.length) {
+    const c = stack.pop();
+    count++;
+    if (c.kind === "episode") eps++;
+    stack.push(...childrenOf(c.id));
+  }
+  return { nodes: count, eps };
+}
+
+let deleteTargetId = null;
+
+function openDeleteDialog() {
+  if (!editorNode || !editorNode.parent_id) return;
+  deleteTargetId = editorNode.id;
+  const st = subtreeStats(editorNode.id);
+  let msg = `<b>${esc(editorNode.full_code ?? editorNode.id)} · ${esc(editorNode.title)}</b>`;
+  if (st.nodes) msg += ` 외 하위 ${st.nodes}개 노드`;
+  msg += `를 삭제합니다. 되돌릴 수 없습니다.`;
+  if (st.eps) msg += `<br>연결된 집필 개요 ${st.eps}건도 함께 삭제됩니다(원고 기록은 유지).`;
+  $("delete-dialog-msg").innerHTML = msg;
+  showError("delete-dialog-error", "");
+  $("delete-dialog-backdrop").style.display = "";
+}
+
+function closeDeleteDialog() {
+  $("delete-dialog-backdrop").style.display = "none";
+  deleteTargetId = null;
+}
+
+async function confirmDeleteNode() {
+  if (!deleteTargetId) return;
+  const id = deleteTargetId;
   await run(async () => {
-    editorNode = await api.archiveNode(editorNode.id, !editorNode.archived)
-      .then(() => api.node(editorNode.id));
+    await api.deleteNode(id);
+    closeDeleteDialog();
+    selectedId = null;
+    editorNode = null;
+    renderEditor();
     await reloadNodes();
     renderTree();
-    renderEditor();
   });
 }
 
@@ -625,16 +713,19 @@ function initMobileTabs() {
 
 export function initDesign() {
   DESIGN_RESIZERS.forEach(initColResizer);
-  $("btn-ns-add").addEventListener("click", () => {
-    if (!editorNode) return;
+  $("btn-ns-add").addEventListener("click", openNsDialog);
+  $("btn-ns-dialog-close").addEventListener("click", closeNsDialog);
+  $("btn-ns-dialog-add").addEventListener("click", () => {
     nsForm = { mode: "add" };
-    renderNodeSettings();
+    renderNsDialog();
   });
   setPartnerCollapsed(localStorage.getItem("design-partner-collapsed") === "1");
   $("btn-partner-collapse").addEventListener("click", () => setPartnerCollapsed(true));
   $("btn-partner-expand").addEventListener("click", () => setPartnerCollapsed(false));
-  document.querySelectorAll("#tree-mode button").forEach((b) =>
+  document.querySelectorAll("#tree-mode button[data-mode]").forEach((b) =>
     b.addEventListener("click", () => setTreeMode(b.dataset.mode)));
+  $("btn-tree-expand-all").addEventListener("click", () => setAllCollapsed(false));
+  $("btn-tree-collapse-all").addEventListener("click", () => setAllCollapsed(true));
   $("btn-tree-search").addEventListener("click", () => run(async () => {
     await reloadNodes();
     renderTree();
@@ -647,9 +738,12 @@ export function initDesign() {
     renderTree();
   }));
   $("btn-node-add").addEventListener("click", addNode);
-  $("btn-node-save").addEventListener("click", saveEditor);
-  $("btn-node-archive").addEventListener("click", toggleArchive);
+  $("node-title").addEventListener("input", scheduleEditorSave);
+  $("node-logline").addEventListener("input", scheduleEditorSave);
   $("btn-write-jump").addEventListener("click", writeJump);
+  $("btn-node-delete").addEventListener("click", openDeleteDialog);
+  $("btn-delete-cancel").addEventListener("click", closeDeleteDialog);
+  $("btn-delete-confirm").addEventListener("click", confirmDeleteNode);
   $("btn-partner-send").addEventListener("click", partnerSend);
   $("partner-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

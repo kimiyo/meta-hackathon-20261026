@@ -110,43 +110,75 @@ def archive_node(node_id: str, body: ArchiveIn,
         raise HTTPException(404, str(e))
 
 
+@router.delete("/nodes/{node_id}")
+def delete_node(node_id: str,
+                conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        return design_nodes.delete_node_subtree(conn, node_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+def _ref_lines(conn: sqlite3.Connection, design_id: int,
+               refs: list[str]) -> list[str]:
+    """Resolve @ codes to node one-liners; unknowns stay listed."""
+    lines = []
+    for ref in refs:
+        nid = design_nodes.resolve_node_id(conn, design_id, ref)
+        if nid is None:
+            lines.append(f"- {ref} = (알 수 없음)")
+            continue
+        n = design_nodes.get_node(conn, nid)
+        lines.append(f"- {ref} = {n['full_code']}({n['kind']})"
+                     f" {n['title']}: {n['logline']}")
+    return lines
+
+
 def _node_context(conn: sqlite3.Connection, node: dict,
                   extra: str = "") -> str:
     design = conn.execute("SELECT * FROM story_designs WHERE id=?",
                           (node["design_id"],)).fetchone()
     work = find_work(conn, design["work_id"]) if design else None
+    root_code = design_nodes.design_root_code(conn, node["design_id"])
     chain, seen = [], node.get("parent_id")
     while seen is not None and len(chain) < 8:
-        prow = conn.execute("SELECT id, kind, title, logline, parent_id"
+        prow = conn.execute("SELECT id, kind, seq, title, logline, parent_id"
                             " FROM design_nodes WHERE id=?", (seen,)).fetchone()
         if not prow:
             break
-        chain.append(f"{prow['id']}({prow['kind']}) {prow['title']}:"
+        pcode = design_nodes.node_code(prow["kind"], prow["seq"])
+        chain.append(f"{pcode}({prow['kind']}) {prow['title']}:"
                      f" {prow['logline']}")
         seen = prow["parent_id"]
     kids = conn.execute(
-        "SELECT id, kind, title, logline FROM design_nodes"
+        "SELECT kind, seq, title, logline FROM design_nodes"
         " WHERE parent_id=? AND archived=0 ORDER BY sort_order, id LIMIT 30",
         (node["id"],)).fetchall()
     sibs = conn.execute(
-        "SELECT id, kind, title FROM design_nodes WHERE design_id=?"
+        "SELECT kind, seq, title FROM design_nodes WHERE design_id=?"
         " AND COALESCE(parent_id,'')=COALESCE(?,'') AND id!=?"
         " ORDER BY sort_order, id LIMIT 20",
         (node["design_id"], node.get("parent_id"), node["id"])).fetchall()
     settings = ideas.list_settings(conn, work["id"])[:20] if work else []
+    code_of = lambda r: design_nodes.node_code(r["kind"], r["seq"])
     parts = [
         f"작품: {work['title'] if work else '?'}"
         f" / 구조: {work['structure_json'] if work else '{}'}",
-        f"선택 노드: {node['id']}({node['kind']}) {node['title']}",
+        f"설계 트리: {root_code or '?'}"
+        " (이 트리 안에서는 E001 같은 짧은 코드로 지칭한다)",
+        f"선택 노드: {node.get('code') or node['id']}({node['kind']})"
+        f" {node['title']}",
         f"줄거리: {node['logline']}",
         f"상세: {json.dumps(node['body'], ensure_ascii=False)[:1000]}",
         "상위: " + (" > ".join(reversed(chain)) if chain else "(없음)"),
         "하위:",
     ]
-    parts += [f"- {k['id']}({k['kind']}) {k['title']}: {k['logline']}"
+    parts += [f"- {code_of(k)}({k['kind']}) {k['title']}: {k['logline']}"
               for k in kids] or ["(없음)"]
     parts += ["형제:"] + [
-        f"- {s['id']}({s['kind']}) {s['title']}" for s in sibs] or ["(없음)"]
+        f"- {code_of(s)}({s['kind']}) {s['title']}" for s in sibs] or ["(없음)"]
     parts += ["설정정보:"] + [
         f"- [{s['category']}] {s['title']}: {s['summary']}"
         for s in settings] or ["(없음)"]
@@ -169,6 +201,9 @@ def node_chat(node_id: str, body: NodeChatIn,
     if not content:
         raise HTTPException(400, "content must not be blank")
     extra = f"작가 요청: {content}\n참조: {', '.join(body.refs) or '(없음)'}"
+    if body.refs:
+        extra += "\n참조 해석:\n" + "\n".join(
+            _ref_lines(conn, node["design_id"], body.refs))
     design = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
                           (node["design_id"],)).fetchone()
     try:

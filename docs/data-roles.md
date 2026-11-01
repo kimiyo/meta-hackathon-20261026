@@ -118,14 +118,20 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `design.tree.search-input`, `design.tree.search-btn`
 - `design.tree.view-mode` — 보기 방식 세그먼트
 - `design.tree.view-mode-one`, `design.tree.view-mode-flow`, `design.tree.view-mode-full`
+- `design.tree.expand-all-btn`, `design.tree.collapse-all-btn` — 전체 펼치기·접기
 - `design.tree.show-archived-checkbox`, `design.tree.list`
 - `design.tree.add-kind-select`, `design.tree.add-title-input`, `design.tree.add-btn`
 - `design.editor.panel` — 설계 편집 카드
-- `design.editor.title-input`, `design.editor.logline-input`, `design.editor.body-input`
-- `design.editor.save-btn`, `design.editor.archive-btn`, `design.editor.write-jump-btn`
+- `design.editor.title-input`, `design.editor.logline-input` — 입력 후 자동저장
+- `design.editor.write-jump-btn`
+- `design.editor.delete-btn` — 노드 삭제 (편집 헤더 우측)
+- `design.editor.delete-dialog` — 삭제 확인 다이얼로그
+- `design.editor.delete-dialog-confirm-btn`, `design.editor.delete-dialog-cancel-btn`
 - `design.editor.inherited`, `design.editor.children-rollup`
-- `design.editor.node-settings` — 노드 설정 섹션
-- `design.editor.ns-add-btn`, `design.editor.ns-list`, `design.editor.ns-inherited`
+- `design.editor.node-settings` — 노드 설정 영역(구분선+추가 버튼)
+- `design.editor.ns-add-btn`
+- `design.editor.ns-dialog` — 노드 설정 관리 다이얼로그
+- `design.editor.ns-dialog-add-btn`, `design.editor.ns-dialog-list`, `design.editor.ns-dialog-inherited`, `design.editor.ns-dialog-close-btn`
 
 ### writing — 집필
 
@@ -195,11 +201,12 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `design.partner.apply-patch-btn` — 선택 노드 수정안 적용 (단일)
 - `design.partner.apply-all-btn` — 하위 설계안 전체 적용 (단일)
 - `design.partner.apply-child-btn` — 하위 설계안 개별 추가
-- `design.editor.ns-edit-btn`, `design.editor.ns-delete-btn` — 설정 행 편집·삭제
-- `design.editor.ns-override-btn` — 물려받은 설정 덮어쓰기
-- `design.editor.ns-form-category`, `design.editor.ns-form-title`
-- `design.editor.ns-form-summary`, `design.editor.ns-form-detail`
-- `design.editor.ns-form-save`, `design.editor.ns-form-cancel`
+- `design.editor.ns-edit-btn`, `design.editor.ns-delete-btn` — 설정 행 편집·삭제 (다이얼로그)
+- `design.editor.ns-override-btn` — 물려받은 설정 덮어쓰기 (다이얼로그)
+- `design.editor.ns-form-category`, `design.editor.ns-form-title` (다이얼로그)
+- `design.editor.ns-form-summary`, `design.editor.ns-form-detail` (다이얼로그)
+- `design.editor.ns-form-save`, `design.editor.ns-form-cancel` (다이얼로그)
+- `design.editor.rollup-mode-one`, `design.editor.rollup-mode-flow` — 하위 줄거리 보기 전환
 
 ### monitor.js (writing)
 

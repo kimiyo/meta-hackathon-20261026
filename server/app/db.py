@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS design_nodes (
   design_id INTEGER NOT NULL REFERENCES story_designs(id),
   parent_id TEXT REFERENCES design_nodes(id),
   kind TEXT NOT NULL,
+  seq INTEGER NOT NULL DEFAULT 0,
   title TEXT NOT NULL DEFAULT '',
   logline TEXT NOT NULL DEFAULT '',
   body_json TEXT NOT NULL DEFAULT '{}',
@@ -305,6 +306,39 @@ def touch_work(conn: sqlite3.Connection, work_id: int,
                      (now_iso(), stage, work_id))
 
 
+def backfill_node_seq(conn: sqlite3.Connection) -> None:
+    """Assign per-design kind sequences to rows predating the seq column.
+
+    work roots keep one global N sequence (tree identity); every other
+    kind restarts at 1 in each design, in creation (rowid) order. Rows
+    that already have a seq are left alone; numbering continues past
+    their maximum so the unique index never collides.
+    """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(design_nodes)")]
+    if "seq" not in cols:
+        return
+    groups = conn.execute(
+        "SELECT DISTINCT design_id, kind FROM design_nodes"
+        " WHERE seq IS NULL OR seq<=0").fetchall()
+    for g in groups:
+        if g[1] == "work":
+            filt, args = "kind='work'", ()
+        else:
+            filt, args = "design_id=? AND kind=?", (g[0], g[1])
+        top = conn.execute(
+            f"SELECT COALESCE(MAX(seq),0) FROM design_nodes WHERE {filt}"
+            " AND seq>0", args).fetchone()
+        n = top[0] or 0
+        rows = conn.execute(
+            f"SELECT id FROM design_nodes WHERE {filt}"
+            " AND (seq IS NULL OR seq<=0) ORDER BY rowid",
+            args).fetchall()
+        for r in rows:
+            n += 1
+            conn.execute("UPDATE design_nodes SET seq=? WHERE id=?",
+                         (n, r[0]))
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     for sql in (
         "ALTER TABLE works ADD COLUMN uid TEXT NOT NULL DEFAULT ''",
@@ -320,6 +354,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE llm_calls ADD COLUMN finish_reason TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE llm_calls ADD COLUMN reasoning_tokens INTEGER DEFAULT 0",
         "ALTER TABLE setting_entries ADD COLUMN code TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE design_nodes ADD COLUMN seq INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE episode_jobs ADD COLUMN fix_instruction TEXT DEFAULT ''",
         "ALTER TABLE change_proposals ADD COLUMN events_json TEXT DEFAULT '[]'",
         "ALTER TABLE episode_jobs ADD COLUMN quality_json TEXT DEFAULT '{}'",
@@ -355,4 +390,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             n += 1
             conn.execute("UPDATE setting_entries SET code=? WHERE id=?",
                          (f"D{n:03d}", r["id"]))
+    backfill_node_seq(conn)
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_design_nodes_dks"
+                 " ON design_nodes(design_id, kind, seq)")
     conn.commit()

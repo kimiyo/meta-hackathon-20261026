@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import ideas
+from .. import design_nodes, ideas
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from ..schemas import ideas as sch
@@ -89,6 +89,19 @@ class MessageIn(BaseModel):
     include_structure: bool | None = None
 
 
+def _resolve_work_node(conn: sqlite3.Connection, work_id: int,
+                       ref: str) -> dict | None:
+    """Resolve a node code/id across the work's designs, latest first."""
+    designs = conn.execute(
+        "SELECT id FROM story_designs WHERE work_id=? ORDER BY id DESC",
+        (work_id,)).fetchall()
+    for d in designs:
+        nid = design_nodes.resolve_node_id(conn, d["id"], ref)
+        if nid is not None:
+            return design_nodes.get_node(conn, nid)
+    return None
+
+
 def _resolve_refs(conn: sqlite3.Connection, work_id: int, refs: list[str],
                   skip_setting_ids: set[int]) -> tuple[list[str], list[str],
                                                        list[str]]:
@@ -105,13 +118,10 @@ def _resolve_refs(conn: sqlite3.Connection, work_id: int, refs: list[str],
                     f"  {s['detail']}")
                 skip_setting_ids.add(s["id"])
             continue
-        n = conn.execute(
-            "SELECT n.id, n.kind, n.title, n.logline FROM design_nodes n"
-            " JOIN story_designs d ON d.id=n.design_id"
-            " WHERE d.work_id=? AND n.id=?", (work_id, ref)).fetchone()
+        n = _resolve_work_node(conn, work_id, ref)
         if n is not None:
             node_lines.append(
-                f"- {n['id']}({n['kind']}) {n['title']}: {n['logline']}")
+                f"- {n['full_code']}({n['kind']}) {n['title']}: {n['logline']}")
         else:
             unknown.append(ref)
     return setting_lines, node_lines, unknown

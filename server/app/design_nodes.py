@@ -1,13 +1,16 @@
 """Top-down design tree: Work/Part/Chapter/Episode/Scene nodes.
 
 Node ids carry a kind prefix (N/P/C/E/S) plus a zero-padded sequence that is
-unique per kind across all designs (id is a global primary key), e.g. E001.
-Episode nodes sync into episode_outlines so the existing writing pipeline
-keeps working unchanged.
+unique per kind across all designs (id is a global primary key), e.g. E026.
+The user-facing identity is the per-design code: P/C/E/S restart at 001 in
+each tree (e.g. E001) while the work root keeps a global N number, so the
+full code N002-E001 is unique across works. Episode nodes sync into
+episode_outlines so the existing writing pipeline keeps working unchanged.
 """
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 
 from .db import now_iso, touch_work
@@ -20,12 +23,35 @@ def _row(conn, sql, args=()) -> dict | None:
     return dict(r) if r else None
 
 
-def _public(row: dict) -> dict:
+def node_code(kind: str, seq: int) -> str:
+    return f"{KINDS[kind]}{seq:03d}"
+
+
+def design_root_code(conn: sqlite3.Connection, design_id: int) -> str | None:
+    r = _row(conn,
+             "SELECT seq FROM design_nodes"
+             " WHERE design_id=? AND kind='work' AND parent_id IS NULL",
+             (design_id,))
+    if not r or not isinstance(r["seq"], int) or r["seq"] <= 0:
+        return None
+    return node_code("work", r["seq"])
+
+
+def _public(row: dict, root_code: str | None = None) -> dict:
     row = dict(row)
     try:
         row["body"] = json.loads(row.pop("body_json"))
     except ValueError:
         row["body"] = {}
+    seq = row.get("seq")
+    code = (node_code(row["kind"], seq)
+            if isinstance(seq, int) and seq > 0 else None)
+    row["code"] = code
+    if row["kind"] == "work":
+        row["full_code"] = code
+    else:
+        row["full_code"] = (f"{root_code}-{code}"
+                            if root_code and code else None)
     return row
 
 
@@ -45,6 +71,52 @@ def allocate_id(conn: sqlite3.Connection, design_id: int, kind: str) -> str:
         except ValueError:
             n = 0
     return f"{prefix}{n + 1:03d}"
+
+
+def allocate_seq(conn: sqlite3.Connection, design_id: int, kind: str) -> int:
+    """Next code number: per design+kind, except work roots (global N)."""
+    if kind == "work":
+        top = conn.execute(
+            "SELECT COALESCE(MAX(seq),0) m FROM design_nodes"
+            " WHERE kind='work'").fetchone()
+    else:
+        top = conn.execute(
+            "SELECT COALESCE(MAX(seq),0) m FROM design_nodes"
+            " WHERE design_id=? AND kind=?", (design_id, kind)).fetchone()
+    return (top["m"] or 0) + 1
+
+
+_CODE_RE = re.compile(r"^([NPCES])(\d{1,6})$")
+_FULL_RE = re.compile(r"^(N\d{1,6})-([NPCES]\d{1,6})$")
+_PREFIX_KIND = {v: k for k, v in KINDS.items()}
+
+
+def resolve_node_id(conn: sqlite3.Connection, design_id: int,
+                    ref: str) -> str | None:
+    """Resolve a short code (E001), full code (N002-E001), or legacy id.
+
+    Short codes win over legacy ids: inside one tree E001 always means
+    that tree's first episode, even though another tree owns the global
+    id E001. Everything is constrained to this design, so a full code
+    from another tree resolves to nothing here.
+    """
+    ref = (ref or "").strip().lstrip("@").upper()
+    m = _FULL_RE.match(ref)
+    if m:
+        if design_root_code(conn, design_id) != m.group(1):
+            return None
+        ref = m.group(2)
+    m = _CODE_RE.match(ref)
+    if m:
+        hit = _row(conn,
+                   "SELECT id FROM design_nodes"
+                   " WHERE design_id=? AND kind=? AND seq=?",
+                   (design_id, _PREFIX_KIND[m.group(1)], int(m.group(2))))
+        return hit["id"] if hit else None
+    hit = _row(conn,
+               "SELECT id FROM design_nodes WHERE design_id=? AND id=?",
+               (design_id, ref))
+    return hit["id"] if hit else None
 
 
 def _design_or_raise(conn, design_id: int) -> dict:
@@ -83,21 +155,26 @@ def create_node(conn: sqlite3.Connection, design_id: int, *, kind: str,
         " WHERE design_id=? AND COALESCE(parent_id,'')=COALESCE(?, '')",
         (design_id, parent_id)).fetchone()
     node_id = allocate_id(conn, design_id, kind)
+    seq = allocate_seq(conn, design_id, kind)
     ts = now_iso()
     conn.execute(
         "INSERT INTO design_nodes(id, design_id, parent_id, kind, title,"
-        " logline, body_json, sort_order, updated_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?)",
+        " logline, body_json, sort_order, updated_at, seq)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
         (node_id, design_id, parent_id, kind, title.strip(), logline,
-         json.dumps(body, ensure_ascii=False), sib["m"] + 1, ts))
+         json.dumps(body, ensure_ascii=False), sib["m"] + 1, ts, seq))
     if kind == "episode":
         _sync_episode_outline(conn, design_id, node_id, title.strip(),
                               logline, body)
     touch_work(conn, design["work_id"])
     if not _skip_commit:
         conn.commit()
-    return _public(_row(conn, "SELECT * FROM design_nodes WHERE id=?",
-                        (node_id,)))
+    row = _row(conn, "SELECT * FROM design_nodes WHERE id=?", (node_id,))
+    if kind == "work" and parent_id is None:
+        root_code = node_code(kind, seq)
+    else:
+        root_code = design_root_code(conn, design_id)
+    return _public(row, root_code)
 
 
 def _sync_episode_outline(conn, design_id: int, node_id: str, title: str,
@@ -143,15 +220,23 @@ def list_nodes(conn: sqlite3.Connection, design_id: int, *,
     if not include_archived:
         sql += " AND archived=0"
     if q:
-        sql += " AND (title LIKE ? OR logline LIKE ? OR id LIKE ?)"
+        ors = ["title LIKE ?", "logline LIKE ?", "id LIKE ?"]
         args += [f"%{q}%"] * 3
+        hit = resolve_node_id(conn, design_id, q)
+        if hit:
+            ors.append("id=?")
+            args.append(hit)
+        sql += " AND (" + " OR ".join(ors) + ")"
     sql += " ORDER BY sort_order, id"
-    return [_public(dict(r)) for r in conn.execute(sql, args)]
+    root_code = design_root_code(conn, design_id)
+    return [_public(dict(r), root_code) for r in conn.execute(sql, args)]
 
 
 def get_node(conn: sqlite3.Connection, node_id: str) -> dict | None:
     row = _row(conn, "SELECT * FROM design_nodes WHERE id=?", (node_id,))
-    return _public(row) if row else None
+    if not row:
+        return None
+    return _public(row, design_root_code(conn, row["design_id"]))
 
 
 def get_node_with_children(conn: sqlite3.Connection,
@@ -159,12 +244,14 @@ def get_node_with_children(conn: sqlite3.Connection,
     node = get_node(conn, node_id)
     if not node:
         return None
-    kids = [_public(dict(r)) for r in conn.execute(
+    root_code = design_root_code(conn, node["design_id"])
+    kids = [_public(dict(r), root_code) for r in conn.execute(
         "SELECT * FROM design_nodes WHERE parent_id=? AND archived=0"
         " ORDER BY sort_order, id", (node_id,))]
     node["children"] = [
         {"id": k["id"], "kind": k["kind"], "title": k["title"],
-         "logline": k["logline"]} for k in kids]
+         "logline": k["logline"], "code": k["code"],
+         "full_code": k["full_code"]} for k in kids]
     return node
 
 
@@ -228,7 +315,7 @@ def update_node(conn: sqlite3.Connection, node_id: str,
     if design:
         touch_work(conn, design["work_id"])
     conn.commit()
-    return _public(fresh)
+    return _public(fresh, design_root_code(conn, fresh["design_id"]))
 
 
 def set_archived(conn: sqlite3.Connection, node_id: str,
@@ -239,8 +326,64 @@ def set_archived(conn: sqlite3.Connection, node_id: str,
     conn.execute("UPDATE design_nodes SET archived=?, updated_at=?"
                  " WHERE id=?", (1 if archived else 0, now_iso(), node_id))
     conn.commit()
-    return _public(_row(conn, "SELECT * FROM design_nodes WHERE id=?",
-                        (node_id,)))
+    fresh = _row(conn, "SELECT * FROM design_nodes WHERE id=?", (node_id,))
+    return _public(fresh, design_root_code(conn, fresh["design_id"]))
+
+
+def delete_node_subtree(conn: sqlite3.Connection, node_id: str) -> dict:
+    """Hard-delete a node with all descendants.
+
+    Removes owned node settings plus the design-scoped episode outlines
+    and jobs of deleted episodes. Manuscript revisions stay: they are
+    history keyed globally by episode_no, unsafe to cascade. The root
+    node cannot be deleted.
+    """
+    node = _node_or_raise(conn, node_id)
+    if node["parent_id"] is None:
+        raise ValueError("cannot delete the root node")
+    rows = conn.execute(
+        "SELECT id, parent_id, kind, body_json FROM design_nodes"
+        " WHERE design_id=?", (node["design_id"],)).fetchall()
+    by_parent: dict = {}
+    by_id = {}
+    for r in rows:
+        by_parent.setdefault(r["parent_id"], []).append(r["id"])
+        by_id[r["id"]] = r
+    ids = [node_id]
+    seen = {node_id}
+    queue = [node_id]
+    while queue:
+        for cid in by_parent.get(queue.pop(), []):
+            if cid not in seen:
+                seen.add(cid)
+                ids.append(cid)
+                queue.append(cid)
+    ep_nos = []
+    for did in ids:
+        r = by_id.get(did)
+        if not r or r["kind"] != "episode":
+            continue
+        try:
+            ep_no = (json.loads(r["body_json"] or "{}") or {}).get(
+                "episode_no")
+        except ValueError:
+            continue
+        if isinstance(ep_no, int) and ep_no >= 1:
+            ep_nos.append(ep_no)
+    q = ",".join("?" * len(ids))
+    conn.execute(f"DELETE FROM node_settings WHERE node_id IN ({q})", ids)
+    if ep_nos:
+        eq = ",".join("?" * len(ep_nos))
+        conn.execute(
+            f"DELETE FROM episode_outlines WHERE design_id=? AND episode_no IN ({eq})",
+            [node["design_id"], *ep_nos])
+        conn.execute(
+            f"DELETE FROM episode_jobs WHERE design_id=? AND episode_no IN ({eq})",
+            [node["design_id"], *ep_nos])
+    conn.execute(f"DELETE FROM design_nodes WHERE id IN ({q})", ids)
+    _touch_node_work(conn, node)
+    conn.commit()
+    return {"deleted": ids}
 
 
 # ---- 노드별 설정 (scoped canon) ----
@@ -422,6 +565,7 @@ def effective_node_settings(conn: sqlite3.Connection,
     `overridden` lists ancestor codes shadowed by this node's own rows.
     """
     node = _node_or_raise(conn, node_id)
+    root_code = design_root_code(conn, node["design_id"])
     own = [dict(r) for r in conn.execute(
         "SELECT * FROM node_settings WHERE node_id=? ORDER BY id",
         (node_id,))]
@@ -452,7 +596,7 @@ def effective_node_settings(conn: sqlite3.Connection,
                     overridden.append(s["code"])
                 continue
             seen.add(s["code"])
-            s["source_node"] = parent["id"]
+            s["source_node"] = _public(parent, root_code)["full_code"]
             s["source_kind"] = parent["kind"]
             s["source_title"] = parent["title"]
             inherited.append(s)

@@ -140,7 +140,8 @@ def test_archived_ancestor_skipped_but_chain_continues(client):
                json={"kind": "episode", "parent_id": p["id"],
                      "title": "1화"}).json()
     eff = c.get(f"/api/v1/nodes/{e['id']}/settings").json()
-    assert [s["source_node"] for s in eff["inherited"]] == [p["id"], root]
+    assert [s["source_node"] for s in eff["inherited"]] == [
+        "N001-P001", "N001"]  # full codes, not global ids
     c.post(f"/api/v1/nodes/{p['id']}/archive", json={"archived": True})
     eff = c.get(f"/api/v1/nodes/{e['id']}/settings").json()
     assert [s["title"] for s in eff["inherited"]] == ["세계관"]

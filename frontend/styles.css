@@ -10,6 +10,8 @@
   --accent: #214E40;
   --accent-deep: #1A3E33;
   --accent-bg: #DEE4E2;
+  --blue: #1d4ed8;
+  --blue-bg: #dbe7f3;
   --amber: #A77B3E;
   --amber-deep: #8A6428;
   --amber-bg: #faf0d7;
@@ -433,12 +435,21 @@ ul.tree li.collapsed > ul { display: none; }
 .tnode .t.oneline { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tnode .t.flowline { flex: 1; min-width: 0; }
 .tw { color: var(--ink-soft); cursor: pointer; user-select: none; width: 14px; flex: none; text-align: center; }
+.tb-sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 0; }
+#ns-dialog-backdrop .modal { max-width: 720px; max-height: 86vh; overflow: auto; }
+
+.tnode.archived { opacity: 0.55; }
 .tw.empty { visibility: hidden; }
 .rollup {
   border: 1px solid var(--line); border-radius: 8px; background: #fff;
   padding: 8px 10px; margin-top: 6px; cursor: pointer; font-size: 12.5px;
 }
 .rollup:hover { border-color: var(--accent); }
+.rollup-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rollup-row { padding: 3px 4px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.rollup-row:hover { background: #f6f3ec; }
+.rollup-row.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip.blue { background: var(--blue-bg); color: var(--blue); }
 .proposal {
   border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-bg);
   padding: 10px 12px; margin-top: 8px;

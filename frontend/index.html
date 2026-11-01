@@ -181,6 +181,9 @@
         <button class="btn sm" data-mode="one" data-role="design.tree.view-mode-one">한줄</button>
         <button class="btn sm" data-mode="flow" data-role="design.tree.view-mode-flow">이어서</button>
         <button class="btn sm" data-mode="full" data-role="design.tree.view-mode-full">전체</button>
+        <span style="flex:1"></span><span class="tb-sep"></span>
+        <button class="btn sm" id="btn-tree-expand-all" data-role="design.tree.expand-all-btn" title="모든 분기 펼치기">전체 펼치기</button>
+        <button class="btn sm" id="btn-tree-collapse-all" data-role="design.tree.collapse-all-btn" title="모든 분기 접기">전체 접기</button>
       </div>
       <label class="small"><input type="checkbox" id="show-archived" data-role="design.tree.show-archived-checkbox" style="width:auto"> 보관함 표시</label>
       <div id="tree-list" data-role="design.tree.list" style="margin-top:8px"></div>
@@ -198,24 +201,17 @@
     </div>
     <div class="col-resizer" id="design-resizer-right" data-role="design.screen.col-resizer-right" title="드래그하여 너비 조절"></div>
     <div class="card" id="pane-editor" data-role="design.editor.panel">
-      <h3>설계 편집 <span class="hint" id="node-id-label">-</span></h3>
+      <h3 style="display:flex;align-items:center;gap:8px">설계 편집 <span class="hint" id="node-id-label">-</span><span style="flex:1"></span><button class="btn sm danger" id="btn-node-delete" data-role="design.editor.delete-btn">삭제</button></h3>
       <label class="f">제목</label>
       <input type="text" id="node-title" data-role="design.editor.title-input">
       <label class="f">줄거리</label>
       <textarea id="node-logline" data-role="design.editor.logline-input" style="min-height:90px"></textarea>
       <div id="children-rollup" data-role="design.editor.children-rollup" style="margin-top:12px"></div>
       <div id="node-settings" data-role="design.editor.node-settings" style="margin-top:12px">
-        <div class="small"><b>노드 설정</b> <span class="hint">이 노드와 하위에 적용</span> <button class="btn sm" id="btn-ns-add" data-role="design.editor.ns-add-btn">+ 추가</button></div>
-        <div id="ns-own-list" data-role="design.editor.ns-list" style="margin-top:6px"></div>
-        <div id="ns-form" style="display:none"></div>
-        <div class="small" style="margin-top:8px"><b>상위에서 물려받음</b></div>
-        <div id="ns-inherited-list" data-role="design.editor.ns-inherited" style="margin-top:6px"></div>
+        <hr>
+        <div class="btn-row"><button class="btn sm" id="btn-ns-add" data-role="design.editor.ns-add-btn">+ 추가</button></div>
       </div>
-      <label class="f">상세 (JSON)</label>
-      <textarea id="node-body" data-role="design.editor.body-input" class="mono" style="min-height:120px;font-size:12px"></textarea>
       <div class="btn-row">
-        <button class="btn sm primary" id="btn-node-save" data-role="design.editor.save-btn">저장</button>
-        <button class="btn sm" id="btn-node-archive" data-role="design.editor.archive-btn">보관</button>
         <button class="btn sm" id="btn-write-jump" data-role="design.editor.write-jump-btn" style="display:none">이 화 집필하기 →</button>
         <span class="small muted" id="node-save-info"></span>
       </div>
@@ -410,6 +406,36 @@
     <div class="btn-row" style="justify-content:flex-end">
       <button class="btn ghost" id="btn-model-cancel" data-role="shell.model.cancel-btn">취소</button>
       <button class="btn primary" id="btn-model-apply" data-role="shell.model.apply-btn">변경하기</button>
+    </div>
+  </div>
+</div>
+
+<div id="ns-dialog-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ns-dialog-title" data-role="design.editor.ns-dialog">
+    <h3 id="ns-dialog-title">노드 설정 <span class="hint" id="ns-dialog-node"></span></h3>
+    <div id="ns-dialog-error"></div>
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn sm primary" id="btn-ns-dialog-add" data-role="design.editor.ns-dialog-add-btn">+ 새 설정</button>
+    </div>
+    <div id="ns-dialog-form" style="display:none"></div>
+    <div class="small" style="margin-top:8px"><b>이 노드의 설정</b></div>
+    <div id="ns-dialog-own" data-role="design.editor.ns-dialog-list" style="margin-top:6px"></div>
+    <div class="small" style="margin-top:8px"><b>상위에서 물려받음</b></div>
+    <div id="ns-dialog-inherited" data-role="design.editor.ns-dialog-inherited" style="margin-top:6px"></div>
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-ns-dialog-close" data-role="design.editor.ns-dialog-close-btn">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="delete-dialog-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" data-role="design.editor.delete-dialog">
+    <h3 id="delete-dialog-title">노드 삭제</h3>
+    <div id="delete-dialog-msg"></div>
+    <div id="delete-dialog-error"></div>
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-delete-cancel" data-role="design.editor.delete-dialog-cancel-btn">취소</button>
+      <button class="btn danger" id="btn-delete-confirm" data-role="design.editor.delete-dialog-confirm-btn">삭제</button>
     </div>
   </div>
 </div>
