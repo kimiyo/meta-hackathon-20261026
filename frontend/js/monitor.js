@@ -1,23 +1,56 @@
 import { api } from "./api.js";
 import { $, esc, showError, stateKo } from "./util.js";
 import { getWork } from "./work.js";
+import { go, novelPath } from "./router.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
 
 const WRITING_RESIZER = { resizerId: "writing-resizer", varName: "--writing-left-w",
   storageKey: "writing-left-w", side: "left", min: 260, reserve: 320 };
 
-// 화면 3 · 집필 (구 React판에서 이식)
+// 화면 3 · 집필: 회차 작업실 (선택한 1개 회차 중심)
 const ORDER = ["PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED", "COMMITTED"];
 const SHORT = { PLAN: "P", DRAFT: "D", VERIFY: "V", READY_FOR_REVIEW: "R", AUTHOR_APPROVED: "A", COMMITTED: "C" };
 const ONCLS = { PLAN: "on-p", DRAFT: "on-d", VERIFY: "on-v", READY_FOR_REVIEW: "on-r", AUTHOR_APPROVED: "on-a", COMMITTED: "on-c" };
 
 let rows = [];
+let designNodes = [];
 let detail = null;
+let selectedEp = null;
 let busy = false;
 
 function setBusy(v) {
   busy = v;
   for (const b of document.querySelectorAll("#s2 button")) b.disabled = v;
+  if (!v) applyStartGate();
+}
+
+// 순차 집필: EP N의 첫 시작은 EP N-1이 확정(COMMITTED)된 뒤에만 가능.
+// 확정된 앞 회차 원고가 다음 회차 검증의 근거가 된다. EP 1은 항상 가능.
+function canStart(ep) {
+  const prev = rows.find((r) => r.episode_no === ep - 1);
+  if (!prev) return true;
+  return prev.job?.state === "COMMITTED";
+}
+
+function gateHint(ep) {
+  return `EP ${ep - 1} 확정 후 시작할 수 있습니다`;
+}
+
+function applyStartGate() {
+  document.querySelectorAll("#ep-rows tr[data-ep]").forEach((tr) => {
+    const ep = Number(tr.dataset.ep);
+    const btn = tr.querySelector("[data-advance-row]");
+    const row = rows.find((r) => r.episode_no === ep);
+    if (btn && !row?.job) {
+      btn.disabled = !canStart(ep);
+      btn.title = canStart(ep) ? "" : gateHint(ep);
+    }
+  });
+  const start = document.querySelector("#ep-detail [data-start]");
+  if (start && detail && !detail.hasJob) {
+    start.disabled = !canStart(detail.ep);
+    start.title = canStart(detail.ep) ? "" : gateHint(detail.ep);
+  }
 }
 
 async function run(fn) {
@@ -54,13 +87,13 @@ function renderRows() {
   }
   tb.innerHTML = rows
     .map(
-      (r) => `<tr class="clickable" data-ep="${r.episode_no}">
+      (r) => `<tr class="clickable${r.episode_no === selectedEp ? " selected" : ""}" data-ep="${r.episode_no}">
         <td><b>EP ${esc(r.episode_no)}</b><br><span class="muted small">${esc(r.title)}</span></td>
         <td>${badges(r.job?.state)}</td>
         <td>${stateLabel(r.job?.state)}</td>
         <td style="white-space:nowrap">
           ${r.job ? `<button class="btn sm" data-detail data-role="writing.progress.row-detail-btn">상세</button> ` : ""}
-          <button class="btn sm" data-advance-row data-role="writing.progress.row-advance-btn">전진</button>
+          <button class="btn sm" data-advance-row data-role="writing.progress.row-advance-btn"${!r.job && !canStart(r.episode_no) ? " disabled" : ""}${!r.job && !canStart(r.episode_no) ? ` title="${gateHint(r.episode_no)}"` : ""}>전진</button>
         </td>
       </tr>`
     )
@@ -77,14 +110,21 @@ function renderRows() {
       e.stopPropagation();
       advanceRow(ep, !!row?.job, e.currentTarget);
     });
-    tr.addEventListener("click", () => {
-      if (row?.job) openDetail(ep);
-    });
+    tr.addEventListener("click", () => openDetail(ep));
   });
   const done = rows.filter((r) => r.job?.state === "COMMITTED").length;
   const bar = $("monitor-progress");
   bar.style.display = "";
   bar.firstElementChild.style.width = `${rows.length ? Math.round((done / rows.length) * 100) : 0}%`;
+}
+
+function designEp(ep) {
+  const node = designNodes.find(
+    (n) => n.kind === "episode" && n.body?.episode_no === ep) ?? null;
+  if (!node) return { node: null, scenes: [] };
+  const scenes = designNodes.filter(
+    (n) => n.parent_id === node.id && !n.archived);
+  return { node, scenes };
 }
 
 function lastErrorHtml() {
@@ -103,47 +143,93 @@ function qualityHtml() {
   return `<p class="small">품질: <span class="mono">${esc(JSON.stringify(scores))}</span></p>`;
 }
 
+function manuscriptHtml() {
+  const d = detail;
+  if (!d.versions.length) {
+    return `<span class="muted small">원고가 없습니다. ${
+      d.hasJob ? "전진을 계속하면 원고가 생성됩니다." : "집필을 시작하면 초안이 생성됩니다."}</span>`;
+  }
+  const opts = d.versions
+    .map((r) => `<option value="${r.version}"${r.version === d.msVersion ? " selected" : ""}>v${r.version} (${esc(r.approval_status)})</option>`)
+    .join("");
+  const body = d.msText
+    .split("\n")
+    .map((p) => `<p>${esc(p) || "&nbsp;"}</p>`)
+    .join("");
+  return `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <select data-ms-version data-role="writing.episode.version-select" style="width:auto">${opts}</select>
+      <span class="small muted">${d.msText.length}자 · v${d.msVersion}</span>
+    </div>
+    <div class="manuscript" data-role="writing.episode.manuscript">${body}</div>`;
+}
+
 function renderDetail() {
   const box = $("ep-detail");
   if (!detail) {
     box.innerHTML = `<h3>회차 상세</h3><span class="muted">회차를 선택하면 상세 정보가 표시됩니다.</span>`;
     return;
   }
-  const revs = (detail.revisions ?? [])
-    .map((r) => `v${r.version}(${r.approval_status}, ${r.length}자)`)
-    .join(", ");
+  const d = detail;
+  const scenes = d.scenes.length
+    ? `<ul class="ep-scenes">${d.scenes
+        .map((s) => `<li><span class="chip mono">${esc(s.code ?? "")}</span> <b>${esc(s.title)}</b>${s.logline ? ` <span class="small muted">${esc(s.logline)}</span>` : ""}</li>`)
+        .join("")}</ul>`
+    : `<span class="muted small">장면 없음</span>`;
   box.innerHTML = `
-    <h3>EP ${esc(detail.ep)} 상세 <span class="hint">revision · proposal set</span></h3>
-    <dl class="kv">
-      <dt>상태</dt><dd>${stateLabel(detail.state)}</dd>
-      <dt>시도</dt><dd class="mono">${esc(detail.attempt)}</dd>
-      <dt>원고 rev</dt><dd class="mono">${esc(detail.manuscript_revision_id ?? "-")}</dd>
-      <dt>제안 set</dt><dd class="mono">${esc(detail.proposal_set_id ?? "-")}</dd>
-      <dt>원고 버전</dt><dd class="mono">${esc(revs || "없음")}</dd>
-    </dl>
-    ${lastErrorHtml()}
-    ${verificationHtml()}
-    ${qualityHtml()}
-    <div class="btn-row">
-      <button class="btn primary" data-advance data-role="writing.episode.advance-btn">다음 단계로 전진</button>
+    <h3>EP ${esc(d.ep)} · ${esc(d.title || "")} ${d.hasJob ? stateLabel(d.state) : `<span class="muted small">미시작</span>`}</h3>
+    ${d.hasJob ? "" : `<div class="btn-row"><button class="btn primary" data-start data-role="writing.episode.start-btn"${canStart(d.ep) ? "" : " disabled"}${canStart(d.ep) ? "" : ` title="${gateHint(d.ep)}"`}>이 화 집필 시작</button>${canStart(d.ep) ? "" : `<span class="small muted">${gateHint(d.ep)}</span>`}</div>`}
+    <h4>설계 줄거리${d.designNode ? ` <span class="chip mono">${esc(d.designNode.code ?? "")}</span>` : ""}</h4>
+    <p class="small">${d.designNode ? esc(d.designNode.logline || "(줄거리 없음)") : `<span class="muted">연결된 설계 노드가 없습니다.</span>`}</p>
+    <h4>장면 (${d.scenes.length})</h4>
+    ${scenes}
+    <h4>원고</h4>
+    ${manuscriptHtml()}
+    ${d.hasJob ? `
+    <h4>수정 요청</h4>
+    <div style="display:flex;gap:8px">
+      <input type="text" data-change-input data-role="writing.episode.change-input" placeholder="수정 지시를 입력하세요" style="flex:1">
+      <button class="btn sm" data-change-btn data-role="writing.episode.change-btn" style="white-space:nowrap">요청</button>
+    </div>` : ""}
+    <div class="btn-row" style="margin-top:10px">
+      ${d.hasJob ? `<button class="btn primary" data-advance data-role="writing.episode.advance-btn">다음 단계로 전진</button>` : ""}
+      ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">작가 검토로 이동 →</button>` : ""}
     </div>
-    <div class="small muted" style="margin-top:6px">※ 전진은 되돌릴 수 없습니다. 같은 상태에서 반복하면 재시도 횟수를 소모합니다.</div>`;
-  box.querySelector("[data-advance]").addEventListener("click", () =>
+    ${d.hasJob ? `<div class="small muted" style="margin-top:6px">※ 전진은 되돌릴 수 없습니다. 같은 상태에서 반복하면 재시도 횟수를 소모합니다.</div>` : ""}
+    ${d.hasJob ? `<details style="margin-top:10px"><summary class="small muted">파이프라인 정보</summary>
+      <dl class="kv">
+        <dt>시도</dt><dd class="mono">${esc(d.attempt)}</dd>
+        <dt>원고 rev</dt><dd class="mono">${esc(d.manuscript_revision_id ?? "-")}</dd>
+        <dt>제안 set</dt><dd class="mono">${esc(d.proposal_set_id ?? "-")}</dd>
+      </dl>
+      ${lastErrorHtml()}
+      ${verificationHtml()}
+      ${qualityHtml()}
+    </details>` : ""}`;
+  box.querySelector("[data-start]")?.addEventListener("click", (e) =>
+    advanceCurrent(e.currentTarget));
+  box.querySelector("[data-advance]")?.addEventListener("click", (e) =>
+    advanceCurrent(e.currentTarget));
+  box.querySelector("[data-review]")?.addEventListener("click", goReview);
+  box.querySelector("[data-ms-version]")?.addEventListener("change", (e) =>
     run(async () => {
-      const btn = box.querySelector("[data-advance]");
-      btn.textContent = "실행 중… (취소 불가)";
-      try {
-        await api.advance(detail.ep, detail.hasJob ? undefined : currentDesignId());
-        await load(currentDesignId());
-        detail = { ep: detail.ep, ...(await api.episode(detail.ep)) };
-        renderDetail();
-        await refreshCalls();
-        await refreshBudgetChips();
-      } finally {
-        btn.textContent = "다음 단계로 전진";
+      detail.msVersion = Number(e.target.value);
+      detail.msText = (await api.manuscript(detail.ep, detail.msVersion)).text ?? "";
+      renderDetail();
+    }));
+  const changeBtn = box.querySelector("[data-change-btn]");
+  if (changeBtn) changeBtn.addEventListener("click", () =>
+    run(async () => {
+      const input = box.querySelector("[data-change-input]");
+      const instruction = input.value.trim();
+      if (!instruction) {
+        showError("monitor-error", "수정 지시를 입력하세요.");
+        return;
       }
-    })
-  );
+      await api.requestChange(detail.ep, instruction);
+      await load(currentDesignId());
+      await fetchDetail(detail.ep);
+    }));
 }
 
 function currentDesignId() {
@@ -153,7 +239,56 @@ function currentDesignId() {
 async function load(did) {
   const d = await api.designEpisodes(did);
   rows = d.episodes ?? [];
+  try {
+    designNodes = (await api.nodes(did)).nodes ?? [];
+  } catch {
+    designNodes = [];
+  }
   renderRows();
+}
+
+async function fetchDetail(ep) {
+  selectedEp = Number(ep);
+  renderRows();
+  const row = rows.find((r) => r.episode_no === selectedEp);
+  const hasJob = !!row?.job;
+  const { node, scenes } = designEp(selectedEp);
+  if (hasJob) {
+    detail = { ep: selectedEp, hasJob: true, title: row.title,
+      ...(await api.episode(selectedEp)), designNode: node, scenes };
+    detail.versions = detail.revisions ?? [];
+    if (detail.versions.length) {
+      detail.msVersion = detail.versions[detail.versions.length - 1].version;
+      detail.msText = (await api.manuscript(
+        selectedEp, detail.msVersion)).text ?? "";
+    } else {
+      detail.msVersion = null;
+      detail.msText = "";
+    }
+  } else {
+    detail = { ep: selectedEp, hasJob: false, title: row?.title ?? "",
+      designNode: node, scenes, versions: [], msVersion: null, msText: "" };
+  }
+  renderDetail();
+}
+
+function openDetail(ep) {
+  return run(() => fetchDetail(ep));
+}
+
+async function advanceCurrent(btn) {
+  await run(async () => {
+    const label = btn.textContent;
+    btn.textContent = "실행 중… (취소 불가)";
+    try {
+      await api.advance(detail.ep, detail.hasJob ? undefined : Number(currentDesignId()));
+      await load(currentDesignId());
+      await fetchDetail(detail.ep);
+      await refreshBudgetChips();
+    } finally {
+      btn.textContent = label;
+    }
+  });
 }
 
 async function advanceRow(ep, hasJob, btn) {
@@ -163,7 +298,7 @@ async function advanceRow(ep, hasJob, btn) {
     try {
       await api.advance(ep, hasJob ? undefined : Number(currentDesignId()));
       await load(currentDesignId());
-      await refreshCalls();
+      await fetchDetail(ep);
       await refreshBudgetChips();
     } finally {
       btn.textContent = label;
@@ -171,39 +306,16 @@ async function advanceRow(ep, hasJob, btn) {
   });
 }
 
-async function openDetail(ep) {
-  await run(async () => {
-    const row = rows.find((r) => r.episode_no === ep);
-    detail = { ep, hasJob: !!row?.job, ...(await api.episode(ep)) };
-    renderDetail();
-    await refreshCalls();
-    await refreshBudgetChips();
-  });
-}
-
-async function refreshCalls() {
-  const tb = $("calls-rows");
-  try {
-    const { calls } = await api.llmCalls();
-    if (!calls.length) {
-      tb.innerHTML = `<tr><td colspan="6"><span class="muted small">기록 없음</span></td></tr>`;
-      return;
-    }
-    tb.innerHTML = calls
-      .map(
-        (c) => `<tr>
-          <td class="mono small">${esc((c.ts ?? "").slice(11, 19))}</td>
-          <td><span class="chip">${esc(c.bundle)}</span></td>
-          <td>${c.episode_no ?? "-"}</td>
-          <td class="mono small">${esc(c.input_tokens)}/${esc(c.output_tokens)}</td>
-          <td class="mono small">${esc(c.latency_ms)}ms</td>
-          <td>${c.ok ? `<span class="step-done">성공</span>` : `<span class="step-run">${esc(c.error || "실패")}</span>`}</td>
-        </tr>`
-      )
-      .join("");
-  } catch {
-    tb.innerHTML = `<tr><td colspan="6"><span class="muted small">호출 기록 조회 실패</span></td></tr>`;
-  }
+function goReview() {
+  const w = getWork();
+  if (!w || !detail) return;
+  const ep = detail.ep;
+  go(novelPath(w.uid || w.id, "review"));
+  setTimeout(() => {
+    document.dispatchEvent(new CustomEvent("review-episode", {
+      detail: { ep },
+    }));
+  }, 50);
 }
 
 export async function refreshBudgetChips() {
@@ -247,12 +359,9 @@ export function initMonitor() {
     run(async () => {
       $("monitor-design-id").value = designId;
       await load(designId);
-      const row = rows.find((r) => r.episode_no === ep);
-      if (row?.job) {
-        detail = { ep, hasJob: true, ...(await api.episode(ep)) };
-        renderDetail();
-      }
-      await refreshCalls();
+      await fetchDetail(Number(ep));
+      document.querySelector(`#ep-rows tr[data-ep="${Number(ep)}"]`)
+        ?.scrollIntoView({ block: "nearest" });
     });
   });
   document.addEventListener("enter-screen", (e) => {
@@ -267,8 +376,10 @@ export function initMonitor() {
         $("monitor-design-id").value = did;
         await load(did);
       }
+      if (selectedEp != null && rows.some((r) => r.episode_no === selectedEp)) {
+        await fetchDetail(selectedEp);
+      }
     });
   });
-  refreshCalls();
   refreshBudgetChips();
 }

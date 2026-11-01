@@ -155,8 +155,6 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `writing.progress.design-id-input`, `writing.progress.load-btn`
 - `writing.progress.episode-rows`
 - `writing.episode.panel` — 회차 상세 카드
-- `writing.calls.panel` — AI 호출 기록 카드
-- `writing.calls.rows`
 
 ### review — 작가 검토
 
@@ -209,7 +207,6 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 
 ### storydesign.js
 
-- `design.meta.approve-btn` — 설계 승인 버튼 (단일)
 - `design.tree.seed-root-btn` — 루트 노드 만들기 (빈 상태, 단일)
 - `design.tree.seed-outlines-btn` — 기존 개요에서 Episode 생성 (빈 상태, 단일)
 - `design.partner.apply-patch-btn` — 선택 노드 수정안 적용 (단일)
@@ -228,6 +225,11 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `writing.progress.row-detail-btn` — 회차 행 상세 버튼
 - `writing.progress.row-advance-btn` — 회차 행 전진 버튼
 - `writing.episode.advance-btn` — 다음 단계로 전진 버튼 (단일)
+- `writing.episode.start-btn` — 이 화 집필 시작 버튼 (단일)
+- `writing.episode.version-select` — 원고 버전 선택 (단일)
+- `writing.episode.manuscript` — 원고 미리보기 (단일)
+- `writing.episode.change-input`, `writing.episode.change-btn` — 수정 요청 (단일)
+- `writing.episode.review-link` — 작가 검토로 이동 버튼 (단일)
 
 ### review.js
 

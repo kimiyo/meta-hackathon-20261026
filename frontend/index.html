@@ -256,11 +256,13 @@
   <div class="grid-monitor">
     <div class="card" data-role="writing.progress.panel">
       <h3>회차별 진행 <span class="hint">준비/초안/검토/대기/승인/확정</span></h3>
-      <label class="f">설계 ID</label>
-      <div style="display:flex;gap:8px">
-        <input type="text" id="monitor-design-id" data-role="writing.progress.design-id-input" placeholder="설계 ID">
-        <button class="btn sm" id="btn-monitor-load" data-role="writing.progress.load-btn" style="white-space:nowrap">불러오기</button>
-      </div>
+      <details class="small" style="margin-bottom:4px"><summary class="muted">설계 직접 지정</summary>
+        <label class="f">설계 ID</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="monitor-design-id" data-role="writing.progress.design-id-input" placeholder="설계 ID">
+          <button class="btn sm" id="btn-monitor-load" data-role="writing.progress.load-btn" style="white-space:nowrap">불러오기</button>
+        </div>
+      </details>
       <div class="small muted" id="monitor-budget" style="margin-top:10px">토큰 —</div>
       <div class="progress-10" id="monitor-progress" style="display:none"><i style="width:0%"></i></div>
       <table class="tbl" style="margin-top:10px">
@@ -271,13 +273,6 @@
     <div class="col-resizer" id="writing-resizer" data-role="writing.screen.col-resizer" title="드래그하여 너비 조절"></div>
     <div>
       <div class="card" id="ep-detail" data-role="writing.episode.panel"><h3>회차 상세</h3><span class="muted">회차를 선택하면 상세 정보가 표시됩니다.</span></div>
-      <div class="card" data-role="writing.calls.panel">
-        <h3>AI 호출 기록 <span class="hint">최근 20건</span></h3>
-        <table class="tbl">
-          <thead><tr><th>시각</th><th>작업</th><th>회차</th><th>in/out</th><th>지연</th><th>결과</th></tr></thead>
-          <tbody id="calls-rows" data-role="writing.calls.rows"><tr><td colspan="6"><span class="muted small">기록 없음</span></td></tr></tbody>
-        </table>
-      </div>
     </div>
   </div>
 </section>

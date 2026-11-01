@@ -177,8 +177,6 @@ def test_advance_guard_conflict(client):
         wa = _mkwork(c, ta, "A작품")
         ha = c.post(f"/api/v1/works/{wa['uid']}/handoff", json={},
                     headers=_h(ta)).json()
-        c.post(f"/api/v1/designs/{ha['design_id']}/approve",
-               headers=_h(ta))
         r = c.post("/api/v1/episodes/1/advance",
                    json={"design_id": ha["design_id"]}, headers=_h(ta))
         assert r.json()["state"] == "DRAFT", r.text
@@ -187,8 +185,6 @@ def test_advance_guard_conflict(client):
         wb = _mkwork(c, tb, "B작품")
         hb = c.post(f"/api/v1/works/{wb['uid']}/handoff", json={},
                     headers=_h(tb)).json()
-        c.post(f"/api/v1/designs/{hb['design_id']}/approve",
-               headers=_h(tb))
         # same episode number in another design is blocked, not corrupted
         r = c.post("/api/v1/episodes/1/advance",
                    json={"design_id": hb["design_id"]}, headers=_h(tb))

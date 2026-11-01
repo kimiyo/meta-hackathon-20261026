@@ -597,3 +597,9 @@ header.topbar .logo { display: flex; align-items: center; gap: 8px; }
   height: 86vh; max-height: 86vh; display: flex; flex-direction: column; }
 #thread-search-list { flex: 1; min-height: 0; overflow-y: auto; }
 .thread-hit .small { display: block; color: var(--ink-soft); margin-top: 2px; }
+#ep-rows tr.clickable { cursor: pointer; }
+#ep-rows tr.selected td { background: var(--accent-bg); }
+.ep-scenes { list-style: none; margin: 6px 0; padding: 0; }
+.ep-scenes li { margin: 4px 0; font-size: 12.5px; }
+#ep-detail h4 { font-size: 13px; margin: 12px 0 4px; }
+#ep-detail .manuscript { max-height: 320px; overflow-y: auto; }

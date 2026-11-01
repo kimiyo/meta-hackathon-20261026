@@ -84,14 +84,12 @@ def test_generate_design_rejects_gap(conn):
                                  total_episodes=12)
 
 
-def test_approve_and_patch_outline(conn):
+def test_patch_outline(conn):
     conn.execute("INSERT INTO works(title, created_at) VALUES('w', 't')")
     out = planning.generate_design(FakeMeta(2), conn, work_id=1, keywords="서점",
                                    total_episodes=2)
-    assert planning.approve_design(conn, out["design_id"])["status"] == "approved"
     planning.update_outline(conn, out["design_id"], 1, {"title": "새제목"})
     d = planning.get_design(conn, out["design_id"])
     assert d["outlines"][0]["title"] == "새제목"
-    assert d["status"] == "approved"
     with pytest.raises(KeyError):
         planning.update_outline(conn, out["design_id"], 99, {"title": "x"})

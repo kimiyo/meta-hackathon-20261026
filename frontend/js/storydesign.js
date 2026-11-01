@@ -137,18 +137,7 @@ function renderDesignMeta() {
     box.innerHTML = `<span class="muted">설계가 없습니다. 아이디어 화면에서 인계하세요.</span>`;
     return;
   }
-  const stLabel = design.status === "draft" ? "작성 중" : design.status;
-  const st = design.status === "approved"
-    ? `<span class="st-AUTHOR_APPROVED state-label">승인됨</span>`
-    : `<span class="chip">${esc(stLabel)}</span>
-       <button class="btn sm primary" id="btn-design-approve" data-role="design.meta.approve-btn">설계 승인</button>`;
-  box.innerHTML = `<b>설계 v${esc(design.version)}</b> · ${esc(design.scope_total_episodes)}화 · ${st}`;
-  $("btn-design-approve")?.addEventListener("click", () => run(async () => {
-    await api.approveDesign(design.id);
-    const full = await api.work(getWork().uid || getWork().id);
-    design = full.latest_design;
-    renderDesignMeta();
-  }));
+  box.innerHTML = `<b>설계 v${esc(design.version)}</b> · ${esc(design.scope_total_episodes)}화`;
 }
 
 // ---- 트리 ----

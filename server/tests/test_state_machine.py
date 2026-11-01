@@ -30,9 +30,12 @@ def test_plan_to_draft(conn):
     assert job["manuscript_revision_id"] == out["revision"]["revision_id"]
 
 
-def test_unapproved_design_rejected(conn):
-    with pytest.raises(LLMStepError, match="design_not_approved"):
-        state_machine.advance(conn, FakeMeta(["가" * 3000]), 1, design_id=2)
+def test_draft_design_advances_without_approval(conn):
+    conn.execute("INSERT INTO episode_outlines(design_id, episode_no, title, goal)"
+                 " VALUES(2,1,'T','G')")
+    conn.commit()
+    out = state_machine.advance(conn, FakeMeta(["가" * 3000]), 1, design_id=2)
+    assert out["state"] == "DRAFT"
 
 
 def test_repeat_failed_advance_consumes_attempt(conn):

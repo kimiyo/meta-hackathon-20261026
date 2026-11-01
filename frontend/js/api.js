@@ -52,7 +52,6 @@ export const api = {
   createDesign: (workKey, body) =>
     req(`/works/${workKey}/designs`, { method: "POST", body: JSON.stringify(body) }),
   design: (id) => req(`/designs/${id}`),
-  approveDesign: (id) => req(`/designs/${id}/approve`, { method: "POST" }),
   patchOutline: (designId, ep, body) =>
     req(`/designs/${designId}/outlines/${ep}`, {
       method: "PATCH",

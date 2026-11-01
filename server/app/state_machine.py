@@ -51,9 +51,6 @@ def advance(conn, meta, episode_no: int, *, design_id: int | None = None,
                               (design_id,)).fetchone()
         if not design:
             raise KeyError(f"design {design_id} not found")
-        if design["status"] != "approved":
-            raise LLMStepError("drafting", episode_no, "design_not_approved",
-                               f"design {design_id} status={design['status']}")
         job = {"episode_no": episode_no, "design_id": design_id, "state": "PLAN",
                "attempt": 0, "manuscript_revision_id": None,
                "proposal_set_id": None, "last_error": ""}

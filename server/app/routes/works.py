@@ -119,16 +119,6 @@ def get_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn),
     return d
 
 
-@router.post("/designs/{design_id}/approve")
-def approve_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn),
-                   author: dict = Depends(get_current_author)):
-    row = require_design(conn, design_id, author["id"])
-    out = planning.approve_design(conn, design_id)
-    touch_work(conn, row["work_id"])
-    conn.commit()
-    return out
-
-
 class OutlinePatch(BaseModel):
     title: str | None = None
     goal: str | None = None

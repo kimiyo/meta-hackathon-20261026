@@ -559,7 +559,6 @@ def test_advance_marks_writing_stage(client, fakes):
     c.post(f"/api/v1/designs/{did}/nodes",
            json={"kind": "episode", "parent_id": "N001", "title": "1화",
                  "logline": "목표1"})
-    c.post(f"/api/v1/designs/{did}/approve")
     app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 3000])
     try:
         r = c.post("/api/v1/episodes/1/advance", json={"design_id": did})

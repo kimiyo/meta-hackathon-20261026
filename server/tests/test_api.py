@@ -147,8 +147,6 @@ def test_works_designs_api(api_client):
         assert r.json()["outline_count"] == 12
         r = api_client.get(f"/api/v1/designs/{did}")
         assert len(r.json()["outlines"]) == 12
-        r = api_client.post(f"/api/v1/designs/{did}/approve")
-        assert r.json()["status"] == "approved"
         r = api_client.patch(f"/api/v1/designs/{did}/outlines/3",
                              json={"title": "바뀐제목"})
         assert r.json()["updated"] is True
@@ -171,7 +169,6 @@ def test_episodes_api(api_client):
     app.dependency_overrides[get_meta] = lambda: PlanFake(2)
     did = api_client.post(f"/api/v1/works/{wid}/designs",
                           json={"keywords": "k", "total_episodes": 2}).json()["design_id"]
-    api_client.post(f"/api/v1/designs/{did}/approve")
     app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 3000])
     try:
         r = api_client.post("/api/v1/episodes/1/advance",
@@ -198,7 +195,6 @@ def test_approve_and_ops_api(api_client):
     app.dependency_overrides[get_meta] = lambda: PlanFake(1)
     did = api_client.post(f"/api/v1/works/{wid}/designs",
                           json={"keywords": "k", "total_episodes": 1}).json()["design_id"]
-    api_client.post(f"/api/v1/designs/{did}/approve")
     meta = ScriptedMeta(
         [_item("ch_0001", "set", "직업", "서점주인", "달빛 서점의 주인이 되었다")],
         [{"item_id": 1, "verdict": "ok", "reason": "신규"}])

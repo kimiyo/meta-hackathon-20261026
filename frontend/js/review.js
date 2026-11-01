@@ -214,6 +214,12 @@ export function initReview() {
     restoreColResizer(REVIEW_RESIZER);
   });
   $("btn-review-load").addEventListener("click", () => run(() => load(currentEp())));
+  document.addEventListener("review-episode", (e) => {
+    const ep = e.detail?.ep;
+    if (!ep) return;
+    $("review-ep").value = ep;
+    run(() => load(Number(ep)));
+  });
   $("rev-select").addEventListener("change", (e) =>
     run(async () => {
       version = Number(e.target.value);

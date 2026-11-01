@@ -143,13 +143,6 @@ def get_design(conn, design_id: int) -> dict | None:
     return d
 
 
-def approve_design(conn, design_id: int) -> dict:
-    conn.execute("UPDATE story_designs SET status='approved', approved_at=?"
-                 " WHERE id=?", (now_iso(), design_id))
-    conn.commit()
-    return {"design_id": design_id, "status": "approved"}
-
-
 def update_outline(conn, design_id: int, episode_no: int, fields: dict) -> dict:
     allowed = {"title", "goal", "events", "char_changes", "foreshadowing",
                "links", "constraints"}
