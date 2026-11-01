@@ -109,7 +109,8 @@ def post_message(thread_id: int, body: ThreadMessageIn,
     assistant = design_threads.add_message(
         conn, thread_id, "assistant", out.get("reply") or "(빈 응답)",
         proposals={"children": out.get("proposed_children") or [],
-                   "patch": out.get("proposed_patch") or {}})
+                   "patch": design_threads.sanitize_patch(
+                       out.get("proposed_patch") or {})})
     thread = design_threads.get_thread(conn, thread_id)
     pub = dict(thread)
     pub["node_code"] = node.get("code")

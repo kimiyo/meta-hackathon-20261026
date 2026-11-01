@@ -593,4 +593,7 @@ header.topbar .logo { display: flex; align-items: center; gap: 8px; }
   font-family: var(--sans); font-size: 12px; color: var(--ink);
 }
 .thread-hit:hover { border-color: var(--accent); }
+#thread-search-backdrop .modal { width: 94vw; max-width: none;
+  height: 86vh; max-height: 86vh; display: flex; flex-direction: column; }
+#thread-search-list { flex: 1; min-height: 0; overflow-y: auto; }
 .thread-hit .small { display: block; color: var(--ink-soft); margin-top: 2px; }

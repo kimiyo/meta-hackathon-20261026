@@ -215,6 +215,7 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `design.partner.apply-patch-btn` — 선택 노드 수정안 적용 (단일)
 - `design.partner.apply-all-btn` — 하위 설계안 전체 적용 (단일)
 - `design.partner.apply-child-btn` — 하위 설계안 개별 추가
+- `design.partner.typing` — AI 답변 생성 중 애니메이션 (단일)
 - `design.editor.ns-edit-btn`, `design.editor.ns-delete-btn` — 설정 행 편집·삭제 (다이얼로그)
 - `design.editor.ns-override-btn` — 물려받은 설정 덮어쓰기 (다이얼로그)
 - `design.editor.ns-form-category`, `design.editor.ns-form-title` (다이얼로그)

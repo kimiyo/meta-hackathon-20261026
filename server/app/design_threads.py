@@ -155,6 +155,25 @@ def mark_applied(conn: sqlite3.Connection, message_id: int, *,
     return msg
 
 
+def sanitize_patch(patch: dict | None) -> dict:
+    """Coerce a model-proposed patch into PATCH /nodes shape.
+
+    The model sometimes puts the new plot text in ``body`` as a plain
+    string, which PATCH /nodes rejects (422: body must be an object).
+    A string body becomes the logline when no logline was proposed,
+    otherwise it is dropped; a dict body passes through untouched.
+    """
+    clean = dict(patch or {})
+    body = clean.get("body")
+    if body is None or isinstance(body, dict):
+        return clean
+    if isinstance(body, str) and body.strip():
+        if not (clean.get("logline") or "").strip():
+            clean["logline"] = body.strip()
+    clean.pop("body", None)
+    return clean
+
+
 def proposal_digest(msg: dict) -> str:
     """One-line applied-state summary for history context."""
     props = msg.get("proposals") or {}

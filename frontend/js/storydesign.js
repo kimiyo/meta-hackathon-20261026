@@ -24,6 +24,7 @@ let partnerThreadId = null;
 let includedPartnerMessages = new Set();
 let partnerMsgMode = "select";
 let partnerAssistantId = null;
+let partnerSending = false;
 let busy = false;
 let loadedUid = null;
 
@@ -214,7 +215,6 @@ function renderTree() {
         await refreshEditor();
         await loadPartnerThreads();
       });
-      run(loadPartnerThreads);
     });
   });
   applyCollapsedState();
@@ -360,7 +360,6 @@ function renderRollup(n) {
         await refreshEditor();
         await loadPartnerThreads();
       });
-      run(loadPartnerThreads);
     });
   });
 }
@@ -652,10 +651,21 @@ function writeJump() {
 
 function openThreadSearch() {
   $("thread-search-input").value = "";
-  $("thread-search-list").innerHTML = `<span class="muted small">검색어를 입력하세요.</span>`;
+  $("thread-search-list").innerHTML = `<span class="muted small">불러오는 중…</span>`;
   showError("thread-search-error", "");
   $("thread-search-backdrop").style.display = "";
   $("thread-search-input").focus();
+  runThreadSearch();
+}
+
+let threadSearchTimer = null;
+function queueThreadSearch(immediate = false) {
+  clearTimeout(threadSearchTimer);
+  if (immediate) {
+    runThreadSearch();
+    return;
+  }
+  threadSearchTimer = setTimeout(runThreadSearch, 250);
 }
 
 function closeThreadSearch() {
@@ -665,16 +675,12 @@ function closeThreadSearch() {
 async function runThreadSearch() {
   const q = $("thread-search-input").value.trim();
   const box = $("thread-search-list");
-  if (!q) {
-    box.innerHTML = `<span class="muted small">검색어를 입력하세요.</span>`;
-    return;
-  }
   showError("thread-search-error", "");
   try {
-    const out = (await api.designThreads(design.id, null, q)).threads ?? [];
+    const out = (await api.designThreads(design.id, null, q || null)).threads ?? [];
     if ($("thread-search-input").value.trim() !== q) return;
     if (!out.length) {
-      box.innerHTML = `<span class="muted small">결과 없음</span>`;
+      box.innerHTML = `<span class="muted small">${q ? "결과 없음" : "대화 없음"}</span>`;
       return;
     }
     box.innerHTML = out.map((th) => `
@@ -733,12 +739,17 @@ function renderPartner() {
   box.querySelectorAll("[data-pinc-msg]").forEach((c) => {
     c.addEventListener("change", () => {
       const id = Number(c.dataset.pincMsg);
+      if (!Number.isFinite(id)) return;
       if (c.checked) includedPartnerMessages.add(id);
       else includedPartnerMessages.delete(id);
       partnerMsgMode = "select";
       updatePartnerSeg();
     });
   });
+  if (partnerSending) {
+    box.insertAdjacentHTML("beforeend",
+      `<div class="msg assistant"><div class="typing" data-role="design.partner.typing" aria-label="AI 답변 생성 중"><span></span><span></span><span></span></div></div>`);
+  }
   box.scrollTop = box.scrollHeight;
 }
 
@@ -817,15 +828,28 @@ function partnerRefs() {
 async function partnerSend() {
   const input = $("partner-input");
   const content = input.value.trim();
-  if (!content || busy || !selectedId) return;
+  if (!content || busy || partnerSending || !selectedId) return;
   input.value = "";
   const refs = partnerRefs();
   $("partner-refs").value = "";
+  const sentNode = selectedId;
+  const sentTid = partnerThreadId;
+  const pending = { id: `pending-${Date.now()}`, role: "user", content };
+  partnerSending = true;
+  partnerMsgs.push(pending);
+  renderPartner();
+  const send = $("btn-partner-send");
+  send.textContent = "처리중...";
+  send.disabled = true;
   await run(async () => {
     const tid = await ensurePartnerThread();
     const out = await api.postDesignMessage(tid, content, refs,
       [...includedPartnerMessages]);
-    partnerMsgs.push(out.user, out.assistant);
+    if (sentNode !== selectedId || (sentTid && tid !== sentTid)) return;
+    partnerSending = false;
+    const i = partnerMsgs.findIndex((m) => m.id === pending.id);
+    if (i >= 0) partnerMsgs.splice(i, 1, out.user, out.assistant);
+    else partnerMsgs.push(out.user, out.assistant);
     partnerAssistantId = out.assistant.id;
     resetPartnerInclusion();
     renderProposals(out.assistant.proposals.children ?? [],
@@ -834,6 +858,23 @@ async function partnerSend() {
     partnerThreads = (await api.designThreads(design.id, selectedId)).threads ?? [];
     renderThreadSelect();
   }, "전송 중… (취소 불가)");
+  send.textContent = "전송";
+  send.disabled = false;
+  if (partnerSending && sentNode === selectedId) {
+    // AI 호출 실패: 사용자 메시지는 서버에 저장되어 있으므로 동기화
+    partnerSending = false;
+    try {
+      partnerMsgs = partnerThreadId
+        ? (await api.designThreadMessages(partnerThreadId)).messages ?? []
+        : [];
+    } catch {
+      partnerMsgs = partnerMsgs.filter((m) => m.id !== pending.id);
+    }
+    resetPartnerInclusion();
+  } else if (partnerSending) {
+    partnerSending = false;
+    renderPartner();
+  }
 }
 
 async function expandFlow() {
@@ -858,7 +899,12 @@ function renderProposals(children, patch, applied = {}, assistantId = null) {
     const fields = {};
     if (patch.title !== undefined) fields.title = patch.title;
     if (patch.logline !== undefined) fields.logline = patch.logline;
-    if (patch.body !== undefined) fields.body = patch.body;
+    if (typeof patch.body === "string") {
+      if (fields.logline === undefined) fields.logline = patch.body;
+    } else if (patch.body !== undefined && patch.body !== null
+               && typeof patch.body === "object") {
+      fields.body = patch.body;
+    }
     await api.patchNode(selectedId, fields);
     if (assistantId) await api.markDesignApplied(assistantId, { patch: true });
     patchApplied = true;
@@ -866,7 +912,7 @@ function renderProposals(children, patch, applied = {}, assistantId = null) {
   const applyChild = async (c) => {
     await api.createNode(design.id, {
       kind: c.kind, parent_id: selectedId, title: c.title || "무제",
-      logline: c.logline || "", body: c.body || {},
+      logline: c.logline || "", body: (c.body && typeof c.body === "object") ? c.body : {},
     });
   };
   const refreshAfterApply = async () => {
@@ -998,8 +1044,9 @@ export function initDesign() {
   $("thread-search-backdrop").addEventListener("click", (e) => {
     if (e.target === $("thread-search-backdrop")) closeThreadSearch();
   });
+  $("thread-search-input").addEventListener("input", () => queueThreadSearch());
   $("thread-search-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") runThreadSearch();
+    if (e.key === "Enter") queueThreadSearch(true);
   });
   document.querySelectorAll("#partner-msg-mode button").forEach((b) => {
     b.addEventListener("click", () => {

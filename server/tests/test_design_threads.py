@@ -196,6 +196,56 @@ def test_delete_node_cascades_threads(client, fakes):
     assert len(got) == 1 and got[0]["node_id"] == "E002"
 
 
+def test_patch_string_body_is_coerced(client):
+    """AI가 proposed_patch.body에 문자열을 넣어도 적용이 422 없이 된다."""
+    from app import design_threads as dtmod
+    from app.main import app
+    from app.routes.nodes import get_meta as nodes_meta
+
+    class StringBodyFake(DesignChatFake):
+        def chat_json(self, *, bundle, episode, system, user, schema,
+                      max_tokens, work_id=None):
+            assert schema is sch.DesignChatOut
+            return sch.DesignChatOut.model_validate({
+                "reply": "줄거리를 고쳐 봤다",
+                "proposed_children": [],
+                "proposed_patch": {
+                    "title": "마지막 출근길",
+                    "body": "2026년 12월 31일 아침 줄거리 전문이다"},
+            }).model_dump()
+
+    app.dependency_overrides[nodes_meta] = lambda: StringBodyFake()
+    try:
+        c, _ = client
+        h = _handoff(c, _mkwork(c)["uid"])
+        t = _thread(c, h["design_id"])
+        out = _post(c, t["id"], "이 화 줄거리를 수정해 줘", [])
+        patch = out["assistant"]["proposals"]["patch"]
+        assert patch.get("body", {}) == {} or isinstance(
+            patch.get("body"), dict)
+        # 프론트와 같은 방식으로 적용하면 422 없이 반영된다
+        fields = {}
+        if patch.get("title") is not None:
+            fields["title"] = patch["title"]
+        if patch.get("logline") is not None:
+            fields["logline"] = patch["logline"]
+        if patch.get("body") is not None:
+            fields["body"] = patch["body"]
+        r = c.patch("/api/v1/nodes/E001", json=fields)
+        assert r.status_code == 200, r.text
+        assert "줄거리 전문이다" in r.json()["logline"]
+    finally:
+        del app.dependency_overrides[nodes_meta]
+    # logline과 문자열 body가 함께 오면 문자열 body는 버린다
+    assert dtmod.sanitize_patch(
+        {"logline": "짧은줄거리", "body": "긴본문"}) == {
+            "logline": "짧은줄거리"}
+    # dict body는 그대로 둔다
+    assert dtmod.sanitize_patch(
+        {"logline": "줄거리", "body": {"a": 1}}) == {
+            "logline": "줄거리", "body": {"a": 1}}
+
+
 def test_thread_ownership(client):
     c, db_path = client
     from app.main import app
