@@ -19,6 +19,11 @@ let collapsedIds = new Set(); // 접힌 노드, 리렌더 유지용
 let selectedId = null;
 let editorNode = null;
 let partnerMsgs = [];
+let partnerThreads = [];
+let partnerThreadId = null;
+let includedPartnerMessages = new Set();
+let partnerMsgMode = "select";
+let partnerAssistantId = null;
 let busy = false;
 let loadedUid = null;
 
@@ -35,6 +40,20 @@ function setTreeMode(m) {
 function setPartnerCollapsed(collapsed) {
   localStorage.setItem("design-partner-collapsed", collapsed ? "1" : "0");
   document.querySelector(".grid-design")?.classList.toggle("partner-collapsed", collapsed);
+}
+
+async function whenFree(timeoutMs = 30000) {
+  const t0 = Date.now();
+  while (busy && Date.now() - t0 < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+function runWhenFree(fn, label) {
+  (async () => {
+    await whenFree();
+    await run(fn, label);
+  })();
 }
 
 async function run(fn, label) {
@@ -69,6 +88,11 @@ export async function enterDesign() {
     selectedId = null;
     editorNode = null;
     partnerMsgs = [];
+    partnerThreads = [];
+    partnerThreadId = null;
+    includedPartnerMessages = new Set();
+    partnerMsgMode = "select";
+    partnerAssistantId = null;
     $("proposal-list").innerHTML = "";
     $("partner-messages").innerHTML = "";
   }
@@ -87,7 +111,8 @@ export async function enterDesign() {
       selectedId = (nodes.find((n) => n.kind === "work") ?? nodes[0])?.id ?? null;
     }
     renderTree();
-    await loadEditor();
+    await refreshEditor();
+    await loadPartnerThreads();
   });
 }
 
@@ -185,7 +210,11 @@ function renderTree() {
       }
       selectedId = el.dataset.node;
       renderTree();
-      loadEditor();
+      runWhenFree(async () => {
+        await refreshEditor();
+        await loadPartnerThreads();
+      });
+      run(loadPartnerThreads);
     });
   });
   applyCollapsedState();
@@ -218,7 +247,7 @@ async function seedRoot() {
     selectedId = root.id;
     await reloadNodes();
     renderTree();
-    await loadEditor();
+    await refreshEditor();
   });
 }
 
@@ -243,7 +272,7 @@ async function seedFromOutlines() {
     selectedId = root.id;
     await reloadNodes();
     renderTree();
-    await loadEditor();
+    await refreshEditor();
   }, "생성 중…");
 }
 
@@ -262,22 +291,23 @@ async function addNode() {
     selectedId = created.id;
     await reloadNodes();
     renderTree();
-    await loadEditor();
+    await refreshEditor();
   });
 }
 
 // ---- 중앙 편집 ----
 
-async function loadEditor() {
+async function refreshEditor() {
   if (!selectedId) {
     editorNode = null;
-    renderEditor();
-    return;
-  }
-  await run(async () => {
+  } else {
     editorNode = await api.node(selectedId);
-    renderEditor();
-  });
+  }
+  renderEditor();
+}
+
+async function loadEditor() {
+  await run(refreshEditor);
 }
 
 const INHERIT_CAT = { character: "인물", world: "세계관", event: "사건", part: "Part 이야기", misc: "기타" };
@@ -326,7 +356,11 @@ function renderRollup(n) {
     el.addEventListener("click", () => {
       selectedId = el.dataset.goto;
       renderTree();
-      loadEditor();
+      runWhenFree(async () => {
+        await refreshEditor();
+        await loadPartnerThreads();
+      });
+      run(loadPartnerThreads);
     });
   });
 }
@@ -558,14 +592,27 @@ function subtreeStats(id) {
 
 let deleteTargetId = null;
 
-function openDeleteDialog() {
+function subtreeIds(id) {
+  const out = [id];
+  for (const k of childrenOf(id)) out.push(...subtreeIds(k.id));
+  return out;
+}
+
+async function openDeleteDialog() {
   if (!editorNode || !editorNode.parent_id) return;
   deleteTargetId = editorNode.id;
   const st = subtreeStats(editorNode.id);
+  let tcount = 0;
+  try {
+    const ids = new Set(subtreeIds(editorNode.id));
+    const all = (await api.designThreads(design.id)).threads ?? [];
+    tcount = all.filter((th) => ids.has(th.node_id)).length;
+  } catch { /* 개수 없이도 삭제 가능 */ }
   let msg = `<b>${esc(editorNode.full_code ?? editorNode.id)} · ${esc(editorNode.title)}</b>`;
   if (st.nodes) msg += ` 외 하위 ${st.nodes}개 노드`;
   msg += `를 삭제합니다. 되돌릴 수 없습니다.`;
   if (st.eps) msg += `<br>연결된 집필 개요 ${st.eps}건도 함께 삭제됩니다(원고 기록은 유지).`;
+  if (tcount) msg += `<br>연결된 대화 ${tcount}건도 함께 삭제됩니다.`;
   $("delete-dialog-msg").innerHTML = msg;
   showError("delete-dialog-error", "");
   $("delete-dialog-backdrop").style.display = "";
@@ -582,11 +629,11 @@ async function confirmDeleteNode() {
   await run(async () => {
     await api.deleteNode(id);
     closeDeleteDialog();
-    selectedId = null;
-    editorNode = null;
-    renderEditor();
     await reloadNodes();
     renderTree();
+    selectedId = (nodes.find((n) => n.kind === "work") ?? nodes[0])?.id ?? null;
+    await refreshEditor();
+    await loadPartnerThreads();
   });
 }
 
@@ -601,14 +648,166 @@ function writeJump() {
   }, 50);
 }
 
+// ---- 전체 대화 검색 ----
+
+function openThreadSearch() {
+  $("thread-search-input").value = "";
+  $("thread-search-list").innerHTML = `<span class="muted small">검색어를 입력하세요.</span>`;
+  showError("thread-search-error", "");
+  $("thread-search-backdrop").style.display = "";
+  $("thread-search-input").focus();
+}
+
+function closeThreadSearch() {
+  $("thread-search-backdrop").style.display = "none";
+}
+
+async function runThreadSearch() {
+  const q = $("thread-search-input").value.trim();
+  const box = $("thread-search-list");
+  if (!q) {
+    box.innerHTML = `<span class="muted small">검색어를 입력하세요.</span>`;
+    return;
+  }
+  showError("thread-search-error", "");
+  try {
+    const out = (await api.designThreads(design.id, null, q)).threads ?? [];
+    if ($("thread-search-input").value.trim() !== q) return;
+    if (!out.length) {
+      box.innerHTML = `<span class="muted small">결과 없음</span>`;
+      return;
+    }
+    box.innerHTML = out.map((th) => `
+      <button class="thread-hit" data-jump-thread="${th.id}" data-jump-node="${esc(th.node_id)}">
+        <span class="chip mono">${esc(th.node_code ?? "")}</span>
+        <b>${esc(th.title || "(무제)")}</b>
+        <span class="muted small">${esc((th.updated_at || "").slice(0, 16).replace("T", " "))}</span>
+        ${th.snippet ? `<span class="small">${esc(th.snippet)}</span>` : ""}
+      </button>`).join("");
+    box.querySelectorAll("[data-jump-thread]").forEach((b) => {
+      b.addEventListener("click", () => {
+        jumpToThread(b.dataset.jumpNode, Number(b.dataset.jumpThread));
+      });
+    });
+  } catch (err) {
+    showError("thread-search-error", String(err));
+  }
+}
+
+async function jumpToThread(nodeId, threadId) {
+  closeThreadSearch();
+  await whenFree();
+  await run(async () => {
+    if (!nodes.some((n) => n.id === nodeId)) {
+      $("tree-search").value = "";
+      await reloadNodes();
+    }
+    if (!nodes.some((n) => n.id === nodeId)) {
+      throw new Error("노드를 찾을 수 없습니다. 삭제되었을 수 있습니다.");
+    }
+    const chain = [];
+    let cur = nodes.find((n) => n.id === nodeId);
+    while (cur) {
+      chain.unshift(cur.id);
+      cur = nodes.find((n) => n.id === (cur.parent_id ?? null)) ?? null;
+    }
+    chain.slice(0, -1).forEach((id) => collapsedIds.delete(id));
+    selectedId = nodeId;
+    renderTree();
+    document.querySelector(`.tnode[data-node="${nodeId}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+    await refreshEditor();
+    await loadPartnerThreads();
+    if (partnerThreadId !== threadId) await openPartnerThread(threadId);
+    renderThreadSelect();
+  });
+}
+
 // ---- 설계 파트너 ----
 
 function renderPartner() {
   const box = $("partner-messages");
   box.innerHTML = partnerMsgs.length ? partnerMsgs.map((m) => `
-    <div class="msg ${m.role}"><div class="bubble">${esc(m.content).replace(/\n/g, "<br>")}</div></div>`).join("")
+    <div class="msg ${m.role}"><label class="inc"><input type="checkbox" data-pinc-msg="${m.id}"${includedPartnerMessages.has(m.id) ? " checked" : ""}></label><div class="bubble">${esc(m.content).replace(/\n/g, "<br>")}</div></div>`).join("")
     : `<span class="muted small">선택한 노드에 대해 질문하세요. AI가 하위 줄거리를 함께 설계합니다.</span>`;
+  box.querySelectorAll("[data-pinc-msg]").forEach((c) => {
+    c.addEventListener("change", () => {
+      const id = Number(c.dataset.pincMsg);
+      if (c.checked) includedPartnerMessages.add(id);
+      else includedPartnerMessages.delete(id);
+      partnerMsgMode = "select";
+      updatePartnerSeg();
+    });
+  });
   box.scrollTop = box.scrollHeight;
+}
+
+function updatePartnerSeg() {
+  document.querySelectorAll("#partner-msg-mode button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.pmmode === partnerMsgMode));
+}
+
+function resetPartnerInclusion() {
+  partnerMsgMode = "select";
+  includedPartnerMessages = new Set(partnerMsgs.slice(-2).map((m) => m.id));
+  updatePartnerSeg();
+  renderPartner();
+}
+
+async function loadPartnerThreads() {
+  partnerThreads = [];
+  partnerThreadId = null;
+  partnerMsgs = [];
+  partnerAssistantId = null;
+  if (!design || !selectedId) {
+    renderThreadSelect();
+    resetPartnerInclusion();
+    renderProposals([], {});
+    return;
+  }
+  partnerThreads = (await api.designThreads(design.id, selectedId)).threads ?? [];
+  renderThreadSelect();
+  if (partnerThreads.length) await openPartnerThread(partnerThreads[0].id);
+  else {
+    resetPartnerInclusion();
+    renderProposals([], {});
+  }
+}
+
+function renderThreadSelect() {
+  const sel = $("partner-thread");
+  if (!partnerThreads.length) {
+    sel.innerHTML = `<option value="">대화 없음 — ＋로 시작</option>`;
+    return;
+  }
+  sel.innerHTML = partnerThreads.map((th) =>
+    `<option value="${th.id}"${th.id === partnerThreadId ? " selected" : ""}>${esc(th.title || "(무제)")}</option>`).join("");
+}
+
+async function openPartnerThread(tid) {
+  partnerThreadId = tid;
+  partnerMsgs = (await api.designThreadMessages(tid)).messages ?? [];
+  resetPartnerInclusion();
+  const last = [...partnerMsgs].reverse().find((m) =>
+    m.role === "assistant" && ((m.proposals?.children?.length) ||
+      (m.proposals?.patch && Object.keys(m.proposals.patch).length)));
+  if (last) {
+    partnerAssistantId = last.id;
+    renderProposals(last.proposals.children ?? [], last.proposals.patch ?? {},
+      last.applied ?? {}, last.id);
+  } else {
+    partnerAssistantId = null;
+    renderProposals([], {});
+  }
+}
+
+async function ensurePartnerThread() {
+  if (partnerThreadId) return partnerThreadId;
+  const th = await api.createDesignThread(design.id, selectedId);
+  partnerThreads.unshift(th);
+  partnerThreadId = th.id;
+  renderThreadSelect();
+  return th.id;
 }
 
 function partnerRefs() {
@@ -622,13 +821,18 @@ async function partnerSend() {
   input.value = "";
   const refs = partnerRefs();
   $("partner-refs").value = "";
-  partnerMsgs.push({ role: "user", content });
-  renderPartner();
   await run(async () => {
-    const out = await api.nodeChat(selectedId, content, refs);
-    partnerMsgs.push({ role: "assistant", content: out.reply || "(빈 응답)" });
-    renderPartner();
-    renderProposals(out.proposed_children ?? [], out.proposed_patch ?? {});
+    const tid = await ensurePartnerThread();
+    const out = await api.postDesignMessage(tid, content, refs,
+      [...includedPartnerMessages]);
+    partnerMsgs.push(out.user, out.assistant);
+    partnerAssistantId = out.assistant.id;
+    resetPartnerInclusion();
+    renderProposals(out.assistant.proposals.children ?? [],
+      out.assistant.proposals.patch ?? {}, out.assistant.applied ?? {},
+      out.assistant.id);
+    partnerThreads = (await api.designThreads(design.id, selectedId)).threads ?? [];
+    renderThreadSelect();
   }, "전송 중… (취소 불가)");
 }
 
@@ -641,13 +845,38 @@ async function expandFlow() {
   }, "설계 중… (취소 불가)");
 }
 
-function renderProposals(children, patch) {
+function renderProposals(children, patch, applied = {}, assistantId = null) {
   const box = $("proposal-list");
   const hasPatch = patch && Object.keys(patch).length > 0;
   if (!children.length && !hasPatch) {
     box.innerHTML = `<span class="muted small">제안 없음</span>`;
     return;
   }
+  let patchApplied = Boolean(applied?.patch);
+  const childApplied = new Set(applied?.children ?? []);
+  const applyPatch = async () => {
+    const fields = {};
+    if (patch.title !== undefined) fields.title = patch.title;
+    if (patch.logline !== undefined) fields.logline = patch.logline;
+    if (patch.body !== undefined) fields.body = patch.body;
+    await api.patchNode(selectedId, fields);
+    if (assistantId) await api.markDesignApplied(assistantId, { patch: true });
+    patchApplied = true;
+  };
+  const applyChild = async (c) => {
+    await api.createNode(design.id, {
+      kind: c.kind, parent_id: selectedId, title: c.title || "무제",
+      logline: c.logline || "", body: c.body || {},
+    });
+  };
+  const refreshAfterApply = async () => {
+    await reloadNodes();
+    renderTree();
+    await refreshEditor();
+  };
+  const markApplied = (btn) => {
+    if (btn) { btn.disabled = true; btn.textContent = "✓ 반영됨"; }
+  };
   box.innerHTML = `
     ${hasPatch ? `<div class="proposal">
       <b class="small">선택 노드 수정안</b>
@@ -664,37 +893,44 @@ function renderProposals(children, patch) {
         <div class="btn-row"><button class="btn sm" data-apply-child="${i}" data-role="design.partner.apply-child-btn">하위로 추가</button></div>
       </div>`).join("")}`;
   box.querySelector("[data-apply-patch]")?.addEventListener("click", () => run(async () => {
-    const fields = {};
-    if (patch.title !== undefined) fields.title = patch.title;
-    if (patch.logline !== undefined) fields.logline = patch.logline;
-    if (patch.body !== undefined) fields.body = patch.body;
-    await api.patchNode(selectedId, fields);
-    await reloadNodes();
-    renderTree();
-    await loadEditor();
-    box.innerHTML = `<span class="muted small">적용됨</span>`;
+    if (patchApplied) return;
+    await applyPatch();
+    await refreshAfterApply();
+    markApplied(box.querySelector("[data-apply-patch]"));
   }));
-  const applyChild = async (c) => {
-    await api.createNode(design.id, {
-      kind: c.kind, parent_id: selectedId, title: c.title || "무제",
-      logline: c.logline || "", body: c.body || {},
-    });
-  };
   box.querySelectorAll("[data-apply-child]").forEach((b) => {
     b.addEventListener("click", () => run(async () => {
-      await applyChild(children[Number(b.dataset.applyChild)]);
-      await reloadNodes();
-      renderTree();
-      await loadEditor();
+      const i = Number(b.dataset.applyChild);
+      if (childApplied.has(i)) return;
+      await applyChild(children[i]);
+      if (assistantId) await api.markDesignApplied(assistantId, { child: i });
+      childApplied.add(i);
+      await refreshAfterApply();
+      markApplied(b);
     }));
   });
   box.querySelector("[data-apply-all]")?.addEventListener("click", () => run(async () => {
-    for (const c of children) await applyChild(c);
-    await reloadNodes();
-    renderTree();
-    await loadEditor();
-    box.innerHTML = `<span class="muted small">전체 적용됨</span>`;
+    if (hasPatch && !patchApplied) await applyPatch();
+    for (let i = 0; i < children.length; i++) {
+      if (childApplied.has(i)) continue;
+      await applyChild(children[i]);
+      childApplied.add(i);
+    }
+    await refreshAfterApply();
+    markApplied(box.querySelector("[data-apply-patch]"));
+    box.querySelectorAll("[data-apply-child]").forEach(markApplied);
+    const allBtn = box.querySelector("[data-apply-all]");
+    if (allBtn) { allBtn.disabled = true; allBtn.textContent = "✓ 전체 반영됨"; }
   }, "적용 중…"));
+  if (patchApplied) markApplied(box.querySelector("[data-apply-patch]"));
+  box.querySelectorAll("[data-apply-child]").forEach((b) => {
+    if (childApplied.has(Number(b.dataset.applyChild))) markApplied(b);
+  });
+  if ((patchApplied || !hasPatch) &&
+      children.every((_, i) => childApplied.has(i)) && children.length) {
+    const allBtn = box.querySelector("[data-apply-all]");
+    if (allBtn) { allBtn.disabled = true; allBtn.textContent = "✓ 전체 반영됨"; }
+  }
 }
 
 // ---- 모바일 pane 탭 ----
@@ -745,6 +981,40 @@ export function initDesign() {
   $("btn-delete-cancel").addEventListener("click", closeDeleteDialog);
   $("btn-delete-confirm").addEventListener("click", confirmDeleteNode);
   $("btn-partner-send").addEventListener("click", partnerSend);
+  $("partner-thread").addEventListener("change", (e) => {
+    const tid = Number(e.target.value);
+    if (tid) runWhenFree(async () => { await openPartnerThread(tid); });
+  });
+  $("btn-partner-new").addEventListener("click", () => runWhenFree(async () => {
+    if (!design || !selectedId) return;
+    const th = await api.createDesignThread(design.id, selectedId);
+    partnerThreads.unshift(th);
+    renderThreadSelect();
+    await openPartnerThread(th.id);
+    $("partner-input").focus();
+  }));
+  $("btn-partner-search").addEventListener("click", openThreadSearch);
+  $("btn-thread-search-close").addEventListener("click", closeThreadSearch);
+  $("thread-search-backdrop").addEventListener("click", (e) => {
+    if (e.target === $("thread-search-backdrop")) closeThreadSearch();
+  });
+  $("thread-search-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runThreadSearch();
+  });
+  document.querySelectorAll("#partner-msg-mode button").forEach((b) => {
+    b.addEventListener("click", () => {
+      partnerMsgMode = b.dataset.pmmode;
+      if (partnerMsgMode === "all") {
+        includedPartnerMessages = new Set(partnerMsgs.map((m) => m.id));
+      } else if (partnerMsgMode === "none") {
+        includedPartnerMessages = new Set();
+      } else {
+        includedPartnerMessages = new Set(partnerMsgs.slice(-2).map((m) => m.id));
+      }
+      updatePartnerSeg();
+      renderPartner();
+    });
+  });
   $("partner-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();

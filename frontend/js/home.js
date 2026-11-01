@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api, setToken } from "./api.js";
 import { $, esc, showError } from "./util.js";
 
 // 메인 · 소설 목록. 선택/생성 시 enter-work 이벤트(uid)를 쏘면 app.js가 라우팅한다.
@@ -38,6 +38,12 @@ function cardHtml(w) {
 export async function refreshHome() {
   const box = $("home-list");
   showError("home-error", "");
+  const status = await api.authStatus().catch(() => null);
+  if (!status?.logged_in) {
+    enterGate(status?.authors_exist ?? false);
+    return;
+  }
+  exitGate();
   const q = ($("home-search")?.value ?? "").trim();
   try {
     const { works } = await api.works();
@@ -77,6 +83,59 @@ export async function refreshHome() {
       <div class="btn-row"><button class="btn sm" id="btn-home-retry" data-role="home.list.retry-btn">재시도</button></div>`;
     $("btn-home-retry").addEventListener("click", refreshHome);
     showError("home-error", String(e));
+  }
+}
+
+// ---- 저자 인증 게이트 ----
+
+let authMode = "register";
+let authorsExist = false;
+
+function setGateVisible(gated) {
+  $("auth-gate").style.display = gated ? "" : "none";
+  document.querySelector('[data-role="home.create.panel"]').style.display = gated ? "none" : "";
+  document.querySelector('[data-role="home.list.panel"]').style.display = gated ? "none" : "";
+}
+
+function renderGate() {
+  const login = authMode === "login";
+  $("auth-title").textContent = login ? "저자 로그인" : "저자 등록";
+  $("auth-desc").textContent = login
+    ? "등록한 아이디와 비밀번호로 로그인하세요."
+    : "처음 이용하시면 저자를 등록하세요. 아이디·필명·비밀번호로 등록합니다.";
+  $("auth-penname-row").style.display = login ? "none" : "";
+  $("btn-auth-submit").textContent = login ? "로그인" : "등록";
+  const sw = $("btn-auth-switch");
+  sw.style.display = authorsExist ? "" : "none";
+  sw.textContent = login ? "등록으로 전환" : "로그인으로 전환";
+}
+
+function enterGate(exists) {
+  authorsExist = exists;
+  authMode = exists ? "login" : "register";
+  renderGate();
+  setGateVisible(true);
+}
+
+function exitGate() {
+  setGateVisible(false);
+}
+
+async function submitAuth() {
+  const loginId = $("auth-login-id").value.trim();
+  const penName = $("auth-pen-name").value.trim();
+  const password = $("auth-password").value;
+  showError("home-error", "");
+  try {
+    const out = authMode === "login"
+      ? await api.login({ login_id: loginId, password })
+      : await api.register({ login_id: loginId, pen_name: penName, password });
+    setToken(out.token);
+    $("auth-password").value = "";
+    document.dispatchEvent(new CustomEvent("auth-changed"));
+    refreshHome();
+  } catch (err) {
+    showError("home-error", String(err));
   }
 }
 
@@ -162,6 +221,14 @@ async function submitDelete() {
 }
 
 export function initHome() {
+  $("btn-auth-submit").addEventListener("click", submitAuth);
+  $("btn-auth-switch").addEventListener("click", () => {
+    authMode = authMode === "login" ? "register" : "login";
+    renderGate();
+  });
+  $("auth-password").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") submitAuth();
+  });
   $("btn-home-create").addEventListener("click", openDialog);
   $("btn-novel-dialog-cancel").addEventListener("click", closeDialog);
   $("btn-novel-dialog-confirm").addEventListener("click", submitDialog);

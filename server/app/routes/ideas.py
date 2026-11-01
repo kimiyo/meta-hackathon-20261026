@@ -11,7 +11,8 @@ from .. import design_nodes, ideas
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from ..schemas import ideas as sch
-from .deps import get_conn
+from .deps import (get_conn, get_current_author, require_thread,
+                       require_work)
 
 router = APIRouter(prefix="/api/v1", tags=["ideas"])
 
@@ -32,11 +33,8 @@ HANDOFF_PROMPT = (Path(__file__).parent.parent / "prompts"
 IDEA_MAX_TOKENS = 16000
 
 
-def _work(conn: sqlite3.Connection, key: str) -> dict:
-    w = find_work(conn, key)
-    if not w:
-        raise HTTPException(404, f"work {key} not found")
-    return w
+def _work(conn: sqlite3.Connection, key: str, author_id: int) -> dict:
+    return require_work(conn, key, author_id)
 
 
 def _unlocked(work: dict) -> None:
@@ -44,18 +42,17 @@ def _unlocked(work: dict) -> None:
         raise HTTPException(409, "ideas handed off (read-only)")
 
 
-def _thread(conn: sqlite3.Connection, thread_id: int) -> dict:
-    t = ideas.get_thread(conn, thread_id)
-    if not t:
-        raise HTTPException(404, f"thread {thread_id} not found")
-    return t
+def _thread(conn: sqlite3.Connection, thread_id: int,
+             author_id: int) -> dict:
+    return require_thread(conn, thread_id, author_id)
 
 
 # ---------------------------------------------------------------- threads
 
 @router.get("/works/{key}/threads")
-def list_threads(key: str, conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+def list_threads(key: str, conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     return {"work_id": w["id"], "threads": ideas.list_threads(conn, w["id"])}
 
 
@@ -65,16 +62,18 @@ class ThreadIn(BaseModel):
 
 @router.post("/works/{key}/threads")
 def create_thread(key: str, body: ThreadIn,
-                  conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     _unlocked(w)
     return ideas.create_thread(conn, w["id"], body.title)
 
 
 @router.get("/threads/{thread_id}/messages")
 def list_messages(thread_id: int, limit: int = 100,
-                  conn: sqlite3.Connection = Depends(get_conn)):
-    _thread(conn, thread_id)
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    _thread(conn, thread_id, author["id"])
     return {"thread_id": thread_id,
             "messages": ideas.list_messages(conn, thread_id, limit)}
 
@@ -367,9 +366,10 @@ def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
 @router.post("/threads/{thread_id}/messages")
 def post_message(thread_id: int, body: MessageIn,
                  conn: sqlite3.Connection = Depends(get_conn),
-                 meta=Depends(get_meta)):
-    t = _thread(conn, thread_id)
-    w = _work(conn, t["work_id"])
+                 meta=Depends(get_meta),
+                  author: dict = Depends(get_current_author)):
+    t = _thread(conn, thread_id, author["id"])
+    w = _work(conn, t["work_id"], author["id"])
     _unlocked(w)
     content = (body.content or "").strip()
     if not content:
@@ -410,8 +410,9 @@ def post_message(thread_id: int, body: MessageIn,
 # ---------------------------------------------------------------- synopsis
 
 @router.get("/works/{key}/synopsis")
-def get_synopsis(key: str, conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+def get_synopsis(key: str, conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     return ideas.get_synopsis(conn, w["id"])
 
 
@@ -421,16 +422,18 @@ class SynopsisIn(BaseModel):
 
 @router.put("/works/{key}/synopsis")
 def put_synopsis(key: str, body: SynopsisIn,
-                 conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+                 conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     _unlocked(w)
     return ideas.update_synopsis(conn, w["id"], body.content)
 
 
 @router.get("/works/{key}/synopsis/revisions")
 def synopsis_revisions(key: str,
-                       conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+                       conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     return {"work_id": w["id"],
             "revisions": ideas.list_synopsis_revisions(conn, w["id"])}
 
@@ -450,15 +453,17 @@ class StructureIn(BaseModel):
 
 
 @router.get("/works/{key}/structure")
-def get_structure(key: str, conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+def get_structure(key: str, conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     return ideas.parse_structure(w["structure_json"])
 
 
 @router.put("/works/{key}/structure")
 def put_structure(key: str, body: StructureIn,
-                  conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     _unlocked(w)
     try:
         return ideas.update_structure(conn, w["id"], body.model_dump())
@@ -472,8 +477,9 @@ def put_structure(key: str, body: StructureIn,
 
 @router.get("/works/{key}/settings")
 def list_settings(key: str, category: str | None = None,
-                  conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     return {"work_id": w["id"],
             "settings": ideas.list_settings(conn, w["id"], category)}
 
@@ -488,8 +494,9 @@ class SettingIn(BaseModel):
 
 @router.post("/works/{key}/settings")
 def create_setting(key: str, body: SettingIn,
-                   conn: sqlite3.Connection = Depends(get_conn)):
-    w = _work(conn, key)
+                   conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     _unlocked(w)
     try:
         return ideas.create_setting(
@@ -509,12 +516,13 @@ class SettingPatch(BaseModel):
 
 @router.patch("/settings/{setting_id}")
 def patch_setting(setting_id: int, body: SettingPatch,
-                  conn: sqlite3.Connection = Depends(get_conn)):
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
     row = conn.execute("SELECT * FROM setting_entries WHERE id=?",
                        (setting_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"setting {setting_id} not found")
-    w = _work(conn, row["work_id"])
+    w = _work(conn, row["work_id"], author["id"])
     _unlocked(w)
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     try:
@@ -527,12 +535,13 @@ def patch_setting(setting_id: int, body: SettingPatch,
 
 @router.delete("/settings/{setting_id}")
 def delete_setting(setting_id: int,
-                   conn: sqlite3.Connection = Depends(get_conn)):
+                   conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
     row = conn.execute("SELECT * FROM setting_entries WHERE id=?",
                        (setting_id,)).fetchone()
     if not row:
         raise HTTPException(404, f"setting {setting_id} not found")
-    w = _work(conn, row["work_id"])
+    w = _work(conn, row["work_id"], author["id"])
     _unlocked(w)
     try:
         return ideas.delete_setting(conn, setting_id)
@@ -550,8 +559,9 @@ class ExtractIn(BaseModel):
 @router.post("/works/{key}/extract")
 def extract(key: str, body: ExtractIn,
             conn: sqlite3.Connection = Depends(get_conn),
-            meta=Depends(get_meta)):
-    w = _work(conn, key)
+            meta=Depends(get_meta),
+                  author: dict = Depends(get_current_author)):
+    w = _work(conn, key, author["id"])
     _unlocked(w)
     thread_id = body.thread_id
     if thread_id is None:
@@ -560,7 +570,7 @@ def extract(key: str, body: ExtractIn,
             raise HTTPException(400, "no conversation yet")
         thread_id = threads[-1]["id"]
     else:
-        _thread(conn, thread_id)
+        _thread(conn, thread_id, author["id"])
     msgs = ideas.list_messages(conn, thread_id, 200)[-body.limit:]
     syn = ideas.get_synopsis(conn, w["id"])
     settings = ideas.list_settings(conn, w["id"])[:30]
@@ -607,9 +617,10 @@ def _handoff_user_text(w: dict, structure: dict, syn: dict,
 @router.get("/works/{key}/handoff/preview")
 def handoff_preview(key: str,
                     conn: sqlite3.Connection = Depends(get_conn),
-                    meta=Depends(get_meta)):
+                    meta=Depends(get_meta),
+                  author: dict = Depends(get_current_author)):
     """AI migration preview: the exact tree confirm will create. No writes."""
-    w = _work(conn, key)
+    w = _work(conn, key, author["id"])
     if w["ideas_locked"]:
         raise HTTPException(409, "ideas already handed off (read-only)")
     structure = ideas.parse_structure(w["structure_json"])
@@ -640,13 +651,14 @@ def handoff_preview(key: str,
 
 @router.post("/works/{key}/handoff")
 def handoff(key: str, body: sch.HandoffOut,
-            conn: sqlite3.Connection = Depends(get_conn)):
+            conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
     """Apply a previewed migration plan (no AI call).
 
     The stored ideas-phase structure drives the migration; afterwards the
     ideas screen turns read-only.
     """
-    w = _work(conn, key)
+    w = _work(conn, key, author["id"])
     if w["ideas_locked"]:
         raise HTTPException(409, "ideas already handed off (read-only)")
     try:

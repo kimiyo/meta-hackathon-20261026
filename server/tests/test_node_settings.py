@@ -2,8 +2,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app import auth as authmod
 from app import db as dbmod
-from app.routes.deps import get_conn
+from app.routes.deps import get_conn, get_current_author
 
 
 @pytest.fixture()
@@ -19,6 +20,13 @@ def client(tmp_path, monkeypatch):
 
     from app.main import app
     app.dependency_overrides[get_conn] = _override
+    seed = dbmod.connect(db_path)
+    _author = authmod.public_author(authmod.register(
+        seed, login_id="tester", pen_name="테스터",
+        password="pw1234"))
+    seed.close()
+    app.dependency_overrides[get_current_author] = \
+        lambda: _author
     yield TestClient(app), db_path
     app.dependency_overrides.clear()
 

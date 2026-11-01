@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from .. import budget as budgetmod
 from .. import db as dbmod
 from ..db import find_work
-from .deps import get_conn
+from .deps import (get_conn, get_current_author, require_work)
 
 router = APIRouter(prefix="/api/v1", tags=["ops"])
 
@@ -92,11 +92,10 @@ def llm_calls(bundle: str | None = None, episode: int | None = None,
 
 @router.get("/works/{key}/ai-log")
 def work_ai_log(key: str, limit: int = 50,
-                conn: sqlite3.Connection = Depends(get_conn)):
+                conn: sqlite3.Connection = Depends(get_conn),
+                author: dict = Depends(get_current_author)):
     """This work's AI calls, newest first, with prompts and outputs."""
-    w = find_work(conn, key)
-    if not w:
-        raise HTTPException(404, f"work {key} not found")
+    w = require_work(conn, key, author["id"])
     rows = conn.execute(
         "SELECT * FROM llm_calls WHERE work_id=? ORDER BY id DESC LIMIT ?",
         (w["id"], min(limit, 200))).fetchall()

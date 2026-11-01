@@ -4,8 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import budget as budgetmod
+from app import auth as authmod
 from app import db as dbmod
-from app.routes.deps import get_conn
+from app.routes.deps import get_conn, get_current_author
 from app.schemas import ideas as sch
 
 
@@ -22,6 +23,13 @@ def client(tmp_path, monkeypatch):
 
     from app.main import app
     app.dependency_overrides[get_conn] = _override
+    seed = dbmod.connect(db_path)
+    _author = authmod.public_author(authmod.register(
+        seed, login_id="tester", pen_name="테스터",
+        password="pw1234"))
+    seed.close()
+    app.dependency_overrides[get_current_author] = \
+        lambda: _author
     yield TestClient(app), db_path
     app.dependency_overrides.clear()
 
@@ -459,6 +467,17 @@ def test_tree_ids_and_episode_sync(client, fakes):
     c.patch("/api/v1/nodes/E001", json={"logline": "새목표"})
     d = c.get(f"/api/v1/designs/{did}").json()
     assert d["outlines"][0]["goal"] == "새목표"
+    # AI patch bodies arrive without episode_no (design_chat has no such
+    # key); merging must keep the stored number instead of 400ing.
+    r = c.patch("/api/v1/nodes/E001",
+                json={"title": "새제목", "logline": "새줄거리",
+                      "body": {"goal": "목표"}})
+    assert r.status_code == 200, r.text
+    assert r.json()["body"]["episode_no"] == 1
+    assert r.json()["body"]["goal"] == "목표"
+    d = c.get(f"/api/v1/designs/{did}").json()
+    assert d["outlines"][0]["episode_no"] == 1
+    assert d["outlines"][0]["title"] == "새제목"
     full = c.get("/api/v1/nodes/N001").json()
     assert len(full["children"]) == 25
     assert "E001" in [k["id"] for k in full["children"]]

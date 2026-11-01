@@ -2,8 +2,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app import auth as authmod
 from app import db as dbmod
-from app.routes.deps import get_conn
+from app.routes.deps import get_conn, get_current_author
 
 
 @pytest.fixture()
@@ -19,6 +20,13 @@ def client(tmp_path, monkeypatch):
 
     from app.main import app
     app.dependency_overrides[get_conn] = _override
+    seed = dbmod.connect(db_path)
+    _author = authmod.public_author(authmod.register(
+        seed, login_id="tester", pen_name="테스터",
+        password="pw1234"))
+    seed.close()
+    app.dependency_overrides[get_current_author] = \
+        lambda: _author
     yield TestClient(app), db_path
     app.dependency_overrides.clear()
 
@@ -45,7 +53,7 @@ def test_delete_leaf_removes_settings_and_outline(client):
     assert len(c.get(f"/api/v1/designs/{did}").json()["outlines"]) == 25
     r = c.delete("/api/v1/nodes/E001")
     assert r.status_code == 200, r.text
-    assert r.json() == {"deleted": ["E001"]}
+    assert r.json() == {"deleted": ["E001"], "threads": 0}
     assert c.get("/api/v1/nodes/E001").status_code == 404
     assert c.get("/api/v1/nodes/E001/settings").status_code == 404
     outlines = c.get(f"/api/v1/designs/{did}").json()["outlines"]

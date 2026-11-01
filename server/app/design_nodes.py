@@ -295,7 +295,10 @@ def update_node(conn: sqlite3.Connection, node_id: str,
     if "body" in fields:
         if not isinstance(fields["body"], dict):
             raise ValueError("body must be an object")
-        body = fields["body"]
+        # Merge, not replace: patch callers (AI proposals) send partial
+        # bodies without episode_no; replacing would wipe the stored
+        # number and trip the outline sync below.
+        body = {**body, **fields["body"]}
         sets.append("body_json=?")
         args.append(json.dumps(body, ensure_ascii=False))
     if "sort_order" in fields:
@@ -334,7 +337,8 @@ def delete_node_subtree(conn: sqlite3.Connection, node_id: str) -> dict:
     """Hard-delete a node with all descendants.
 
     Removes owned node settings plus the design-scoped episode outlines
-    and jobs of deleted episodes. Manuscript revisions stay: they are
+    and jobs of deleted episodes. Partner threads on deleted nodes go
+    too (with their messages). Manuscript revisions stay: they are
     history keyed globally by episode_no, unsafe to cascade. The root
     node cannot be deleted.
     """
@@ -372,6 +376,14 @@ def delete_node_subtree(conn: sqlite3.Connection, node_id: str) -> dict:
             ep_nos.append(ep_no)
     q = ",".join("?" * len(ids))
     conn.execute(f"DELETE FROM node_settings WHERE node_id IN ({q})", ids)
+    tids = [r[0] for r in conn.execute(
+        f"SELECT id FROM design_threads WHERE node_id IN ({q})", ids)]
+    if tids:
+        tq = ",".join("?" * len(tids))
+        conn.execute(
+            f"DELETE FROM design_messages WHERE thread_id IN ({tq})", tids)
+        conn.execute(
+            f"DELETE FROM design_threads WHERE id IN ({tq})", tids)
     if ep_nos:
         eq = ",".join("?" * len(ep_nos))
         conn.execute(
@@ -383,7 +395,7 @@ def delete_node_subtree(conn: sqlite3.Connection, node_id: str) -> dict:
     conn.execute(f"DELETE FROM design_nodes WHERE id IN ({q})", ids)
     _touch_node_work(conn, node)
     conn.commit()
-    return {"deleted": ids}
+    return {"deleted": ids, "threads": len(tids)}
 
 
 # ---- 노드별 설정 (scoped canon) ----

@@ -24,6 +24,8 @@
   <div class="ops-strip">
     <span class="health-dot ops-chip" id="health-chip" data-role="shell.topbar.health-chip"><i></i> 확인 중…</span>
     <button class="ops-chip" id="budget-chip" data-role="shell.topbar.budget-chip" title="AI 호출 로그 보기">토큰 —</button>
+    <span class="ops-chip" id="user-chip" data-role="shell.topbar.user-chip" style="display:none;cursor:pointer" title="작가명 수정"></span>
+    <button class="ops-chip" id="btn-logout" data-role="shell.topbar.logout-btn" style="display:none">로그아웃</button>
   </div>
 </header>
 
@@ -46,6 +48,22 @@
     <div>
       <h2>이야기의 뼈대를 세우고, 완결까지 함께.</h2>
       <p>아이디어를 설계하고, AI와 집필하고, 앞선 설정과의 연결을 검토하세요.</p>
+    </div>
+  </div>
+  <div class="card" id="auth-gate" data-role="home.auth.panel" style="display:none">
+    <h3 id="auth-title">저자 등록</h3>
+    <p class="muted small" id="auth-desc">처음 이용하시면 저자를 등록하세요. 아이디·필명·비밀번호로 등록합니다.</p>
+    <label class="f">아이디</label>
+    <input type="text" id="auth-login-id" data-role="home.auth.login-id-input" autocomplete="username" style="margin-bottom:8px">
+    <div id="auth-penname-row">
+      <label class="f">필명</label>
+      <input type="text" id="auth-pen-name" data-role="home.auth.pen-name-input" style="margin-bottom:8px">
+    </div>
+    <label class="f">비밀번호</label>
+    <input type="password" id="auth-password" data-role="home.auth.password-input" autocomplete="current-password" style="margin-bottom:8px">
+    <div class="btn-row">
+      <button class="btn primary" id="btn-auth-submit" data-role="home.auth.submit-btn">등록</button>
+      <button class="btn ghost" id="btn-auth-switch" data-role="home.auth.switch-btn">로그인으로 전환</button>
     </div>
   </div>
   <div class="card" data-role="home.create.panel">
@@ -80,7 +98,7 @@
       <div id="choice-row" data-role="ideas.chat.choices" class="btn-row"></div>
       <label class="f">대화를 메시지에 포함</label>
       <div class="seg" id="msg-mode" data-role="ideas.chat.msg-mode"><button data-mmode="all" data-role="ideas.chat.msg-mode-all">전부 포함</button><button data-mmode="none" data-role="ideas.chat.msg-mode-none">전부 포함 않음</button><button data-mmode="select" data-role="ideas.chat.msg-mode-select">선택</button></div>
-      <label class="f">메시지 (@설정제목·@노드ID로 기존 자료 포함)</label>
+      <label class="f">메시지 (@설정제목·@노드코드로 기존 자료 포함)</label>
       <textarea id="chat-input" data-role="ideas.chat.input" placeholder="아이디어를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
       <div class="btn-row">
         <button class="btn primary" id="btn-chat-send" data-role="ideas.chat.send-btn">전송</button>
@@ -148,6 +166,17 @@
       <button class="pane-expand" id="btn-partner-expand" data-role="design.partner.pane-expand-btn" title="설계 파트너 펼치기"><span>▶</span><span class="vlabel">설계 파트너</span></button>
       <div class="partner-main">
       <h3 class="split"><span>설계 파트너 <span class="hint">선택 노드 기준 AI 협업</span></span><button class="btn sm" id="btn-partner-collapse" data-role="design.partner.collapse-btn" title="설계 파트너 접기">◀</button></h3>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <select id="partner-thread" data-role="design.partner.thread-select" style="flex:1;min-width:0"></select>
+        <button class="btn sm" id="btn-partner-new" data-role="design.partner.new-btn" title="새 대화">＋</button>
+        <button class="btn sm" id="btn-partner-search" data-role="design.partner.search-btn" title="전체에서 검색">검색</button>
+      </div>
+      <label class="f">대화를 질문에 포함</label>
+      <div class="seg" id="partner-msg-mode" data-role="design.partner.msg-mode" style="margin-bottom:8px">
+        <button data-pmmode="all" data-role="design.partner.msg-mode-all">전부 포함</button>
+        <button data-pmmode="none" data-role="design.partner.msg-mode-none">전부 포함 않음</button>
+        <button data-pmmode="select" data-role="design.partner.msg-mode-select">선택</button>
+      </div>
       <div id="partner-messages" data-role="design.partner.messages" class="chat-box"></div>
       <label class="f">참조 (@ 없이 쉼표 구분)</label>
       <input type="text" id="partner-refs" data-role="design.partner.refs-input" placeholder="예: E001, C002">
@@ -410,6 +439,31 @@
   </div>
 </div>
 
+<div id="thread-search-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="thread-search-title" data-role="design.partner.search-dialog">
+    <h3 id="thread-search-title">전체 대화 검색</h3>
+    <div id="thread-search-error"></div>
+    <input type="text" id="thread-search-input" data-role="design.partner.search-input" placeholder="제목·본문 검색" autocomplete="off">
+    <div id="thread-search-list" data-role="design.partner.search-list" style="margin-top:8px"></div>
+    <div class="btn-row" style="justify-content:flex-end;margin-top:8px">
+      <button class="btn ghost" id="btn-thread-search-close" data-role="design.partner.search-close-btn">닫기</button>
+    </div>
+  </div>
+</div>
+<div id="rename-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rename-title" data-role="shell.auth.rename-dialog">
+    <h3 id="rename-title">작가명 수정</h3>
+    <div id="rename-error"></div>
+    <label class="f">새 필명 (최대 40자)</label>
+    <input type="text" id="rename-pen-name" data-role="shell.auth.rename-pen-name-input" placeholder="새 필명" maxlength="40" autocomplete="off">
+    <label class="f">비밀번호 확인</label>
+    <input type="password" id="rename-password" data-role="shell.auth.rename-password-input" placeholder="현재 비밀번호" autocomplete="current-password">
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-rename-cancel" data-role="shell.auth.rename-cancel-btn">취소</button>
+      <button class="btn primary" id="btn-rename-confirm" data-role="shell.auth.rename-confirm-btn">수정</button>
+    </div>
+  </div>
+</div>
 <div id="ns-dialog-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ns-dialog-title" data-role="design.editor.ns-dialog">
     <h3 id="ns-dialog-title">노드 설정 <span class="hint" id="ns-dialog-node"></span></h3>

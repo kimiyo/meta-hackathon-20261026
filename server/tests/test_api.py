@@ -3,10 +3,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import budget as budgetmod
+from app import auth as authmod
 from app import db as dbmod
 from app import memory
 from app.errors import BudgetExceeded
-from app.routes.deps import get_conn
+from app.routes.deps import get_conn, get_current_author
 
 
 @pytest.fixture()
@@ -95,10 +96,13 @@ def api_client(tmp_path, monkeypatch):
     from app.main import app
     app.dependency_overrides[get_conn] = _override
     seed = dbmod.connect(db_path)
+    _author = authmod.public_author(authmod.register(
+        seed, login_id="tester", pen_name="테스터", password="pw1234"))
     memory.create_entity(seed, entity_id="ch_0001", type_="character",
                          name="서연", first_episode=1)
     seed.commit()
     seed.close()
+    app.dependency_overrides[get_current_author] = lambda: _author
     yield TestClient(app)
     app.dependency_overrides.clear()
 

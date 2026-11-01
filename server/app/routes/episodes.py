@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import state_machine
-from ..db import touch_work
+from ..db import find_work, touch_work
 from ..errors import LLMStepError
-from .deps import get_conn
+from .deps import (get_conn, get_current_author, require_design,
+                   require_episode_job)
 from .works import get_meta
 
 router = APIRouter(prefix="/api/v1", tags=["episodes"])
@@ -37,7 +38,23 @@ def _mark_writing(conn: sqlite3.Connection, episode_no: int,
 @router.post("/episodes/{episode_no}/advance")
 def advance_episode(episode_no: int, body: AdvanceIn,
                     conn: sqlite3.Connection = Depends(get_conn),
-                    meta=Depends(get_meta)):
+                    meta=Depends(get_meta),
+                    author: dict = Depends(get_current_author)):
+    job = state_machine.get_job(conn, episode_no)
+    if job is None:
+        if body.design_id is not None:
+            require_design(conn, body.design_id, author["id"])
+    else:
+        wanted = (body.design_id if body.design_id is not None
+                  else job["design_id"])
+        d = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
+                         (job["design_id"],)).fetchone()
+        w = find_work(conn, d["work_id"]) if d else None
+        owned = bool(w and w.get("author_id") == author["id"])
+        if wanted != job["design_id"] or not owned:
+            raise HTTPException(
+                409, f"episode {episode_no} is already being written"
+                f" in design {job['design_id']}")
     try:
         out = state_machine.advance(conn, meta, episode_no,
                                     design_id=body.design_id)
@@ -53,8 +70,9 @@ def advance_episode(episode_no: int, body: AdvanceIn,
 
 @router.get("/episodes/{episode_no}")
 def get_episode(episode_no: int,
-                conn: sqlite3.Connection = Depends(get_conn)):
-    job = state_machine.get_job(conn, episode_no)
+                conn: sqlite3.Connection = Depends(get_conn),
+                author: dict = Depends(get_current_author)):
+    job = require_episode_job(conn, episode_no, author["id"])
     if not job:
         raise HTTPException(404, f"episode {episode_no} has no job yet")
     revs = conn.execute(
@@ -89,7 +107,9 @@ class ChangeIn(BaseModel):
 
 @router.post("/episodes/{episode_no}/request-change")
 def request_change(episode_no: int, body: ChangeIn,
-                   conn: sqlite3.Connection = Depends(get_conn)):
+                   conn: sqlite3.Connection = Depends(get_conn),
+                   author: dict = Depends(get_current_author)):
+    require_episode_job(conn, episode_no, author["id"])
     try:
         return state_machine.request_change(conn, episode_no, body.instruction)
     except (KeyError, ValueError) as e:
@@ -98,7 +118,9 @@ def request_change(episode_no: int, body: ChangeIn,
 
 @router.post("/episodes/{episode_no}/approve")
 def approve_episode(episode_no: int,
-                    conn: sqlite3.Connection = Depends(get_conn)):
+                    conn: sqlite3.Connection = Depends(get_conn),
+                    author: dict = Depends(get_current_author)):
+    require_episode_job(conn, episode_no, author["id"])
     try:
         return state_machine.approve_episode(conn, episode_no)
     except (KeyError, ValueError) as e:
@@ -107,8 +129,10 @@ def approve_episode(episode_no: int,
 
 @router.get("/designs/{design_id}/episodes")
 def design_episodes(design_id: int,
-                    conn: sqlite3.Connection = Depends(get_conn)):
+                    conn: sqlite3.Connection = Depends(get_conn),
+                    author: dict = Depends(get_current_author)):
     """Outlines joined with jobs (for the writing monitor)."""
+    require_design(conn, design_id, author["id"])
     outlines = conn.execute(
         "SELECT episode_no, title FROM episode_outlines WHERE design_id=?"
         " ORDER BY episode_no", (design_id,)).fetchall()
@@ -127,7 +151,9 @@ def design_episodes(design_id: int,
 
 @router.get("/episodes/{episode_no}/manuscript")
 def get_manuscript(episode_no: int, version: int | None = None,
-                   conn: sqlite3.Connection = Depends(get_conn)):
+                   conn: sqlite3.Connection = Depends(get_conn),
+                   author: dict = Depends(get_current_author)):
+    require_episode_job(conn, episode_no, author["id"])
     if version is None:
         row = conn.execute(
             "SELECT * FROM manuscript_revisions WHERE episode_no=?"

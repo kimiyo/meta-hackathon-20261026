@@ -1,5 +1,5 @@
-import { api } from "./api.js";
-import { $, esc } from "./util.js";
+import { api, getToken, setToken } from "./api.js";
+import { $, esc, showError } from "./util.js";
 import { clearWorkSelection, initWork, refreshWorkPill, selectWorkByUid } from "./work.js";
 import { initMonitor, refreshBudgetChips } from "./monitor.js";
 import { initReview } from "./review.js";
@@ -36,6 +36,10 @@ function showHome() {
 
 // 스튜디오 보기
 async function showStudio(uid, screen) {
+  if (!getToken()) {
+    go("/");
+    return;
+  }
   document.querySelector("nav.tabs").style.display = "";
   $("btn-home").style.display = "";
   try {
@@ -99,7 +103,86 @@ document.addEventListener("model-changed", () => {
   refreshTopbar();
 });
 
+// 인증 만료 → 로그아웃 후 메인으로
+document.addEventListener("auth-expired", () => {
+  setToken("");
+  updateAuthChip(null);
+  go("/");
+});
+
+// 로그인·등록 후 상단 칩 갱신
+document.addEventListener("auth-changed", async () => {
+  try {
+    const st = await api.authStatus();
+    updateAuthChip(st.logged_in ? st : null);
+  } catch {
+    updateAuthChip(null);
+  }
+});
+
+// 작가명 수정 다이얼로그
+function openRename() {
+  $("rename-pen-name").value = $("user-chip").textContent;
+  $("rename-password").value = "";
+  showError("rename-error", "");
+  $("rename-backdrop").style.display = "";
+  $("rename-pen-name").focus();
+  $("rename-pen-name").select();
+}
+
+function closeRename() {
+  $("rename-backdrop").style.display = "none";
+}
+
+async function submitRename() {
+  const btn = $("btn-rename-confirm");
+  if (btn.disabled) return;
+  const penName = $("rename-pen-name").value.trim();
+  const password = $("rename-password").value;
+  if (!penName) {
+    showError("rename-error", "새 필명을 입력하세요.");
+    return;
+  }
+  if (!password) {
+    showError("rename-error", "비밀번호를 입력하세요.");
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const out = await api.updateMe({ pen_name: penName, password });
+    $("user-chip").textContent = out.pen_name;
+    closeRename();
+  } catch (err) {
+    showError("rename-error", String(err));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function updateAuthChip(st) {
+  const chip = $("user-chip");
+  const btn = $("btn-logout");
+  if (st?.logged_in) {
+    chip.style.display = "";
+    chip.textContent = st.pen_name || st.login_id;
+    btn.style.display = "";
+  } else {
+    chip.style.display = "none";
+    btn.style.display = "none";
+  }
+}
+
 $("btn-home").addEventListener("click", () => go("/"));
+$("btn-logout").addEventListener("click", async () => {
+  try {
+    await api.logout();
+  } catch {
+    /* 토큰이 이미 무효해도 로컬은 비운다 */
+  }
+  setToken("");
+  updateAuthChip(null);
+  go("/");
+});
 document.querySelector(".logo").style.cursor = "pointer";
 document.querySelector(".logo").addEventListener("click", () => go("/"));
 
@@ -130,7 +213,22 @@ initHome();
 initIdeas();
 initAiLog();
 initModel();
+$("user-chip").addEventListener("click", openRename);
+$("btn-rename-cancel").addEventListener("click", closeRename);
+$("btn-rename-confirm").addEventListener("click", submitRename);
+$("rename-backdrop").addEventListener("click", (ev) => {
+  if (ev.target === $("rename-backdrop")) closeRename();
+});
+$("rename-password").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") submitRename();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && $("rename-backdrop").style.display !== "none") closeRename();
+});
 refreshTopbar();
 refreshBudgetChips();
+api.authStatus()
+  .then((st) => updateAuthChip(st.logged_in ? st : null))
+  .catch(() => updateAuthChip(null));
 onChange(() => route());
 route();

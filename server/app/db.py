@@ -14,9 +14,23 @@ from .config import PROJECT_ROOT
 
 DDL = """
 PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS authors (
+  id INTEGER PRIMARY KEY,
+  login_id TEXT NOT NULL UNIQUE,
+  pen_name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  author_id INTEGER NOT NULL REFERENCES authors(id),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS works (
   id INTEGER PRIMARY KEY,
   uid TEXT NOT NULL DEFAULT '',
+  author_id INTEGER REFERENCES authors(id),
   title TEXT NOT NULL,
   logline TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
@@ -26,6 +40,27 @@ CREATE TABLE IF NOT EXISTS works (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS design_threads (
+  id INTEGER PRIMARY KEY,
+  design_id INTEGER NOT NULL REFERENCES story_designs(id),
+  node_id TEXT NOT NULL REFERENCES design_nodes(id),
+  title TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_design_threads_design
+  ON design_threads(design_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS design_messages (
+  id INTEGER PRIMARY KEY,
+  thread_id INTEGER NOT NULL REFERENCES design_threads(id),
+  role TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  proposals_json TEXT DEFAULT '{}',
+  applied_json TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_design_messages_thread
+  ON design_messages(thread_id, id);
 CREATE TABLE IF NOT EXISTS story_designs (
   id INTEGER PRIMARY KEY,
   work_id INTEGER NOT NULL REFERENCES works(id),
@@ -354,6 +389,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE llm_calls ADD COLUMN finish_reason TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE llm_calls ADD COLUMN reasoning_tokens INTEGER DEFAULT 0",
         "ALTER TABLE setting_entries ADD COLUMN code TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE works ADD COLUMN author_id INTEGER REFERENCES authors(id)",
         "ALTER TABLE design_nodes ADD COLUMN seq INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE episode_jobs ADD COLUMN fix_instruction TEXT DEFAULT ''",
         "ALTER TABLE change_proposals ADD COLUMN events_json TEXT DEFAULT '[]'",

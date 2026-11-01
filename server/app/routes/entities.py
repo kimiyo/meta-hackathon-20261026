@@ -7,20 +7,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import memory
-from .deps import get_conn
+from .deps import (get_conn, get_current_author,
+                       require_episode_job)
 
 router = APIRouter(prefix="/api/v1", tags=["memory"])
 
 
 @router.get("/entities")
 def list_entities(type: str | None = None, q: str | None = None,
-                  conn: sqlite3.Connection = Depends(get_conn)):
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
     return {"entities": memory.search_entities(conn, type, q)}
 
 
 @router.get("/entities/{entity_id}/state")
 def entity_state(entity_id: str, as_of_episode: int,
-                 conn: sqlite3.Connection = Depends(get_conn)):
+                 conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
     ent = memory.get_entity(conn, entity_id)
     if not ent:
         raise HTTPException(404, f"entity {entity_id} not found")
@@ -31,7 +34,8 @@ def entity_state(entity_id: str, as_of_episode: int,
 @router.get("/entities/{entity_id}/history")
 def entity_history(entity_id: str, from_episode: int | None = None,
                    to_episode: int | None = None,
-                   conn: sqlite3.Connection = Depends(get_conn)):
+                   conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
     if not memory.get_entity(conn, entity_id):
         raise HTTPException(404, f"entity {entity_id} not found")
     return {"entity_id": entity_id,
@@ -40,14 +44,17 @@ def entity_history(entity_id: str, from_episode: int | None = None,
 
 @router.get("/episodes/{episode_no}/proposals")
 def episode_proposals(episode_no: int,
-                      conn: sqlite3.Connection = Depends(get_conn)):
+                      conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    require_episode_job(conn, episode_no, author["id"])
     return {"episode_no": episode_no,
             "items": memory.get_proposals(conn, episode_no)}
 
 
 @router.get("/aliases")
 def list_aliases(status: str | None = None,
-                 conn: sqlite3.Connection = Depends(get_conn)):
+                 conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
     sql = ("SELECT a.*, e.canonical_name FROM entity_aliases a"
            " LEFT JOIN entities e ON e.entity_id=a.entity_id WHERE 1=1")
     args: list = []
@@ -66,7 +73,8 @@ class AliasResolve(BaseModel):
 
 @router.post("/aliases/{alias_id}/resolve")
 def alias_resolve(alias_id: int, body: AliasResolve,
-                  conn: sqlite3.Connection = Depends(get_conn)):
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
     try:
         if body.reject:
             return memory.reject_alias(conn, alias_id, body.basis)

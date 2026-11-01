@@ -142,7 +142,7 @@ body.col-resizing { user-select: none; cursor: col-resize; }
 .btn.sm { font-size: 12px; padding: 4px 10px; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-row button.active { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-deep); }
-input[type="text"], input[type="number"], textarea, select {
+input[type="text"], input[type="number"], input[type="password"], textarea, select {
   font-family: var(--sans); font-size: 13px;
   border: 1px solid var(--line); border-radius: 7px;
   padding: 7px 10px; background: #fff; color: var(--ink); width: 100%;
@@ -585,3 +585,12 @@ header.topbar .logo { display: flex; align-items: center; gap: 8px; }
 .model-opt .t { font-weight: 700; font-size: 13px; }
 .model-opt .d { font-size: 12px; color: var(--ink-soft); }
 .model-opt .id { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+
+.thread-hit {
+  display: block; width: 100%; text-align: left;
+  background: #fff; border: 1px solid var(--line); border-radius: 7px;
+  padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
+  font-family: var(--sans); font-size: 12px; color: var(--ink);
+}
+.thread-hit:hover { border-color: var(--accent); }
+.thread-hit .small { display: block; color: var(--ink-soft); margin-top: 2px; }

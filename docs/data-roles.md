@@ -49,6 +49,11 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `shell.topbar.work-pill` — 작품 정보 pill
 - `shell.topbar.health-chip` — 서버 상태 칩
 - `shell.topbar.budget-chip` — 토큰·AI 로그 칩
+- `shell.topbar.user-chip` — 로그인 저자 필명 칩 (클릭 시 작가명 수정)
+- `shell.auth.rename-dialog` — 작가명 수정 다이얼로그
+- `shell.auth.rename-pen-name-input`, `shell.auth.rename-password-input`
+- `shell.auth.rename-cancel-btn`, `shell.auth.rename-confirm-btn`
+- `shell.topbar.logout-btn` — 로그아웃 버튼
 - `shell.tabs` — 화면 탭 내비
 - `shell.tabs.tab-ideas`, `shell.tabs.tab-design`, `shell.tabs.tab-writing`, `shell.tabs.tab-review`, `shell.tabs.tab-entities`
 - `shell.tabs.export-btn` — 내보내기 버튼
@@ -61,6 +66,9 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 ### home — 소설 목록
 
 - `home.screen`
+- `home.auth.panel` — 저자 등록·로그인 게이트 카드
+- `home.auth.login-id-input`, `home.auth.pen-name-input` (등록 시만), `home.auth.password-input`
+- `home.auth.submit-btn`, `home.auth.switch-btn` — 등록·로그인 전환
 - `home.create.panel` — 새 소설 만들기 카드
 - `home.create.start-btn`
 - `home.list.panel` — 내 소설 목록 카드
@@ -110,6 +118,12 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `design.pane-tabs-partner`, `design.pane-tabs-tree`, `design.pane-tabs-editor`
 - `design.partner.panel` — 설계 파트너 카드
 - `design.partner.pane-expand-btn`, `design.partner.collapse-btn`
+- `design.partner.thread-select` — 노드 대화 목록
+- `design.partner.new-btn` — 새 대화, `design.partner.search-btn` — 전체 검색
+- `design.partner.msg-mode` — 포함 범위 세그먼트
+- `design.partner.msg-mode-all`, `design.partner.msg-mode-none`, `design.partner.msg-mode-select`
+- `design.partner.search-dialog` — 전체 대화 검색 모달
+- `design.partner.search-input`, `design.partner.search-list`, `design.partner.search-close-btn`
 - `design.partner.messages`, `design.partner.refs-input`
 - `design.partner.input`, `design.partner.send-btn`
 - `design.partner.expand-kind-select`, `design.partner.expand-btn`
@@ -222,6 +236,7 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 
 ### home.js
 
+- `home.create.panel`, `home.list.panel` — 게이트 표시 시 숨김 참조 (정적 카드)
 - `home.list.enter-btn` — 소설 이어 쓰기 버튼
 - `home.list.delete-btn` — 소설 삭제 버튼
 - `home.list.clear-search-btn` — 전체 소설 보기 (검색 결과 없음, 단일)

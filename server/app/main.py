@@ -12,7 +12,7 @@ from . import budget as budgetmod
 from . import db as dbmod
 from .config import PROJECT_ROOT, load_settings
 from .meta_client import build_client
-from .routes import entities, episodes, ideas, nodes, ops, works
+from .routes import auth, design_threads, entities, episodes, ideas, nodes, ops, works
 
 settings = load_settings()
 _settings_lock = threading.Lock()
@@ -65,6 +65,8 @@ def switch_model(model_id: str):
         return settings
 
 
+app.include_router(auth.router)
+app.include_router(design_threads.router)
 app.include_router(entities.router)
 app.include_router(works.router)
 app.include_router(episodes.router)

@@ -11,7 +11,8 @@ from .. import planning
 from ..db import find_work, new_uid, now_iso, touch_work
 from ..errors import LLMStepError
 from ..ideas import check_total_episodes
-from .deps import get_conn
+from .deps import (get_conn, get_current_author, require_design,
+                       require_work)
 
 router = APIRouter(prefix="/api/v1", tags=["works"])
 
@@ -23,11 +24,9 @@ def get_meta():
     return get_meta_client()
 
 
-def _work_or_404(conn: sqlite3.Connection, key: str) -> dict:
-    w = find_work(conn, key)
-    if not w:
-        raise HTTPException(404, f"work {key} not found")
-    return w
+def _work_or_404(conn: sqlite3.Connection, key: str,
+                 author_id: int) -> dict:
+    return require_work(conn, key, author_id)
 
 
 class WorkIn(BaseModel):
@@ -36,7 +35,8 @@ class WorkIn(BaseModel):
 
 
 @router.post("/works")
-def create_work(body: WorkIn, conn: sqlite3.Connection = Depends(get_conn)):
+def create_work(body: WorkIn, conn: sqlite3.Connection = Depends(get_conn),
+                author: dict = Depends(get_current_author)):
     title = (body.title or "").strip()
     if not title:
         raise HTTPException(400, "title must not be blank")
@@ -44,16 +44,17 @@ def create_work(body: WorkIn, conn: sqlite3.Connection = Depends(get_conn)):
         raise HTTPException(400, f"title must be ≤{TITLE_MAX} chars")
     uid, ts = new_uid(), now_iso()
     cur = conn.execute(
-        "INSERT INTO works(uid, title, logline, created_at, updated_at)"
-        " VALUES(?,?,?,?,?)",
-        (uid, title, body.logline, ts, ts))
+        "INSERT INTO works(uid, author_id, title, logline, created_at,"
+        " updated_at) VALUES(?,?,?,?,?,?)",
+        (uid, author["id"], title, body.logline, ts, ts))
     conn.commit()
     return dict(conn.execute("SELECT * FROM works WHERE id=?",
                              (cur.lastrowid,)).fetchone())
 
 
 @router.get("/works")
-def list_works(conn: sqlite3.Connection = Depends(get_conn)):
+def list_works(conn: sqlite3.Connection = Depends(get_conn),
+             author: dict = Depends(get_current_author)):
     rows = conn.execute(
         "SELECT w.*, (SELECT COUNT(*) FROM episode_jobs j"
         " JOIN story_designs d ON d.id=j.design_id"
@@ -62,13 +63,15 @@ def list_works(conn: sqlite3.Connection = Depends(get_conn)):
         " (SELECT scope_total_episodes FROM story_designs"
         " WHERE work_id=w.id ORDER BY version DESC LIMIT 1)"
         " AS total_episodes"
-        " FROM works w ORDER BY w.updated_at DESC, w.id DESC").fetchall()
+        " FROM works w WHERE w.author_id=? ORDER BY w.updated_at DESC,"
+        " w.id DESC", (author["id"],)).fetchall()
     return {"works": [dict(r) for r in rows]}
 
 
 @router.get("/works/{key}")
-def get_work(key: str, conn: sqlite3.Connection = Depends(get_conn)):
-    work = _work_or_404(conn, key)
+def get_work(key: str, conn: sqlite3.Connection = Depends(get_conn),
+             author: dict = Depends(get_current_author)):
+    work = _work_or_404(conn, key, author["id"])
     latest = conn.execute(
         "SELECT id, version, scope_total_episodes, status, approved_at"
         " FROM story_designs WHERE work_id=? ORDER BY version DESC LIMIT 1",
@@ -87,8 +90,9 @@ class DesignIn(BaseModel):
 @router.post("/works/{key}/designs")
 def create_design(key: str, body: DesignIn,
                   conn: sqlite3.Connection = Depends(get_conn),
-                  meta=Depends(get_meta)):
-    work = _work_or_404(conn, key)
+                  meta=Depends(get_meta),
+                  author: dict = Depends(get_current_author)):
+    work = _work_or_404(conn, key, author["id"])
     try:
         check_total_episodes(body.total_episodes)
     except ValueError as e:
@@ -106,7 +110,9 @@ def create_design(key: str, body: DesignIn,
 
 
 @router.get("/designs/{design_id}")
-def get_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn)):
+def get_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn),
+             author: dict = Depends(get_current_author)):
+    require_design(conn, design_id, author["id"])
     d = planning.get_design(conn, design_id)
     if not d:
         raise HTTPException(404, f"design {design_id} not found")
@@ -114,11 +120,9 @@ def get_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn)):
 
 
 @router.post("/designs/{design_id}/approve")
-def approve_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn)):
-    row = conn.execute("SELECT * FROM story_designs WHERE id=?",
-                       (design_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, f"design {design_id} not found")
+def approve_design(design_id: int, conn: sqlite3.Connection = Depends(get_conn),
+                   author: dict = Depends(get_current_author)):
+    row = require_design(conn, design_id, author["id"])
     out = planning.approve_design(conn, design_id)
     touch_work(conn, row["work_id"])
     conn.commit()
@@ -137,7 +141,9 @@ class OutlinePatch(BaseModel):
 
 @router.patch("/designs/{design_id}/outlines/{episode_no}")
 def patch_outline(design_id: int, episode_no: int, body: OutlinePatch,
-                  conn: sqlite3.Connection = Depends(get_conn)):
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    require_design(conn, design_id, author["id"])
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     try:
         return planning.update_outline(conn, design_id, episode_no, fields)
@@ -154,8 +160,9 @@ class WorkPatch(BaseModel):
 
 @router.patch("/works/{key}")
 def patch_work(key: str, body: WorkPatch,
-               conn: sqlite3.Connection = Depends(get_conn)):
-    work = _work_or_404(conn, key)
+               conn: sqlite3.Connection = Depends(get_conn),
+               author: dict = Depends(get_current_author)):
+    work = _work_or_404(conn, key, author["id"])
     sets, args = [], []
     if body.title is not None:
         if not body.title.strip():
@@ -183,13 +190,14 @@ class WorkDeleteIn(BaseModel):
 
 @router.delete("/works/{key}")
 def delete_work(key: str, body: WorkDeleteIn,
-                conn: sqlite3.Connection = Depends(get_conn)):
+                conn: sqlite3.Connection = Depends(get_conn),
+                author: dict = Depends(get_current_author)):
     """Permanent delete after title confirmation. AI usage logs stay.
 
     Work-scoped rows go; global episode_jobs/manuscript_revisions rows stay
     (episode numbers are global) and become orphans of the deleted design.
     """
-    work = _work_or_404(conn, key)
+    work = _work_or_404(conn, key, author["id"])
     if (body.title or "") != work["title"]:
         raise HTTPException(400, "title does not match")
     wid = work["id"]

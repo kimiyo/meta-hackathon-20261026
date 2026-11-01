@@ -1,10 +1,24 @@
 const BASE = "/api/v1";
+const TOKEN_KEY = "auth-token";
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+
+export function setToken(t) {
+  if (t) localStorage.setItem(TOKEN_KEY, t);
+  else localStorage.removeItem(TOKEN_KEY);
+}
 
 async function req(path, options = {}) {
-  const resp = await fetch(BASE + path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const headers = { "Content-Type": "application/json" };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  Object.assign(headers, options.headers ?? {});
+  const resp = await fetch(BASE + path, { ...options, headers });
+  if (resp.status === 401 && !path.startsWith("/auth/")) {
+    document.dispatchEvent(new CustomEvent("auth-expired"));
+  }
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(`API ${resp.status}: ${text.slice(0, 200)}`);
@@ -15,6 +29,15 @@ async function req(path, options = {}) {
 
 export const api = {
   health: () => req("/health"),
+  authStatus: () => req("/auth/status"),
+  register: (body) =>
+    req("/auth/register", { method: "POST", body: JSON.stringify(body) }),
+  login: (body) =>
+    req("/auth/login", { method: "POST", body: JSON.stringify(body) }),
+  logout: () => req("/auth/logout", { method: "POST" }),
+  me: () => req("/auth/me"),
+  updateMe: (body) =>
+    req("/auth/me", { method: "PATCH", body: JSON.stringify(body) }),
   works: () => req("/works"),
   createWork: (title, logline) =>
     req("/works", { method: "POST", body: JSON.stringify({ title, logline }) }),
@@ -148,6 +171,31 @@ export const api = {
     req(`/nodes/${nodeId}/expand`, {
       method: "POST",
       body: JSON.stringify({ kind: kind ?? null }),
+    }),
+  designThreads: (designId, nodeId, q) => {
+    const par = new URLSearchParams();
+    if (nodeId) par.set("node_id", nodeId);
+    if (q) par.set("q", q);
+    const s = par.toString();
+    return req(`/designs/${designId}/threads${s ? `?${s}` : ""}`);
+  },
+  createDesignThread: (designId, nodeId) =>
+    req(`/designs/${designId}/threads`, {
+      method: "POST",
+      body: JSON.stringify({ node_id: nodeId }),
+    }),
+  designThreadMessages: (threadId) =>
+    req(`/design-threads/${threadId}/messages`),
+  postDesignMessage: (threadId, content, refs, includeMessages) =>
+    req(`/design-threads/${threadId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ content, refs: refs ?? [],
+                              include_messages: includeMessages ?? [] }),
+    }),
+  markDesignApplied: (messageId, body) =>
+    req(`/design-messages/${messageId}/applied`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
     }),
   nodeSettings: (nodeId) => req(`/nodes/${nodeId}/settings`),
   deleteNode: (nodeId) => req(`/nodes/${nodeId}`, { method: "DELETE" }),
