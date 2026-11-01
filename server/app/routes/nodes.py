@@ -207,6 +207,16 @@ def node_expand(node_id: str, body: ExpandIn,
         raise HTTPException(502, f"design_expand failed: {e.reason} {e.detail}")
 
 
+@router.get("/designs/{design_id}/node-settings")
+def design_node_settings(design_id: int,
+                         conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        settings = design_nodes.list_design_node_settings(conn, design_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    return {"design_id": design_id, "settings": settings}
+
+
 @router.get("/nodes/{node_id}/settings")
 def node_settings(node_id: str,
                   conn: sqlite3.Connection = Depends(get_conn)):

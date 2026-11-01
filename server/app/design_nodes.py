@@ -321,6 +321,17 @@ def list_node_settings(conn: sqlite3.Connection, node_id: str) -> list[dict]:
         (node_id,))]
 
 
+def list_design_node_settings(conn: sqlite3.Connection,
+                              design_id: int) -> list[dict]:
+    """All node settings in a design (for tree bulk display)."""
+    _design_or_raise(conn, design_id)
+    return [dict(r) for r in conn.execute(
+        "SELECT s.* FROM node_settings s"
+        " JOIN design_nodes n ON n.id=s.node_id"
+        " WHERE n.design_id=? ORDER BY s.node_id, s.id",
+        (design_id,))]
+
+
 def create_node_setting(conn: sqlite3.Connection, node_id: str, *,
                         category: str = "misc", title: str = "",
                         summary: str = "", detail: str = "",

@@ -144,3 +144,17 @@ def test_archived_ancestor_skipped_but_chain_continues(client):
     c.post(f"/api/v1/nodes/{p['id']}/archive", json={"archived": True})
     eff = c.get(f"/api/v1/nodes/{e['id']}/settings").json()
     assert [s["title"] for s in eff["inherited"]] == ["세계관"]
+
+
+def test_design_node_settings_bulk(client):
+    c, _ = client
+    w = _mkwork(c)
+    h = _handoff(c, w["uid"])
+    did, root = h["design_id"], h["root_node"]["id"]
+    _mksetting(c, root, title="세계관")
+    _mksetting(c, "E001", title="1화 인물")
+    r = c.get(f"/api/v1/designs/{did}/node-settings")
+    assert r.status_code == 200, r.text
+    got = {(s["node_id"], s["code"]) for s in r.json()["settings"]}
+    assert got == {(root, "S001"), ("E001", "S002")}
+    assert c.get("/api/v1/designs/999/node-settings").status_code == 404

@@ -14,6 +14,7 @@ const DESIGN_RESIZERS = [
 // 화면 2 · 소설 설계. 구조 트리(좌) + 설계 편집(중) + 설계 파트너(우).
 let design = null;
 let nodes = [];
+let treeNodeSettings = {}; // node_id -> own settings (트리 전체 보기용)
 let selectedId = null;
 let editorNode = null;
 let partnerMsgs = [];
@@ -93,6 +94,13 @@ async function reloadNodes() {
   const q = $("tree-search").value.trim();
   const archived = $("show-archived").checked;
   nodes = (await api.nodes(design.id, q || null, archived)).nodes ?? [];
+  treeNodeSettings = {};
+  if (design) {
+    try {
+      const all = (await api.designNodeSettings(design.id)).settings ?? [];
+      for (const s of all) (treeNodeSettings[s.node_id] ??= []).push(s);
+    } catch { /* 트리는 설정 없이도 표시 */ }
+  }
 }
 
 function renderDesignMeta() {
@@ -127,16 +135,16 @@ function nodeRowHtml(n) {
   const kids = childrenOf(n.id).length;
   const toggle = kids ? `<span class="tw" data-toggle="${n.id}">▾</span>` : `<span class="tw empty">·</span>`;
   if (m === "one") {
-    return `<div class="tnode${sel}" data-node="${n.id}">${toggle}<span class="nid mono">${esc(n.id)}</span> <span class="t concise">${esc(n.title)}</span></div>`;
+    return `<div class="tnode${sel}" data-node="${n.id}">${toggle}<span class="nid mono">${esc(n.id)}</span><span class="t oneline"><b>${esc(n.title)}</b>${n.logline ? ` <span class="muted">${esc(n.logline)}</span>` : ""}</span></div>`;
   }
   if (m === "flow") {
-    return `<div class="tnode${sel}" data-node="${n.id}">${toggle}<span class="nid mono">${esc(n.id)}</span>
-      <span><b>${esc(n.title)}</b><br><span class="small muted">${esc(n.logline)}</span></span></div>`;
+    return `<div class="tnode${sel}" data-node="${n.id}">${toggle}<span class="nid mono">${esc(n.id)}</span><span class="t flowline"><b>${esc(n.title)}</b>${n.logline ? ` <span class="muted">${esc(n.logline)}</span>` : ""}</span></div>`;
   }
+  const nss = treeNodeSettings[n.id] ?? [];
+  const nsHtml = nss.length ? `<br>${nss.map((s) => `<span class="chip mono">${esc(s.code)}</span> <b>${esc(s.title)}</b>${s.summary ? ` <span class="small muted">${esc(s.summary)}</span>` : ""}`).join("<br>")}` : "";
   return `<div class="tnode${sel}" data-node="${n.id}">${toggle}<span class="nid mono">${esc(n.id)}</span>
     <span><b>[${esc(KIND_LABEL[n.kind] ?? n.kind)}] ${esc(n.title)}</b><br>
-    <span class="small">${esc(n.logline)}</span><br>
-    <span class="small muted mono">${esc(JSON.stringify(n.body ?? {}).slice(0, 120))}</span></span></div>`;
+    <span class="small">${esc(n.logline)}</span>${nsHtml}</span></div>`;
 }
 
 function treeHtml(parentId) {

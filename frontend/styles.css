@@ -429,11 +429,10 @@ ul.tree li.collapsed > ul { display: none; }
 }
 .tnode:hover { background: #f6f3ec; }
 .tnode.selected { background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); }
-.tnode .nid { color: var(--accent-deep); font-size: 12px; white-space: nowrap; }
-.tnode .t.concise {
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;
-}
-.tw { color: var(--ink-soft); cursor: pointer; user-select: none; width: 14px; text-align: center; }
+.tnode .nid { color: var(--accent-deep); font-size: 12px; white-space: nowrap; flex: none; }
+.tnode .t.oneline { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tnode .t.flowline { flex: 1; min-width: 0; }
+.tw { color: var(--ink-soft); cursor: pointer; user-select: none; width: 14px; flex: none; text-align: center; }
 .tw.empty { visibility: hidden; }
 .rollup {
   border: 1px solid var(--line); border-radius: 8px; background: #fff;

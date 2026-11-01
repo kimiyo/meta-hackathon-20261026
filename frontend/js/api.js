@@ -150,6 +150,7 @@ export const api = {
       body: JSON.stringify({ kind: kind ?? null }),
     }),
   nodeSettings: (nodeId) => req(`/nodes/${nodeId}/settings`),
+  designNodeSettings: (designId) => req(`/designs/${designId}/node-settings`),
   createNodeSetting: (nodeId, body) =>
     req(`/nodes/${nodeId}/settings`, {
       method: "POST",
