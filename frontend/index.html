@@ -203,6 +203,14 @@
       <input type="text" id="node-title" data-role="design.editor.title-input">
       <label class="f">줄거리</label>
       <textarea id="node-logline" data-role="design.editor.logline-input" style="min-height:90px"></textarea>
+      <div id="children-rollup" data-role="design.editor.children-rollup" style="margin-top:12px"></div>
+      <div id="node-settings" data-role="design.editor.node-settings" style="margin-top:12px">
+        <div class="small"><b>노드 설정</b> <span class="hint">이 노드와 하위에 적용</span> <button class="btn sm" id="btn-ns-add" data-role="design.editor.ns-add-btn">+ 추가</button></div>
+        <div id="ns-own-list" data-role="design.editor.ns-list" style="margin-top:6px"></div>
+        <div id="ns-form" style="display:none"></div>
+        <div class="small" style="margin-top:8px"><b>상위에서 물려받음</b></div>
+        <div id="ns-inherited-list" data-role="design.editor.ns-inherited" style="margin-top:6px"></div>
+      </div>
       <label class="f">상세 (JSON)</label>
       <textarea id="node-body" data-role="design.editor.body-input" class="mono" style="min-height:120px;font-size:12px"></textarea>
       <div class="btn-row">
@@ -212,7 +220,6 @@
         <span class="small muted" id="node-save-info"></span>
       </div>
       <div id="node-inherited" data-role="design.editor.inherited" style="margin-top:12px"></div>
-      <div id="children-rollup" data-role="design.editor.children-rollup" style="margin-top:12px"></div>
     </div>
   </div>
 </section>

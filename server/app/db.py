@@ -233,6 +233,16 @@ CREATE TABLE IF NOT EXISTS design_nodes (
   archived INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS node_settings (
+  id INTEGER PRIMARY KEY,
+  node_id TEXT NOT NULL REFERENCES design_nodes(id),
+  code TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'misc',
+  title TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
 """
 
 

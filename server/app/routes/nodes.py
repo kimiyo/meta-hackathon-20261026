@@ -205,3 +205,61 @@ def node_expand(node_id: str, body: ExpandIn,
                               work_id=design["work_id"] if design else None)
     except LLMStepError as e:
         raise HTTPException(502, f"design_expand failed: {e.reason} {e.detail}")
+
+
+@router.get("/nodes/{node_id}/settings")
+def node_settings(node_id: str,
+                  conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        return design_nodes.effective_node_settings(conn, node_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+
+
+class NodeSettingIn(BaseModel):
+    category: str = "misc"
+    title: str = ""
+    summary: str = ""
+    detail: str = ""
+    code: str | None = None
+
+
+@router.post("/nodes/{node_id}/settings")
+def create_node_setting(node_id: str, body: NodeSettingIn,
+                        conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        return design_nodes.create_node_setting(
+            conn, node_id, category=body.category, title=body.title,
+            summary=body.summary, detail=body.detail, code=body.code)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class NodeSettingPatch(BaseModel):
+    category: str | None = None
+    title: str | None = None
+    summary: str | None = None
+    detail: str | None = None
+
+
+@router.patch("/node-settings/{setting_id}")
+def patch_node_setting(setting_id: int, body: NodeSettingPatch,
+                       conn: sqlite3.Connection = Depends(get_conn)):
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    try:
+        return design_nodes.update_node_setting(conn, setting_id, fields)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/node-settings/{setting_id}")
+def delete_node_setting(setting_id: int,
+                        conn: sqlite3.Connection = Depends(get_conn)):
+    try:
+        return design_nodes.delete_node_setting(conn, setting_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))

@@ -250,6 +250,7 @@ async function loadEditor() {
   await run(async () => {
     editorNode = await api.node(selectedId);
     renderEditor();
+    await loadNodeSettings();
   });
 }
 
@@ -282,7 +283,7 @@ function renderEditor() {
     $("node-title").value = "";
     $("node-logline").value = "";
     $("node-body").value = "";
-    renderInherited(null);
+    renderInherited(null); clearNodeSettings();
     $("children-rollup").innerHTML = `<span class="muted small">노드를 선택하세요.</span>`;
     return;
   }
@@ -311,6 +312,149 @@ function renderEditor() {
   const canWrite = n.kind === "episode" && n.body && Number.isInteger(n.body.episode_no);
   $("btn-write-jump").style.display = canWrite ? "" : "none";
   $("btn-node-archive").textContent = n.archived ? "보관 해제" : "보관";
+}
+
+// ---- 노드별 설정 ----
+const NS_CATEGORIES = ["character", "world", "event", "misc"];
+const NS_CAT_LABEL = { character: "인물", world: "세계관", event: "사건", misc: "기타" };
+let nsOwn = [];
+let nsInherited = [];
+let nsOverridden = [];
+let nsForm = null; // null | { mode: "add" } | { mode: "edit", id } | { mode: "override", code, from }
+
+function clearNodeSettings() {
+  nsOwn = [];
+  nsInherited = [];
+  nsOverridden = [];
+  nsForm = null;
+  renderNodeSettings();
+}
+
+async function loadNodeSettings() {
+  const nid = editorNode?.id;
+  if (!nid) {
+    clearNodeSettings();
+    return;
+  }
+  try {
+    const eff = await api.nodeSettings(nid);
+    if (editorNode?.id !== nid) return;
+    nsOwn = eff.own ?? [];
+    nsInherited = eff.inherited ?? [];
+    nsOverridden = eff.overridden ?? [];
+    nsForm = null;
+    renderNodeSettings();
+  } catch (e) {
+    showError("sdesign-error", String(e));
+  }
+}
+
+function nsOwnRowHtml(s) {
+  const shadow = nsOverridden.includes(s.code)
+    ? ` <span class="chip" title="상위 노드의 같은 코드 설정을 덮어씁니다">상위 덮어씀</span>` : "";
+  return `<div class="setting" data-ns="${s.id}">
+    <div class="setting-head"><span class="chip mono">${esc(s.code)}</span><span class="chip">${esc(NS_CAT_LABEL[s.category] ?? s.category)}</span><b>${esc(s.title)}</b>${shadow}</div>
+    ${s.summary ? `<div class="small">${esc(s.summary).replace(/\n/g, "<br>")}</div>` : ""}
+    ${s.detail ? `<div class="small muted">${esc(s.detail).replace(/\n/g, "<br>")}</div>` : ""}
+    <div class="btn-row"><button class="btn sm" data-ns-edit data-role="design.editor.ns-edit-btn">편집</button><button class="btn sm" data-ns-del data-role="design.editor.ns-delete-btn">삭제</button></div>
+  </div>`;
+}
+
+function nsInheritedRowHtml(s) {
+  return `<div class="setting" data-ns-src="${s.id}">
+    <div class="setting-head"><span class="chip mono" title="${esc(s.source_kind)} ${esc(s.source_title)}">${esc(s.source_node)}·${esc(s.code)}</span><span class="chip">${esc(NS_CAT_LABEL[s.category] ?? s.category)}</span><b>${esc(s.title)}</b></div>
+    ${s.summary ? `<div class="small">${esc(s.summary).replace(/\n/g, "<br>")}</div>` : ""}
+    ${s.detail ? `<div class="small muted">${esc(s.detail).replace(/\n/g, "<br>")}</div>` : ""}
+    <div class="btn-row"><button class="btn sm" data-ns-override="${s.id}" data-role="design.editor.ns-override-btn">이 노드에서 덮어쓰기</button></div>
+  </div>`;
+}
+
+function nsFormHtml() {
+  const f = nsForm;
+  const src = f.mode === "edit"
+    ? nsOwn.find((x) => x.id === f.id) ?? {}
+    : f.mode === "override"
+      ? nsInherited.find((x) => x.id === f.from) ?? {}
+      : {};
+  const codeNote = f.mode === "add"
+    ? `<div class="small muted">코드는 저장 시 자동 부여(S번호)</div>`
+    : `<div class="small">코드: <span class="chip mono">${esc(f.mode === "edit" ? (src.code ?? "") : f.code)}</span>${f.mode === "override" ? " (상위 설정을 덮어씁니다)" : ""}</div>`;
+  return `<label class="f">분류</label>
+    <select data-f="category" data-role="design.editor.ns-form-category">${NS_CATEGORIES.map((c) =>
+      `<option value="${c}"${src.category === c ? " selected" : ""}>${NS_CAT_LABEL[c]}</option>`).join("")}</select>
+    ${codeNote}
+    <label class="f">제목</label><input type="text" data-f="title" data-role="design.editor.ns-form-title" value="${esc(src.title ?? "")}">
+    <label class="f">요약</label><textarea data-f="summary" data-role="design.editor.ns-form-summary">${esc(src.summary ?? "")}</textarea>
+    <label class="f">상세</label><textarea data-f="detail" data-role="design.editor.ns-form-detail">${esc(src.detail ?? "")}</textarea>
+    <div class="btn-row"><button class="btn sm primary" data-ns-save data-role="design.editor.ns-form-save">저장</button>
+    <button class="btn sm" data-ns-cancel data-role="design.editor.ns-form-cancel">취소</button></div>`;
+}
+
+function renderNodeSettings() {
+  const ownBox = $("ns-own-list");
+  const inhBox = $("ns-inherited-list");
+  const formBox = $("ns-form");
+  if (!ownBox || !inhBox || !formBox) return;
+  ownBox.innerHTML = nsOwn.length ? nsOwn.map(nsOwnRowHtml).join("")
+    : `<span class="muted small">이 노드의 설정 없음.</span>`;
+  inhBox.innerHTML = nsInherited.length ? nsInherited.map(nsInheritedRowHtml).join("")
+    : `<span class="muted small">물려받은 설정 없음.</span>`;
+  if (!nsForm) {
+    formBox.style.display = "none";
+    formBox.innerHTML = "";
+  } else {
+    formBox.style.display = "";
+    formBox.innerHTML = nsFormHtml();
+    formBox.querySelector("[data-ns-save]").addEventListener("click", saveNsForm);
+    formBox.querySelector("[data-ns-cancel]").addEventListener("click", () => {
+      nsForm = null;
+      renderNodeSettings();
+    });
+  }
+  ownBox.querySelectorAll("[data-ns-edit]").forEach((b) => {
+    b.addEventListener("click", () => {
+      nsForm = { mode: "edit", id: Number(b.closest("[data-ns]").dataset.ns) };
+      renderNodeSettings();
+    });
+  });
+  ownBox.querySelectorAll("[data-ns-del]").forEach((b) => {
+    b.addEventListener("click", () => deleteNsFlow(Number(b.closest("[data-ns]").dataset.ns)));
+  });
+  inhBox.querySelectorAll("[data-ns-override]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const src = nsInherited.find((x) => x.id === Number(b.dataset.nsOverride));
+      if (!src) return;
+      nsForm = { mode: "override", code: src.code, from: src.id };
+      renderNodeSettings();
+    });
+  });
+}
+
+async function saveNsForm() {
+  const box = $("ns-form");
+  if (!nsForm || !editorNode) return;
+  const data = {
+    category: box.querySelector('[data-f="category"]').value,
+    title: box.querySelector('[data-f="title"]').value,
+    summary: box.querySelector('[data-f="summary"]').value,
+    detail: box.querySelector('[data-f="detail"]').value,
+  };
+  await run(async () => {
+    if (nsForm.mode === "edit") {
+      await api.patchNodeSetting(nsForm.id, data);
+    } else {
+      await api.createNodeSetting(editorNode.id,
+        nsForm.mode === "override" ? { ...data, code: nsForm.code } : data);
+    }
+    await loadNodeSettings();
+  });
+}
+
+async function deleteNsFlow(id) {
+  await run(async () => {
+    await api.deleteNodeSetting(id);
+    await loadNodeSettings();
+  });
 }
 
 async function saveEditor() {
@@ -473,6 +617,11 @@ function initMobileTabs() {
 
 export function initDesign() {
   DESIGN_RESIZERS.forEach(initColResizer);
+  $("btn-ns-add").addEventListener("click", () => {
+    if (!editorNode) return;
+    nsForm = { mode: "add" };
+    renderNodeSettings();
+  });
   setPartnerCollapsed(localStorage.getItem("design-partner-collapsed") === "1");
   $("btn-partner-collapse").addEventListener("click", () => setPartnerCollapsed(true));
   $("btn-partner-expand").addEventListener("click", () => setPartnerCollapsed(false));

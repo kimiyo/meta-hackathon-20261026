@@ -124,6 +124,8 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `design.editor.title-input`, `design.editor.logline-input`, `design.editor.body-input`
 - `design.editor.save-btn`, `design.editor.archive-btn`, `design.editor.write-jump-btn`
 - `design.editor.inherited`, `design.editor.children-rollup`
+- `design.editor.node-settings` — 노드 설정 섹션
+- `design.editor.ns-add-btn`, `design.editor.ns-list`, `design.editor.ns-inherited`
 
 ### writing — 집필
 
@@ -193,6 +195,11 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `design.partner.apply-patch-btn` — 선택 노드 수정안 적용 (단일)
 - `design.partner.apply-all-btn` — 하위 설계안 전체 적용 (단일)
 - `design.partner.apply-child-btn` — 하위 설계안 개별 추가
+- `design.editor.ns-edit-btn`, `design.editor.ns-delete-btn` — 설정 행 편집·삭제
+- `design.editor.ns-override-btn` — 물려받은 설정 덮어쓰기
+- `design.editor.ns-form-category`, `design.editor.ns-form-title`
+- `design.editor.ns-form-summary`, `design.editor.ns-form-detail`
+- `design.editor.ns-form-save`, `design.editor.ns-form-cancel`
 
 ### monitor.js (writing)
 

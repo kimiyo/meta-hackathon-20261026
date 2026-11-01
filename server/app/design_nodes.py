@@ -241,3 +241,208 @@ def set_archived(conn: sqlite3.Connection, node_id: str,
     conn.commit()
     return _public(_row(conn, "SELECT * FROM design_nodes WHERE id=?",
                         (node_id,)))
+
+
+# ---- 노드별 설정 (scoped canon) ----
+#
+# 각 노드는 임의의 설정(인물·세계관·사건·기타)을 가질 수 있다. 설정의
+# 적용 범위는 해당 노드와 모든 자손이며, 같은 코드가 조상·자손에 함께
+# 있으면 가장 가까운 정의가 이긴다(자식 우선). 코드는 디자인별 S번호로
+# 자동 발급해서 우연한 중복이 생기지 않으며, 명시 코드는 조상의 코드를
+# 가리킬 때만 허용된다(override 연결 고리).
+
+NODE_SETTING_CATEGORIES = ("character", "world", "event", "misc")
+
+
+def _node_or_raise(conn: sqlite3.Connection, node_id: str) -> dict:
+    n = _row(conn, "SELECT * FROM design_nodes WHERE id=?", (node_id,))
+    if not n:
+        raise KeyError(f"node {node_id} not found")
+    return n
+
+
+def _touch_node_work(conn: sqlite3.Connection, node: dict) -> None:
+    design = _row(conn, "SELECT work_id FROM story_designs WHERE id=?",
+                  (node["design_id"],))
+    if design:
+        touch_work(conn, design["work_id"])
+
+
+def _valid_setting_code(code) -> bool:
+    return (isinstance(code, str) and len(code) >= 4
+            and code[0] == "S" and code[1:].isdigit())
+
+
+def allocate_node_setting_code(conn: sqlite3.Connection,
+                               node_id: str) -> str:
+    """Next per-design S-number (S001, S002, ...). Never reused."""
+    node = _node_or_raise(conn, node_id)
+    top = conn.execute(
+        "SELECT s.code code FROM node_settings s"
+        " JOIN design_nodes n ON n.id=s.node_id"
+        " WHERE n.design_id=? AND s.code LIKE 'S%'"
+        " ORDER BY LENGTH(s.code) DESC, s.code DESC LIMIT 1",
+        (node["design_id"],)).fetchone()
+    n = 0
+    if top and top["code"]:
+        try:
+            n = int(top["code"][1:])
+        except ValueError:
+            n = 0
+    return f"S{n + 1:03d}"
+
+
+def _ancestor_has_code(conn: sqlite3.Connection, node: dict,
+                       code: str) -> bool:
+    seen = {node["id"]}
+    parent_id = node["parent_id"]
+    guard = 0
+    while parent_id is not None and guard < 64:
+        guard += 1
+        if parent_id in seen:
+            break
+        seen.add(parent_id)
+        hit = conn.execute(
+            "SELECT id FROM node_settings WHERE node_id=? AND code=?",
+            (parent_id, code)).fetchone()
+        if hit:
+            return True
+        prow = conn.execute(
+            "SELECT parent_id FROM design_nodes WHERE id=?",
+            (parent_id,)).fetchone()
+        parent_id = prow["parent_id"] if prow else None
+    return False
+
+
+def list_node_settings(conn: sqlite3.Connection, node_id: str) -> list[dict]:
+    _node_or_raise(conn, node_id)
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM node_settings WHERE node_id=? ORDER BY id",
+        (node_id,))]
+
+
+def create_node_setting(conn: sqlite3.Connection, node_id: str, *,
+                        category: str = "misc", title: str = "",
+                        summary: str = "", detail: str = "",
+                        code: str | None = None) -> dict:
+    """Create a setting on a node. Pass an ancestor's code to override it."""
+    node = _node_or_raise(conn, node_id)
+    if category not in NODE_SETTING_CATEGORIES:
+        raise ValueError(
+            f"category must be one of {NODE_SETTING_CATEGORIES}")
+    if code is None:
+        code = allocate_node_setting_code(conn, node_id)
+    else:
+        if not _valid_setting_code(code):
+            raise ValueError("code must look like S001")
+        dup = conn.execute(
+            "SELECT id FROM node_settings WHERE node_id=? AND code=?",
+            (node_id, code)).fetchone()
+        if dup:
+            raise ValueError(f"code {code} already used on node {node_id}")
+        if not _ancestor_has_code(conn, node, code):
+            raise ValueError(
+                f"code {code} is not defined on any ancestor"
+                f" of node {node_id}")
+    cur = conn.execute(
+        "INSERT INTO node_settings(node_id, code, category, title, summary,"
+        " detail, updated_at) VALUES(?,?,?,?,?,?,?)",
+        (node_id, code, category, title.strip(), summary, detail,
+         now_iso()))
+    _touch_node_work(conn, node)
+    conn.commit()
+    return _row(conn, "SELECT * FROM node_settings WHERE id=?",
+                (cur.lastrowid,))
+
+
+def update_node_setting(conn: sqlite3.Connection, setting_id: int,
+                        fields: dict) -> dict:
+    # code는 override 연결 고리라서 변경 불가다.
+    allowed = {"category", "title", "summary", "detail"}
+    sets, args = [], []
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        if k == "category" and v not in NODE_SETTING_CATEGORIES:
+            raise ValueError(
+                f"category must be one of {NODE_SETTING_CATEGORIES}")
+        sets.append(f"{k}=?")
+        args.append(v.strip() if k == "title" and isinstance(v, str) else v)
+    if not sets:
+        raise ValueError("no valid node-setting fields")
+    row = _row(conn, "SELECT * FROM node_settings WHERE id=?",
+               (setting_id,))
+    if not row:
+        raise KeyError(f"node setting {setting_id} not found")
+    sets.append("updated_at=?")
+    args += [now_iso(), setting_id]
+    conn.execute(f"UPDATE node_settings SET {', '.join(sets)} WHERE id=?",
+                 args)
+    node = _row(conn, "SELECT * FROM design_nodes WHERE id=?",
+                (row["node_id"],))
+    if node:
+        _touch_node_work(conn, node)
+    conn.commit()
+    return _row(conn, "SELECT * FROM node_settings WHERE id=?",
+                (setting_id,))
+
+
+def delete_node_setting(conn: sqlite3.Connection,
+                        setting_id: int) -> dict:
+    row = _row(conn, "SELECT * FROM node_settings WHERE id=?",
+               (setting_id,))
+    if not row:
+        raise KeyError(f"node setting {setting_id} not found")
+    conn.execute("DELETE FROM node_settings WHERE id=?", (setting_id,))
+    node = _row(conn, "SELECT * FROM design_nodes WHERE id=?",
+                (row["node_id"],))
+    if node:
+        _touch_node_work(conn, node)
+    conn.commit()
+    return {"deleted": setting_id}
+
+
+def effective_node_settings(conn: sqlite3.Connection,
+                            node_id: str) -> dict:
+    """Own settings plus inherited winners from unarchived ancestors.
+
+    Nearest definition of a code wins; farther ones are shadowed.
+    Archived ancestors contribute nothing but do not sever the chain.
+    `overridden` lists ancestor codes shadowed by this node's own rows.
+    """
+    node = _node_or_raise(conn, node_id)
+    own = [dict(r) for r in conn.execute(
+        "SELECT * FROM node_settings WHERE node_id=? ORDER BY id",
+        (node_id,))]
+    own_codes = {s["code"] for s in own}
+    seen = set(own_codes)
+    inherited, overridden = [], []
+    seen_nodes = {node_id}
+    parent_id = node["parent_id"]
+    guard = 0
+    while parent_id is not None and guard < 64:
+        guard += 1
+        if parent_id in seen_nodes:
+            break
+        seen_nodes.add(parent_id)
+        parent = _row(conn, "SELECT * FROM design_nodes WHERE id=?",
+                      (parent_id,))
+        if not parent:
+            break
+        parent_id = parent["parent_id"]
+        if parent["archived"]:
+            continue
+        for s in conn.execute(
+                "SELECT * FROM node_settings WHERE node_id=? ORDER BY id",
+                (parent["id"],)):
+            s = dict(s)
+            if s["code"] in seen:
+                if s["code"] in own_codes and s["code"] not in overridden:
+                    overridden.append(s["code"])
+                continue
+            seen.add(s["code"])
+            s["source_node"] = parent["id"]
+            s["source_kind"] = parent["kind"]
+            s["source_title"] = parent["title"]
+            inherited.append(s)
+    return {"own": own, "inherited": inherited, "overridden": overridden}

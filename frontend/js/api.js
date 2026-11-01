@@ -149,4 +149,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ kind: kind ?? null }),
     }),
+  nodeSettings: (nodeId) => req(`/nodes/${nodeId}/settings`),
+  createNodeSetting: (nodeId, body) =>
+    req(`/nodes/${nodeId}/settings`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  patchNodeSetting: (id, body) =>
+    req(`/node-settings/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteNodeSetting: (id) => req(`/node-settings/${id}`, { method: "DELETE" }),
 };
