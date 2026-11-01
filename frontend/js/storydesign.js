@@ -2,6 +2,14 @@ import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
 import { getWork } from "./work.js";
 import { go, novelPath } from "./router.js";
+import { initColResizer, restoreColResizer } from "./resizer.js";
+
+const DESIGN_RESIZERS = [
+  { resizerId: "design-resizer-left", varName: "--design-left-w",
+    storageKey: "design-left-w", side: "left", min: 220, reserve: 560 },
+  { resizerId: "design-resizer-right", varName: "--design-right-w",
+    storageKey: "design-right-w", side: "right", min: 260, reserve: 540 },
+];
 
 // 화면 2 · 소설 설계. 구조 트리(좌) + 설계 편집(중) + 설계 파트너(우).
 let design = null;
@@ -51,6 +59,7 @@ function structure() {
 // ---- 진입/적재 ----
 
 export async function enterDesign() {
+  DESIGN_RESIZERS.forEach(restoreColResizer);
   const w = getWork();
   if (!w) return;
   if (loadedUid !== (w.uid || w.id)) {
@@ -96,7 +105,7 @@ function renderDesignMeta() {
   const st = design.status === "approved"
     ? `<span class="st-AUTHOR_APPROVED state-label">승인됨</span>`
     : `<span class="chip">${esc(stLabel)}</span>
-       <button class="btn sm primary" id="btn-design-approve">설계 승인</button>`;
+       <button class="btn sm primary" id="btn-design-approve" data-role="design.meta.approve-btn">설계 승인</button>`;
   box.innerHTML = `<b>설계 v${esc(design.version)}</b> · ${esc(design.scope_total_episodes)}화 · ${st}`;
   $("btn-design-approve")?.addEventListener("click", () => run(async () => {
     await api.approveDesign(design.id);
@@ -147,8 +156,8 @@ function renderTree() {
   }
   if (!nodes.length) {
     box.innerHTML = `<span class="muted small">노드가 없습니다.</span>
-      <div class="btn-row"><button class="btn sm" id="btn-seed-root">루트 노드 만들기</button>
-      <button class="btn sm" id="btn-seed-outlines">기존 개요에서 Episode 생성</button></div>`;
+      <div class="btn-row"><button class="btn sm" id="btn-seed-root" data-role="design.tree.seed-root-btn">루트 노드 만들기</button>
+      <button class="btn sm" id="btn-seed-outlines" data-role="design.tree.seed-outlines-btn">기존 개요에서 Episode 생성</button></div>`;
     $("btn-seed-root").addEventListener("click", seedRoot);
     $("btn-seed-outlines").addEventListener("click", seedFromOutlines);
     return;
@@ -404,15 +413,15 @@ function renderProposals(children, patch) {
       <b class="small">선택 노드 수정안</b>
       <div class="small">${esc(patch.title ?? "")}</div>
       <div class="small muted">${esc(patch.logline ?? "")}</div>
-      <div class="btn-row"><button class="btn sm primary" data-apply-patch>이 노드에 적용</button></div>
+      <div class="btn-row"><button class="btn sm primary" data-apply-patch data-role="design.partner.apply-patch-btn">이 노드에 적용</button></div>
     </div>` : ""}
     ${children.length ? `<b class="small">하위 설계안 (${children.length})</b>
-    <div class="btn-row"><button class="btn sm" data-apply-all>전체 적용</button></div>` : ""}
+    <div class="btn-row"><button class="btn sm" data-apply-all data-role="design.partner.apply-all-btn">전체 적용</button></div>` : ""}
     ${children.map((c, i) => `
       <div class="proposal">
         <b class="small">[${esc(KIND_LABEL[c.kind] ?? c.kind)}] ${esc(c.title)}</b>
         <div class="small muted">${esc(c.logline)}</div>
-        <div class="btn-row"><button class="btn sm" data-apply-child="${i}">하위로 추가</button></div>
+        <div class="btn-row"><button class="btn sm" data-apply-child="${i}" data-role="design.partner.apply-child-btn">하위로 추가</button></div>
       </div>`).join("")}`;
   box.querySelector("[data-apply-patch]")?.addEventListener("click", () => run(async () => {
     const fields = {};
@@ -463,6 +472,7 @@ function initMobileTabs() {
 }
 
 export function initDesign() {
+  DESIGN_RESIZERS.forEach(initColResizer);
   setPartnerCollapsed(localStorage.getItem("design-partner-collapsed") === "1");
   $("btn-partner-collapse").addEventListener("click", () => setPartnerCollapsed(true));
   $("btn-partner-expand").addEventListener("click", () => setPartnerCollapsed(false));

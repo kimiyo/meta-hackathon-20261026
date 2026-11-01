@@ -1,8 +1,9 @@
 """Top-down design tree: Work/Part/Chapter/Episode/Scene nodes.
 
 Node ids carry a kind prefix (N/P/C/E/S) plus a zero-padded sequence that is
-unique per (design, kind), e.g. E001. Episode nodes sync into
-episode_outlines so the existing writing pipeline keeps working unchanged.
+unique per kind across all designs (id is a global primary key), e.g. E001.
+Episode nodes sync into episode_outlines so the existing writing pipeline
+keeps working unchanged.
 """
 from __future__ import annotations
 
@@ -29,10 +30,14 @@ def _public(row: dict) -> dict:
 
 
 def allocate_id(conn: sqlite3.Connection, design_id: int, kind: str) -> str:
+    # id is a global PRIMARY KEY and node lookup by id is global, so the
+    # sequence must run per kind across all designs. (design_id is kept
+    # for caller compatibility.) LENGTH first keeps ordering correct
+    # past 999, where zero-padding no longer sorts lexically.
     prefix = KINDS[kind]
     top = conn.execute(
-        "SELECT id FROM design_nodes WHERE design_id=? AND kind=?"
-        " ORDER BY id DESC LIMIT 1", (design_id, kind)).fetchone()
+        "SELECT id FROM design_nodes WHERE kind=?"
+        " ORDER BY LENGTH(id) DESC, id DESC LIMIT 1", (kind,)).fetchone()
     n = 0
     if top:
         try:

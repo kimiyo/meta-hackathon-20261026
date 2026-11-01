@@ -87,18 +87,23 @@ nav.tabs button .n {
 nav.tabs button.active .n { background: var(--accent); color: #fff; }
 
 /* ── 레이아웃 ────────────────────────────── */
-main { padding: 18px 20px 60px; max-width: 1400px; width: 100%; margin: 0 auto; }
+main { padding: 18px 12px 60px; width: 100%; }
 section.screen { display: none; }
 section.screen.active { display: block; }
-.grid-2 { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
-.grid-monitor { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
-.grid-review { display: grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start; }
-.grid-ideas { display: grid; grid-template-columns: 400px 1fr; gap: 16px; align-items: start; }
-.grid-design { display: grid; grid-template-columns: 340px 1fr 360px; gap: 16px; align-items: start; }
-#pane-partner, #pane-editor { resize: horizontal; overflow: auto; min-width: 220px; max-width: 640px; }
+.grid-2 { display: grid; grid-template-columns: minmax(260px, var(--entities-left-w, 320px)) 8px minmax(0, 1fr); gap: 16px 6px; align-items: start; }
+.grid-monitor { display: grid; grid-template-columns: minmax(260px, var(--writing-left-w, 300px)) 8px minmax(0, 1fr); gap: 16px 6px; align-items: start; }
+.grid-review { display: grid; grid-template-columns: minmax(0, 1fr) 8px minmax(280px, var(--review-right-w, 380px)); gap: 16px 6px; align-items: start; }
+.grid-ideas { display: grid; grid-template-columns: minmax(280px, var(--ideas-chat-w, 400px)) 8px minmax(0, 1fr); gap: 16px 6px; align-items: start; }
+.col-resizer { align-self: stretch; width: 8px; cursor: col-resize; touch-action: none; border-radius: 4px; position: relative; }
+.col-resizer::after { content: ""; position: absolute; top: 8px; bottom: 8px; left: 3px; width: 2px; border-radius: 1px; background: var(--line); }
+.col-resizer:hover::after, body.col-resizing .col-resizer::after { background: var(--accent); }
+body.col-resizing { user-select: none; cursor: col-resize; }
+.grid-design { display: grid; grid-template-columns: minmax(220px, var(--design-left-w, 340px)) 8px minmax(0, 1fr) 8px minmax(260px, var(--design-right-w, 360px)); gap: 16px 6px; align-items: start; }
+#pane-partner, #pane-editor { overflow: auto; }
 #pane-partner .pane-expand { display: none; }
-.grid-design.partner-collapsed { grid-template-columns: 44px 1fr 360px; }
-.grid-design.partner-collapsed #pane-partner { resize: none; min-width: 0; max-width: none; padding: 8px 6px; }
+.grid-design.partner-collapsed { grid-template-columns: 44px minmax(0, 1fr) 8px minmax(260px, var(--design-right-w, 360px)); }
+.grid-design.partner-collapsed > #design-resizer-left { display: none; }
+.grid-design.partner-collapsed #pane-partner { padding: 8px 6px; }
 .grid-design.partner-collapsed #pane-partner .partner-main { display: none; }
 .grid-design.partner-collapsed #pane-partner .pane-expand {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -445,14 +450,14 @@ ul.tree li.collapsed > ul { display: none; }
 
 /* ── 반응형 ──────────────────────────────── */
 @media (max-width: 1100px) {
-  .grid-design { grid-template-columns: 300px 1fr 320px; }
-  .grid-design.partner-collapsed { grid-template-columns: 44px 1fr 320px; }
-  .grid-ideas { grid-template-columns: 340px 1fr; }
+  .grid-design { grid-template-columns: minmax(220px, var(--design-left-w, 300px)) 8px minmax(0, 1fr) 8px minmax(260px, var(--design-right-w, 320px)); }
+  .grid-design.partner-collapsed { grid-template-columns: 44px minmax(0, 1fr) 8px minmax(260px, var(--design-right-w, 320px)); }
+  .grid-ideas { grid-template-columns: minmax(280px, var(--ideas-chat-w, 340px)) 8px minmax(0, 1fr); }
   .home-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 900px) {
   .grid-ideas, .grid-design, .grid-2, .grid-monitor, .grid-review { grid-template-columns: 1fr; }
-  #pane-partner, #pane-editor { resize: none; max-width: none; }
+  .col-resizer { display: none; }
   .grid-design.partner-collapsed { grid-template-columns: 1fr; }
   .grid-design.partner-collapsed #pane-partner { padding: 16px 18px; }
   .grid-design.partner-collapsed #pane-partner .partner-main { display: block; }

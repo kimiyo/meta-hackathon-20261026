@@ -29,8 +29,8 @@ function cardHtml(w) {
       </div>
       <div class="meta muted">${esc(w.logline ?? "")}</div>
       <div class="btn-row">
-        <button class="btn sm primary" data-enter>이어 쓰기</button>
-        <button class="btn sm" data-delete>삭제</button>
+        <button class="btn sm primary" data-enter data-role="home.list.enter-btn">이어 쓰기</button>
+        <button class="btn sm" data-delete data-role="home.list.delete-btn">삭제</button>
       </div>
     </div>`;
 }
@@ -50,7 +50,7 @@ export async function refreshHome() {
     }
     if (!list.length) {
       box.innerHTML = `<span class="muted">‘${esc(q)}’ 검색 결과가 없습니다.</span>
-        <div class="btn-row"><button class="btn sm" id="btn-home-clear">전체 소설 보기</button></div>`;
+        <div class="btn-row"><button class="btn sm" id="btn-home-clear" data-role="home.list.clear-search-btn">전체 소설 보기</button></div>`;
       $("btn-home-clear").addEventListener("click", () => {
         $("home-search").value = "";
         refreshHome();
@@ -74,7 +74,7 @@ export async function refreshHome() {
     });
   } catch (e) {
     box.innerHTML = `<span class="muted small">작업을 마치지 못했습니다. 다시 시도해 주세요.</span>
-      <div class="btn-row"><button class="btn sm" id="btn-home-retry">재시도</button></div>`;
+      <div class="btn-row"><button class="btn sm" id="btn-home-retry" data-role="home.list.retry-btn">재시도</button></div>`;
     $("btn-home-retry").addEventListener("click", refreshHome);
     showError("home-error", String(e));
   }

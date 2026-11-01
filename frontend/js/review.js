@@ -1,5 +1,9 @@
 import { api } from "./api.js";
 import { $, esc, showError, stateKo, verdictKo } from "./util.js";
+import { initColResizer, restoreColResizer } from "./resizer.js";
+
+const REVIEW_RESIZER = { resizerId: "review-resizer", varName: "--review-right-w",
+  storageKey: "review-right-w", side: "right", min: 280, reserve: 420 };
 
 // 화면 4 · 작가 검토 (구 React판에서 이식)
 
@@ -168,9 +172,9 @@ function renderAliases() {
       (a) => `<div class="alias-card" data-alias="${esc(a.alias_id)}">
         <b>${esc(a.alias)}</b> <span class="small muted">— ${esc(a.basis)} (현재 연결: ${esc(a.canonical_name ?? "없음")})</span>
         <div class="btn-row">
-          <input type="text" placeholder="연결할 인물 ID" data-ent-input style="width:140px" value="">
-          <button class="btn sm" data-confirm>확정(빈칸=새 인물)</button>
-          <button class="btn sm ghost" data-reject>기각</button>
+          <input type="text" placeholder="연결할 인물 ID" data-ent-input data-role="review.alias.entity-input" style="width:140px" value="">
+          <button class="btn sm" data-confirm data-role="review.alias.confirm-btn">확정(빈칸=새 인물)</button>
+          <button class="btn sm ghost" data-reject data-role="review.alias.reject-btn">기각</button>
         </div>
       </div>`
     )
@@ -204,6 +208,11 @@ function renderAll() {
 }
 
 export function initReview() {
+  initColResizer(REVIEW_RESIZER);
+  document.addEventListener("enter-screen", (e) => {
+    if (e.detail?.section !== "s3") return;
+    restoreColResizer(REVIEW_RESIZER);
+  });
   $("btn-review-load").addEventListener("click", () => run(() => load(currentEp())));
   $("rev-select").addEventListener("change", (e) =>
     run(async () => {

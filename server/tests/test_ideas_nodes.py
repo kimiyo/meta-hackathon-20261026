@@ -372,6 +372,23 @@ def test_extract_and_handoff_lock(client, fakes):
                   json={"title": "x"}).status_code == 409
 
 
+def test_second_handoff_gets_globally_unique_node_ids(client, fakes):
+    c, _ = client
+    w1 = _mkwork(c, "work one")
+    w2 = _mkwork(c, "work two")
+    r1 = c.post(f"/api/v1/works/{w1['uid']}/handoff", json={})
+    assert r1.status_code == 200, r1.text
+    r2 = c.post(f"/api/v1/works/{w2['uid']}/handoff", json={})
+    assert r2.status_code == 200, r2.text
+    assert r1.json()["root_node"]["id"] == "N001"
+    assert r2.json()["root_node"]["id"] != "N001"
+    ids1 = {n["id"] for n in
+            c.get(f"/api/v1/designs/{r1.json()['design_id']}/nodes").json()["nodes"]}
+    ids2 = {n["id"] for n in
+            c.get(f"/api/v1/designs/{r2.json()['design_id']}/nodes").json()["nodes"]}
+    assert not ids1 & ids2
+
+
 def test_handoff_preview_and_ai_migration(client, fakes):
     c, _ = client
     w = _mkwork(c)

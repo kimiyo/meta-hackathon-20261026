@@ -1,6 +1,10 @@
 import { api } from "./api.js";
 import { $, esc, showError, stateKo } from "./util.js";
 import { getWork } from "./work.js";
+import { initColResizer, restoreColResizer } from "./resizer.js";
+
+const WRITING_RESIZER = { resizerId: "writing-resizer", varName: "--writing-left-w",
+  storageKey: "writing-left-w", side: "left", min: 260, reserve: 320 };
 
 // 화면 3 · 집필 (구 React판에서 이식)
 const ORDER = ["PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED", "COMMITTED"];
@@ -55,8 +59,8 @@ function renderRows() {
         <td>${badges(r.job?.state)}</td>
         <td>${stateLabel(r.job?.state)}</td>
         <td style="white-space:nowrap">
-          ${r.job ? `<button class="btn sm" data-detail>상세</button> ` : ""}
-          <button class="btn sm" data-advance-row>전진</button>
+          ${r.job ? `<button class="btn sm" data-detail data-role="writing.progress.row-detail-btn">상세</button> ` : ""}
+          <button class="btn sm" data-advance-row data-role="writing.progress.row-advance-btn">전진</button>
         </td>
       </tr>`
     )
@@ -121,7 +125,7 @@ function renderDetail() {
     ${verificationHtml()}
     ${qualityHtml()}
     <div class="btn-row">
-      <button class="btn primary" data-advance>다음 단계로 전진</button>
+      <button class="btn primary" data-advance data-role="writing.episode.advance-btn">다음 단계로 전진</button>
     </div>
     <div class="small muted" style="margin-top:6px">※ 전진은 되돌릴 수 없습니다. 같은 상태에서 반복하면 재시도 횟수를 소모합니다.</div>`;
   box.querySelector("[data-advance]").addEventListener("click", () =>
@@ -216,6 +220,7 @@ export async function refreshBudgetChips() {
 }
 
 export function initMonitor() {
+  initColResizer(WRITING_RESIZER);
   $("btn-monitor-load").addEventListener("click", () =>
     run(async () => {
       const did = currentDesignId();
@@ -252,6 +257,7 @@ export function initMonitor() {
   });
   document.addEventListener("enter-screen", (e) => {
     if (e.detail?.section !== "s2") return;
+    restoreColResizer(WRITING_RESIZER);
     const cur = getWork();
     if (!cur) return;
     run(async () => {

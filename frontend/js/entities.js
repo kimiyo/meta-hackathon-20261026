@@ -1,5 +1,9 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
+import { initColResizer, restoreColResizer } from "./resizer.js";
+
+const ENTITIES_RESIZER = { resizerId: "entities-resizer", varName: "--entities-left-w",
+  storageKey: "entities-left-w", side: "left", min: 260, reserve: 320 };
 
 // 화면 5 · 설정 (구 React판에서 이식)
 let list = [];
@@ -44,8 +48,8 @@ function renderState(entId, asOf, state) {
   box.innerHTML = `
     <h3>${esc(entId)}
       <span class="hint">회차 지정 상태:
-        <input type="number" id="asof" value="${esc(asOf)}" min="1" style="width:70px;display:inline-block;padding:3px 8px">
-        <button class="btn sm" id="btn-asof">조회</button>
+        <input type="number" id="asof" data-role="entities.detail.asof-input" value="${esc(asOf)}" min="1" style="width:70px;display:inline-block;padding:3px 8px">
+        <button class="btn sm" id="btn-asof" data-role="entities.detail.asof-btn">조회</button>
       </span>
     </h3>
     <div class="notice warn small" style="margin-bottom:10px">조회는 <b>승인된 변경만</b> 사용합니다.</div>
@@ -91,6 +95,11 @@ async function open(id, asOf) {
 }
 
 export function initEntities() {
+  initColResizer(ENTITIES_RESIZER);
+  document.addEventListener("enter-screen", (e) => {
+    if (e.detail?.section !== "s4") return;
+    restoreColResizer(ENTITIES_RESIZER);
+  });
   $("btn-ent-search").addEventListener("click", () => search($("ent-search").value.trim()));
   $("ent-search").addEventListener("keydown", (e) => {
     if (e.key === "Enter") search($("ent-search").value.trim());

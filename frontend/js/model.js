@@ -10,7 +10,7 @@ function renderList() {
   box.innerHTML = presets
     .map(
       (p) => `<label class="model-opt">
-        <input type="radio" name="model-pick" value="${esc(p.id)}"${
+        <input type="radio" name="model-pick" data-role="shell.model.pick-radio" value="${esc(p.id)}"${
           p.id === current ? " checked" : ""
         }>
         <span><span class="t">${esc(p.label)}</span>${
