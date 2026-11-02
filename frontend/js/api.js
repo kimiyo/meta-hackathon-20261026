@@ -26,6 +26,48 @@ async function req(path, options = {}) {
   if (resp.status === 204) return null;
   return resp.json();
 }
+// 원고 저장용: 상태·코드·충돌 revision을 담은 오류를 던진다.
+async function reqEx(path, options = {}) {
+  const headers = { "Content-Type": "application/json" };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  Object.assign(headers, options.headers ?? {});
+  const { timeoutMs, ...fetchOptions } = options;
+  let resp;
+  try {
+    resp = await fetch(BASE + path, {
+      ...fetchOptions,
+      headers,
+      signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+    });
+  } catch (cause) {
+    throw Object.assign(new Error("저장 응답을 확인하지 못했습니다."),
+      { uncertain: true, cause });
+  }
+  if (resp.status === 401 && !path.startsWith("/auth/")) {
+    document.dispatchEvent(new CustomEvent("auth-expired"));
+  }
+  let body = null;
+  try {
+    body = await resp.json();
+  } catch {
+    body = null;
+  }
+  if (!resp.ok) {
+    const detail = body?.detail ?? {};
+    const message = typeof detail === "string"
+      ? detail
+      : detail.message ?? `API ${resp.status}`;
+    throw Object.assign(new Error(message), {
+      status: resp.status,
+      code: detail?.code,
+      latestRevision: detail?.latestRevision,
+      uncertain: resp.status >= 500,
+    });
+  }
+  return body;
+}
+
 
 export const api = {
   health: () => req("/health"),
@@ -69,10 +111,24 @@ export const api = {
     }),
   manuscript: (no, version) =>
     req(`/episodes/${no}/manuscript${version ? `?version=${version}` : ""}`),
-  requestChange: (no, instruction, full) =>
+  requestChange: (no, instruction, full, base) =>
     req(`/episodes/${no}/request-change`, {
       method: "POST",
-      body: JSON.stringify({ instruction: instruction ?? "", full: !!full }),
+      body: JSON.stringify({ instruction: instruction ?? "", full: !!full,
+                             base: base ?? "draft" }),
+    }),
+  manuscriptDoc: (no) => req(`/episodes/${no}/manuscript-doc`),
+  saveManuscriptDraft: (no, body) =>
+    reqEx(`/episodes/${no}/manuscript-draft`, {
+      method: "PATCH", body: JSON.stringify(body), timeoutMs: 15000,
+    }),
+  createManuscriptVersion: (no, body) =>
+    reqEx(`/episodes/${no}/manuscript-versions`, {
+      method: "POST", body: JSON.stringify(body), timeoutMs: 15000,
+    }),
+  restoreManuscriptVersion: (no, body) =>
+    reqEx(`/episodes/${no}/manuscript-restore`, {
+      method: "POST", body: JSON.stringify(body), timeoutMs: 15000,
     }),
   draftRequests: (no) => req(`/episodes/${no}/draft-requests`),
   approveEpisode: (no) => req(`/episodes/${no}/approve`, { method: "POST" }),

@@ -105,9 +105,24 @@ CREATE TABLE IF NOT EXISTS manuscript_revisions (
   episode_no INTEGER NOT NULL,
   version INTEGER NOT NULL,
   text TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
   approval_status TEXT NOT NULL DEFAULT 'draft',
   created_at TEXT NOT NULL,
   UNIQUE (episode_no, version)
+);
+CREATE TABLE IF NOT EXISTS manuscript_docs (
+  episode_no INTEGER PRIMARY KEY,
+  draft_content TEXT NOT NULL DEFAULT '',
+  revision INTEGER NOT NULL DEFAULT 0,
+  approved_revision_id INTEGER,
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  request_id TEXT PRIMARY KEY,
+  op TEXT NOT NULL,
+  body_hash TEXT NOT NULL,
+  response_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS change_proposals (
   proposal_set_id INTEGER PRIMARY KEY,
@@ -410,6 +425,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE change_proposal_items ADD COLUMN reason TEXT DEFAULT ''",
         "ALTER TABLE change_proposal_items ADD COLUMN counter_quote TEXT DEFAULT ''",
         "ALTER TABLE style_policies ADD COLUMN style_preset TEXT DEFAULT ''",
+  "ALTER TABLE manuscript_revisions ADD COLUMN label TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(sql)

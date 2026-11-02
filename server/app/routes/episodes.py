@@ -6,7 +6,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import state_machine
+from .. import manuscripts, state_machine
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from .deps import (get_conn, get_current_author, require_design,
@@ -104,6 +104,7 @@ def get_episode(episode_no: int,
 class ChangeIn(BaseModel):
     instruction: str = ""
     full: bool = False
+    base: str = "draft"
 
 
 @router.post("/episodes/{episode_no}/request-change")
@@ -114,7 +115,8 @@ def request_change(episode_no: int, body: ChangeIn,
     require_episode_job(conn, episode_no, author["id"])
     try:
         return state_machine.request_change(conn, meta, episode_no,
-                                            body.instruction, full=body.full)
+                                            body.instruction, full=body.full,
+                                            base_source=body.base)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
     except LLMStepError as e:
@@ -165,6 +167,100 @@ def design_episodes(design_id: int,
                   "proposal_set_id", "last_error")}
                  if o["episode_no"] in jobs else None)}
         for o in outlines]}
+
+
+def _episode_title(conn: sqlite3.Connection, job: dict) -> str:
+    row = conn.execute(
+        "SELECT title FROM episode_outlines WHERE design_id=? AND episode_no=?",
+        (job["design_id"], job["episode_no"])).fetchone()
+    return row["title"] if row else ""
+
+
+def _manuscript_error(action):
+    try:
+        return action()
+    except manuscripts.ManuscriptLocked as e:
+        raise HTTPException(423, str(e))
+    except manuscripts.RevisionConflict as e:
+        raise HTTPException(409, {"code": "REVISION_CONFLICT",
+                                  "message": str(e),
+                                  "latestRevision": e.latest})
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+class ManuscriptDraftIn(BaseModel):
+    expectedRevision: int
+    content: str = ""
+
+
+class ManuscriptVersionIn(BaseModel):
+    expectedRevision: int
+    requestId: str
+    content: str = ""
+    label: str | None = None
+
+
+class ManuscriptRestoreIn(BaseModel):
+    expectedRevision: int
+    requestId: str
+    sourceVersionId: str
+
+
+@router.get("/episodes/{episode_no}/manuscript-doc")
+def get_manuscript_doc(episode_no: int,
+                       conn: sqlite3.Connection = Depends(get_conn),
+                       author: dict = Depends(get_current_author)):
+    job = require_episode_job(conn, episode_no, author["id"])
+    if not job:
+        raise HTTPException(404, f"episode {episode_no} has no job yet")
+    job = dict(job)
+    return {"document": manuscripts.get_doc(
+        conn, episode_no, job, _episode_title(conn, job))}
+
+
+@router.patch("/episodes/{episode_no}/manuscript-draft")
+def patch_manuscript_draft(episode_no: int, body: ManuscriptDraftIn,
+                           conn: sqlite3.Connection = Depends(get_conn),
+                           author: dict = Depends(get_current_author)):
+    job = require_episode_job(conn, episode_no, author["id"])
+    if not job:
+        raise HTTPException(404, f"episode {episode_no} has no job yet")
+    job = dict(job)
+    doc = _manuscript_error(lambda: manuscripts.save_draft(
+        conn, episode_no, job, _episode_title(conn, job),
+        body.expectedRevision, body.content))
+    return {"document": doc}
+
+
+@router.post("/episodes/{episode_no}/manuscript-versions")
+def post_manuscript_version(episode_no: int, body: ManuscriptVersionIn,
+                            conn: sqlite3.Connection = Depends(get_conn),
+                            author: dict = Depends(get_current_author)):
+    job = require_episode_job(conn, episode_no, author["id"])
+    if not job:
+        raise HTTPException(404, f"episode {episode_no} has no job yet")
+    job = dict(job)
+    doc = _manuscript_error(lambda: manuscripts.create_version(
+        conn, episode_no, job, _episode_title(conn, job),
+        body.expectedRevision, body.requestId, body.content, body.label))
+    return {"document": doc}
+
+
+@router.post("/episodes/{episode_no}/manuscript-restore")
+def post_manuscript_restore(episode_no: int, body: ManuscriptRestoreIn,
+                            conn: sqlite3.Connection = Depends(get_conn),
+                            author: dict = Depends(get_current_author)):
+    job = require_episode_job(conn, episode_no, author["id"])
+    if not job:
+        raise HTTPException(404, f"episode {episode_no} has no job yet")
+    job = dict(job)
+    doc = _manuscript_error(lambda: manuscripts.restore_version(
+        conn, episode_no, job, _episode_title(conn, job),
+        body.expectedRevision, body.requestId, body.sourceVersionId))
+    return {"document": doc}
 
 
 @router.get("/episodes/{episode_no}/manuscript")

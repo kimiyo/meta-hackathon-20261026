@@ -45,7 +45,8 @@ def run_quality(meta, conn: sqlite3.Connection, *, episode_no: int,
         applied += 1
     new_revision = None
     if applied:
-        new_revision = drafting.save_revision(conn, episode_no, text)
+        new_revision = drafting.save_revision(conn, episode_no, text,
+                                             label="AI 교정")
     gate_pass = scores.get("coherence", 0) >= COHERENCE_MIN
     return {"scores": scores, "issues": issues, "edits_applied": applied,
             "new_revision": new_revision, "gate_pass": gate_pass,

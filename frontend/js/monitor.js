@@ -3,6 +3,7 @@ import { $, esc, showError, stateKo } from "./util.js";
 import { getWork } from "./work.js";
 import { go, novelPath } from "./router.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
+import { mountManuscriptPanel } from "./manuscript.js";
 
 const WRITING_RESIZER = { resizerId: "writing-resizer", varName: "--writing-left-w",
   storageKey: "writing-left-w", side: "left", min: 260, reserve: 320 };
@@ -24,6 +25,10 @@ let settingTitles = [];
 let settingsWorkKey = null;
 let sugItems = [];
 let sugActive = -1;
+let msPanel = null;
+let msPanelEp = null;
+let msPanelUiState = null;
+let msDoc = null;
 
 function setBusy(v) {
   busy = v;
@@ -159,26 +164,51 @@ function designEp(ep) {
   return { node, scenes };
 }
 
-function manuscriptHtml() {
-  const d = detail;
-  if (!d.versions.length) {
-    return `<span class="muted small">원고가 없습니다. ${
-      d.hasJob ? "전진을 계속하면 원고가 생성됩니다." : "집필을 시작하면 초안이 생성됩니다."}</span>`;
+// ---- 중앙 원고 패널 (공유 원고 모듈) ----
+
+function manuscriptPersist(ep) {
+  return async (request) => {
+    const { operation, ...body } = request;
+    if (operation === "draft") return (await api.saveManuscriptDraft(ep, body)).document;
+    if (operation === "version") return (await api.createManuscriptVersion(ep, body)).document;
+    if (operation === "restore") return (await api.restoreManuscriptVersion(ep, body)).document;
+    throw new Error("지원하지 않는 저장 동작입니다.");
+  };
+}
+
+function manuscriptLoader(ep) {
+  return async () => (await api.manuscriptDoc(ep)).document;
+}
+
+function mountPanel() {
+  const mount = $("ms-mount");
+  if (!mount || !detail?.hasJob || !msDoc) return;
+  msPanel = mountManuscriptPanel(mount, {
+    episodeNo: detail.ep,
+    initialDocument: msDoc,
+    persist: manuscriptPersist(detail.ep),
+    loadDocument: manuscriptLoader(detail.ep),
+    onQuoteToChat: insertLinePin,
+    onHint: setChatHint,
+    restoreState: msPanelEp === detail.ep ? msPanelUiState : null,
+  });
+  msPanelEp = detail.ep;
+  msPanelUiState = null;
+}
+
+// 원고 미저장분을 저장한 뒤 패널을 닫는다. 실패하면 false(화면 전환 중단).
+async function disposePanelOrAbort() {
+  if (!msPanel) return true;
+  msPanelUiState = msPanel.getUiState();
+  try {
+    await msPanel.flush();
+  } catch (e) {
+    showError("monitor-error", `원고 저장 실패: ${e.message} · 입력은 유지됩니다.`);
+    return false;
   }
-  const opts = d.versions
-    .map((r) => `<option value="${r.version}"${r.version === d.msVersion ? " selected" : ""}>v${r.version} (${esc(r.approval_status)})</option>`)
-    .join("");
-  // 줄번호는 서버와 같은 규칙: text.split("\n")의 1 기반 번호.
-  const body = d.msText
-    .split("\n")
-    .map((line, i) => `<div class="ms-line" data-ln="${i + 1}"><span class="ln">${i + 1}</span><span class="lt">${esc(line) || "&nbsp;"}</span></div>`)
-    .join("");
-  return `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-      <select data-ms-version data-role="writing.episode.version-select" style="width:auto">${opts}</select>
-      <span class="small muted">${d.msText.length}자 · v${d.msVersion}</span>
-    </div>
-    <div class="manuscript" data-role="writing.episode.manuscript">${body}</div>`;
+  msPanel.dispose();
+  msPanel = null;
+  return true;
 }
 
 function renderDetail() {
@@ -191,7 +221,7 @@ function renderDetail() {
   box.innerHTML = `
     <h3>EP ${esc(d.ep)} · ${esc(d.title || "")} ${d.hasJob ? stateSeg(d.state) : `<span class="muted small">미시작</span>`}</h3>
     ${d.hasJob ? "" : `<div class="btn-row"><button class="btn primary" data-start data-role="writing.episode.start-btn"${canStart(d.ep) ? "" : " disabled"}${canStart(d.ep) ? "" : ` title="${gateHint(d.ep)}"`}>이 화 집필 시작</button>${canStart(d.ep) ? "" : `<span class="small muted">${gateHint(d.ep)}</span>`}</div>`}
-    ${manuscriptHtml()}
+    ${d.hasJob ? `<div id="ms-mount"></div>` : `<span class="muted small">집필을 시작하면 초안이 생성됩니다.</span>`}
     <div class="btn-row" style="margin-top:10px">
       ${d.hasJob ? `<button class="btn primary" data-advance data-role="writing.episode.advance-btn">다음 단계로 전진</button>` : ""}
       ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">작가 검토로 이동 →</button>` : ""}
@@ -202,27 +232,10 @@ function renderDetail() {
   box.querySelector("[data-advance]")?.addEventListener("click", (e) =>
     advanceCurrent(e.currentTarget));
   box.querySelector("[data-review]")?.addEventListener("click", goReview);
-  box.querySelector("[data-ms-version]")?.addEventListener("change", (e) =>
-    run(async () => {
-      detail.msVersion = Number(e.target.value);
-      detail.msText = (await api.manuscript(detail.ep, detail.msVersion)).text ?? "";
-      renderDetail();
-    }));
-  box.querySelector('[data-role="writing.episode.manuscript"]')?.addEventListener("mouseup", insertLinePin);
+  mountPanel();
 }
 
 // ---- 줄 지정 (@L) ----
-
-function isLatestVersionShown() {
-  return !!detail?.versions?.length &&
-    detail.msVersion === detail.versions[detail.versions.length - 1].version;
-}
-
-function closestLt(node) {
-  if (!node) return null;
-  const el = node.nodeType === 1 ? node : node.parentElement;
-  return el?.closest?.(".lt") ?? null;
-}
 
 function insertAtCaret(input, text) {
   const s = input.selectionStart ?? input.value.length;
@@ -232,22 +245,10 @@ function insertAtCaret(input, text) {
   input.setSelectionRange(pos, pos);
 }
 
-function insertLinePin() {
-  const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-  const a = closestLt(sel.anchorNode);
-  const b = closestLt(sel.focusNode);
-  const box = document.querySelector('#ep-detail [data-role="writing.episode.manuscript"]');
-  if (!a || !b || !box || !box.contains(a) || !box.contains(b)) return;
-  if (!isLatestVersionShown()) {
-    setChatHint("줄 지정은 최신 원고에서만 할 수 있습니다.");
-    return;
-  }
-  const la = Number(a.parentElement.dataset.ln);
-  const lb = Number(b.parentElement.dataset.ln);
-  const [s, e] = la <= lb ? [la, lb] : [lb, la];
+function insertLinePin({ startLine, endLine }) {
   const input = $("draftchat-input");
-  insertAtCaret(input, s === e ? `@L${s} ` : `@L${s}-${e} `);
+  insertAtCaret(input, startLine === endLine ? `@L${startLine} ` : `@L${startLine}-${endLine} `);
+  setChatHint("");
   input.focus();
 }
 
@@ -341,12 +342,25 @@ async function sendChat() {
     return;
   }
   hideSuggest();
+  if (msPanel?.isHalted()) {
+    setChatHint("원고 저장 문제를 먼저 해결하세요.");
+    return;
+  }
+  if (msPanel) {
+    try {
+      await msPanel.flush();
+    } catch (e) {
+      setChatHint(`원고 저장 실패: ${e.message}`);
+      return;
+    }
+  }
   appendPendingChat(instruction, full);
   const btn = $("btn-draftchat-send");
   btn.textContent = "처리중…";
   try {
     await run(async () => {
-      const out = await api.requestChange(detail.ep, instruction, full);
+      const base = msPanel && !msPanel.getIncludeDraft() ? "version" : "draft";
+      const out = await api.requestChange(detail.ep, instruction, full, base);
       input.value = "";
       await load(currentDesignId());
       await fetchDetail(detail.ep);
@@ -475,6 +489,7 @@ async function load(did) {
 }
 
 async function fetchDetail(ep) {
+  if (!(await disposePanelOrAbort())) return;
   selectedEp = Number(ep);
   renderRows();
   const row = rows.find((r) => r.episode_no === selectedEp);
@@ -482,23 +497,15 @@ async function fetchDetail(ep) {
   if (hasJob) {
     detail = { ep: selectedEp, hasJob: true, title: row.title,
       ...(await api.episode(selectedEp)) };
-    detail.versions = detail.revisions ?? [];
-    if (detail.versions.length) {
-      detail.msVersion = detail.versions[detail.versions.length - 1].version;
-      detail.msText = (await api.manuscript(
-        selectedEp, detail.msVersion)).text ?? "";
-    } else {
-      detail.msVersion = null;
-      detail.msText = "";
-    }
+    msDoc = (await api.manuscriptDoc(selectedEp)).document;
     try {
       chatHistory = (await api.draftRequests(selectedEp)).requests ?? [];
     } catch {
       chatHistory = [];
     }
   } else {
-    detail = { ep: selectedEp, hasJob: false, title: row?.title ?? "",
-      versions: [], msVersion: null, msText: "" };
+    detail = { ep: selectedEp, hasJob: false, title: row?.title ?? "" };
+    msDoc = null;
     chatHistory = [];
   }
   await ensureSettingTitles();
@@ -511,7 +518,12 @@ function openDetail(ep) {
 }
 
 async function advanceCurrent(btn) {
+  if (msPanel?.isHalted()) {
+    showError("monitor-error", "원고 저장 문제를 먼저 해결하세요. 입력은 유지됩니다.");
+    return;
+  }
   await run(async () => {
+    if (!(await disposePanelOrAbort())) return;
     const label = btn.textContent;
     btn.textContent = "실행 중… (취소 불가)";
     try {
@@ -526,7 +538,12 @@ async function advanceCurrent(btn) {
 }
 
 async function advanceRow(ep, hasJob, btn) {
+  if (msPanel?.isHalted()) {
+    showError("monitor-error", "원고 저장 문제를 먼저 해결하세요. 입력은 유지됩니다.");
+    return;
+  }
   await run(async () => {
+    if (!(await disposePanelOrAbort())) return;
     const label = btn.textContent;
     btn.textContent = "실행 중… (취소 불가)";
     try {

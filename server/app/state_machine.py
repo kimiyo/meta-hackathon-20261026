@@ -228,7 +228,8 @@ def _public(job: dict) -> dict:
 
 
 def request_change(conn, meta, episode_no: int, instruction: str, *,
-                   full: bool = False, max_tokens: int = 8000) -> dict:
+                   full: bool = False, max_tokens: int = 8000,
+                   base_source: str = "draft") -> dict:
     """DRAFT/READY: author asks for changes → immediate redraft.
 
     Lands in DRAFT either way; the new revision is verified by the next
@@ -246,7 +247,16 @@ def request_change(conn, meta, episode_no: int, instruction: str, *,
         rev_row = conn.execute(
             "SELECT * FROM manuscript_revisions WHERE revision_id=?",
             (job["manuscript_revision_id"],)).fetchone()
-    base_text = rev_row["text"] if rev_row else ""
+    if rev_row is None:
+        rev_row = conn.execute(
+            "SELECT * FROM manuscript_revisions WHERE episode_no=?"
+            " ORDER BY version DESC LIMIT 1", (episode_no,)).fetchone()
+    if base_source not in ("draft", "version"):
+        raise ValueError("base must be 'draft' or 'version'")
+    from . import manuscripts
+    rev_text = rev_row["text"] if rev_row else ""
+    base_text = manuscripts.draft_base(conn, episode_no, rev_text) \
+        if base_source == "draft" else rev_text
     base_version = rev_row["version"] if rev_row else None
     design = conn.execute("SELECT * FROM story_designs WHERE id=?",
                           (job["design_id"],)).fetchone()
@@ -314,5 +324,8 @@ def approve_episode(conn, episode_no: int) -> dict:
     job["state"] = "COMMITTED"
     job["last_error"] = ""
     _save_job(conn, job)
+    from . import manuscripts
+    manuscripts.snapshot_approval(conn, episode_no,
+                                job["manuscript_revision_id"])
     return {"episode_no": episode_no, **_public(job), "commit": result,
             "marked_stale": stale}

@@ -159,6 +159,9 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `writing.progress.expander` — 회차 행 아래 설계 줄거리·장면 펼침
 - `writing.episode.panel` — 회차 상세 카드
 - `writing.episode.state-seg` — 파이프라인 상태 표시 세그먼트 (조작 불가)
+- 중앙 원고는 공유 모듈(`frontend/js/manuscript.js`)이 `#ms-mount`에 마운트한다.
+  버전 선택·본문은 아래 role을 유지하고, 검색·편집·저장·복원·읽기·복구 버튼은
+  패널 내부 `data-ui` 계약(versions/query/search/edit/save/restore/reader/diff/body/editor/recovery/quote/clear/status)을 따른다.
 - `writing.chat.panel` — 수정 대화 카드
 - `writing.chat.collapse-btn`, `writing.chat.expand-btn` — 대화 열 접기/펼치기
 - `writing.chat.messages` — 수정 요청 내역
@@ -235,8 +238,8 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `writing.progress.row-advance-btn` — 회차 행 전진 버튼
 - `writing.episode.advance-btn` — 다음 단계로 전진 버튼 (단일)
 - `writing.episode.start-btn` — 이 화 집필 시작 버튼 (단일)
-- `writing.episode.version-select` — 원고 버전 선택 (단일)
-- `writing.episode.manuscript` — 원고 미리보기 (단일)
+- `writing.episode.version-select` — 원고 버전 선택: 작업 초안 + 최신순 저장 버전 (단일)
+- `writing.episode.manuscript` — 원고 본문: 줄 번호·차이 강조·검색 강조 (단일)
 - `writing.episode.change-input`, `writing.episode.change-btn` — 수정 대화 입력·요청 (우측 패널, 단일)
 - `writing.episode.review-link` — 작가 검토로 이동 버튼 (단일)
 

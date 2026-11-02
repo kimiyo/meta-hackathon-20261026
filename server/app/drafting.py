@@ -315,30 +315,33 @@ def redraft_episode(meta, conn, *, design_id: int, work_id: int,
     rev = draft_episode(meta, conn, design_id=design_id, work_id=work_id,
                         episode_no=episode_no,
                         manuscript_draft="" if full else base_text,
-                        author_instruction=composed, max_tokens=max_tokens)
+                        author_instruction=composed, max_tokens=max_tokens,
+                        revision_label="AI 전체 재생성" if full else "AI 부분 수정")
     resolved = [t for t in ref_toks if t not in unknown]
     return {**rev, "base_version": base_version,
             "resolved_refs": resolved, "unknown_refs": unknown,
             "line_quotes": len(quotes)}
 
 
-def save_revision(conn, episode_no: int, text: str) -> dict:
+def save_revision(conn, episode_no: int, text: str, label: str = "") -> dict:
     row = conn.execute("SELECT COALESCE(MAX(version),0) v FROM manuscript_revisions"
                        " WHERE episode_no=?", (episode_no,)).fetchone()
     version = row["v"] + 1
     conn.execute("UPDATE manuscript_revisions SET approval_status='superseded'"
                  " WHERE episode_no=? AND approval_status='draft'", (episode_no,))
     cur = conn.execute(
-        "INSERT INTO manuscript_revisions(episode_no, version, text, created_at)"
-        " VALUES(?,?,?,?)", (episode_no, version, text, now_iso()))
+        "INSERT INTO manuscript_revisions(episode_no, version, text, label, created_at)"
+        " VALUES(?,?,?,?,?)", (episode_no, version, text, label, now_iso()))
     conn.commit()
+    from . import manuscripts  # lazy: manuscripts imports drafting lazily too
+    manuscripts.sync_doc_after_revision(conn, episode_no, cur.lastrowid)
     return {"revision_id": cur.lastrowid, "version": version,
             "episode_no": episode_no}
 
 
 def draft_episode(meta, conn, *, design_id: int, work_id: int, episode_no: int,
                   manuscript_draft: str = "", author_instruction: str = "",
-                  max_tokens: int = 8000) -> dict:
+                  max_tokens: int = 8000, revision_label: str = "AI 초안") -> dict:
     """Run drafting (with at most one lookup-injection round) and save revision."""
     outline = get_outline(conn, design_id, episode_no)
     style = get_style(conn, work_id)
@@ -378,6 +381,6 @@ def draft_episode(meta, conn, *, design_id: int, work_id: int, episode_no: int,
     if problems:
         raise LLMStepError("drafting", episode_no, "manuscript_invalid",
                            "; ".join(problems))
-    rev = save_revision(conn, episode_no, out["manuscript"])
+    rev = save_revision(conn, episode_no, out["manuscript"], label=revision_label)
     return {**rev, "length": len(out["manuscript"]),
             "lookups_executed": len(lookups)}
