@@ -240,7 +240,7 @@ def has_any_proposal(conn, episode_no: int) -> bool:
 
 
 def approve_proposal_set(conn, set_id: int) -> None:
-    """발간 = 작가 승인: pending 항목을 ok로 확정한다.
+    """작가 승인: pending 항목을 ok로 확정한다.
 
     deferred/error는 제외 유지되어 절대 커밋되지 않는다.
     """
@@ -248,6 +248,47 @@ def approve_proposal_set(conn, set_id: int) -> None:
                  " WHERE proposal_set_id=? AND validation='pending'",
                  (set_id,))
     conn.commit()
+
+
+def get_committed_set_for_revision(conn, episode_no: int,
+                                  revision_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM change_proposals WHERE episode_no=?"
+        " AND manuscript_revision_id=? AND status='committed'"
+        " ORDER BY proposal_set_id DESC LIMIT 1",
+        (episode_no, revision_id)).fetchone()
+    return dict(row) if row else None
+
+
+def approve_manuscript_revision(conn, revision_id: int) -> None:
+    conn.execute("UPDATE manuscript_revisions SET approval_status='approved'"
+                 " WHERE revision_id=?", (revision_id,))
+    conn.commit()
+
+
+def save_episode_memory(conn, *, episode_no: int, revision_id: int,
+                       proposal_set_id: int) -> dict:
+    """검토 확정: 미발간 회차의 기존 기억을 교체하고 새 변경안을 확정한다.
+
+    같은 회차의 낡은 기억(이전 원고 기준)은 삭제 후 다시 쓰므로
+    초안 기반 사실이 공식 기억에 남지 않는다. 호출자는 원고 버전이
+    최신인지(신선도) 미리 확인해야 한다.
+    """
+    conn.execute("DELETE FROM event_participants WHERE event_id IN"
+                 " (SELECT event_id FROM events WHERE episode_no=?)",
+                 (episode_no,))
+    conn.execute("DELETE FROM events WHERE episode_no=?", (episode_no,))
+    conn.execute("DELETE FROM entity_changes WHERE episode_no=?",
+                 (episode_no,))
+    conn.execute("DELETE FROM entity_snapshots WHERE episode_no>=?",
+                 (episode_no,))
+    conn.execute("UPDATE change_proposals SET status='superseded'"
+                 " WHERE episode_no=? AND status='committed'",
+                 (episode_no,))
+    conn.commit()
+    approve_proposal_set(conn, proposal_set_id)
+    return commit_episode(conn, episode_no=episode_no, revision_id=revision_id,
+                          proposal_set_id=proposal_set_id)
 
 
 # -- commit (idempotent) ---------------------------------------------------

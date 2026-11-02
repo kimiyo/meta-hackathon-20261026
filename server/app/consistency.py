@@ -18,7 +18,6 @@ from .db import now_iso
 from .schemas import consistency as sch
 
 PROMPT = (Path(__file__).parent / "prompts" / "consistency.txt").read_text(encoding="utf-8")
-MEMORY_PROMPT = (Path(__file__).parent / "prompts" / "memory_draft.txt").read_text(encoding="utf-8")
 
 SEVERITIES = ("critical", "major", "minor")
 STATUSES = ("open", "resolved", "wontfix")
@@ -124,51 +123,10 @@ def _add_message(conn: sqlite3.Connection, episode_no: int, role: str,
     conn.commit()
 
 
-def get_memory_draft(conn: sqlite3.Connection, episode_no: int) -> dict:
-    row = conn.execute("SELECT * FROM episode_memory_drafts WHERE episode_no=?",
-                       (episode_no,)).fetchone()
-    return dict(row) if row else {"episode_no": episode_no, "content": ""}
-
-
-def save_memory_draft(conn: sqlite3.Connection, episode_no: int,
-                     content: str) -> dict:
-    conn.execute("INSERT INTO episode_memory_drafts(episode_no, content,"
-                 " updated_at) VALUES(?,?,?)"
-                 " ON CONFLICT(episode_no) DO UPDATE SET content=excluded.content,"
-                 " updated_at=excluded.updated_at",
-                 (episode_no, content, now_iso()))
-    conn.commit()
-    return get_memory_draft(conn, episode_no)
-
-
-def generate_memory_draft(meta, conn: sqlite3.Connection, *,
-                         episode_no: int, revision_id: int | None,
-                         work_id: int | None = None,
-                         max_tokens: int = 4000) -> dict:
-    """프리셋 작업: 다음 화 인계용 기억 초안을 프롬프트 없이 생성한다."""
-    manuscript = _current_manuscript(conn, episode_no, revision_id)
-    if not manuscript.strip():
-        raise ValueError("no manuscript to summarize")
-    out = meta.chat_json(
-        bundle="memory-draft", episode=episode_no, system=MEMORY_PROMPT,
-        work_id=work_id,
-        user="다음 화 집필에 꼭 필요한 정보를 정리하라. 스켈레톤: "
-             '{"memory_draft": str}\n'
-             + json.dumps({"episode_no": episode_no,
-                           "manuscript": manuscript,
-                           "memory": _memory_context(conn, episode_no)},
-                          ensure_ascii=False),
-        schema=sch.MemoryDraftOutput, max_tokens=max_tokens)
-    content = (out.get("memory_draft") or "").strip()
-    if not content:
-        raise ValueError("empty memory draft")
-    return save_memory_draft(conn, episode_no, content)
-
-
 def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
                    revision_id: int | None, work_id: int | None = None,
                    max_tokens: int = 8000) -> dict:
-    """원고 전체를 기억과 대조해 이슈 목록 + 기억 초안을 만든다."""
+    """원고 전체를 확정 기억과 대조해 일관성 이슈 목록을 만든다."""
     manuscript = _current_manuscript(conn, episode_no, revision_id)
     if not manuscript.strip():
         raise ValueError("no manuscript to analyze")
@@ -178,18 +136,14 @@ def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
         user="현재 원고를 확정 기억과 대조해 일관성 오류를 찾아라. 스켈레톤: "
              '{"issues": [{"severity": str, "title": str, "detail": str, '
              '"manuscript_quote": str, "evidence_episode": int|null, '
-             '"evidence_quote": str, "entity_id": str}], "memory_draft": str}\n'
+             '"evidence_quote": str, "entity_id": str}]}\n'
              + json.dumps({"episode_no": episode_no,
                            "manuscript": manuscript,
                            "memory": _memory_context(conn, episode_no)},
                           ensure_ascii=False),
         schema=sch.ConsistencyOutput, max_tokens=max_tokens)
     saved = add_issues(conn, episode_no, out.get("issues", []))
-    draft = None
-    if (out.get("memory_draft") or "").strip():
-        draft = save_memory_draft(conn, episode_no, out["memory_draft"])
-    return {"episode_no": episode_no, "issues": saved,
-            "memory_draft": draft or get_memory_draft(conn, episode_no)}
+    return {"episode_no": episode_no, "issues": saved}
 
 
 def chat(meta, conn: sqlite3.Connection, *, episode_no: int,

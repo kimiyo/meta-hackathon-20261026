@@ -232,7 +232,6 @@ def test_publish_and_ops_api(api_client):
         app.dependency_overrides[get_meta] = lambda: IssueMeta([{
             "issues": [{"severity": "major", "title": "모순",
                         "manuscript_quote": "가가가"}],
-            "memory_draft": "기억 메모",
         }])
         r = api_client.post("/api/v1/episodes/1/consistency/analyze")
         assert r.status_code == 200, r.text
@@ -256,17 +255,24 @@ def test_publish_and_ops_api(api_client):
         assert len(r.json()["items"]) == 1
         r = api_client.get("/api/v1/episodes/1/entity-proposals")
         assert r.json()["fresh"] is True
-        r = api_client.post("/api/v1/episodes/1/request-publish")
-        assert r.json()["state"] == "PUBLISHING"
+        assert r.json()["saved_set"] is None
+        assert "events" in r.json()
+        r = api_client.post("/api/v1/episodes/1/entities/save")
+        assert r.status_code == 200, r.text
         assert r.json()["commit"]["applied"] == 1
+        r = api_client.post("/api/v1/episodes/1/entities/save")
+        assert r.json().get("already") is True  # idempotent re-save
         r = api_client.get("/api/v1/entities?q=민준")
         assert len(r.json()["entities"]) == 1
+        r = api_client.get("/api/v1/episodes/1/entity-proposals")
+        assert r.json()["saved_set"] is not None
+        r = api_client.post("/api/v1/episodes/1/request-publish")
+        assert r.json()["state"] == "PUBLISHING"
+        assert r.json()["commit"].get("already_saved") is True
         r = api_client.get(f"/api/v1/designs/{did}/episodes")
         assert r.json()["episodes"][0]["job"]["state"] == "PUBLISHING"
         r = api_client.get(f"/api/v1/designs/{did}/publishing")
         assert len(r.json()["episodes"]) == 1
-        r = api_client.get("/api/v1/episodes/1/memory-draft")
-        assert r.json()["content"] == "기억 메모"
         r = api_client.get("/api/v1/ops/budget")
         assert r.json()["budget"] > 0
         r = api_client.post("/api/v1/admin/reset-demo")

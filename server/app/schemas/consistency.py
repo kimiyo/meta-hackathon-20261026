@@ -18,13 +18,8 @@ class IssueItem(BaseModel):
 
 class ConsistencyOutput(BaseModel):
     issues: list[IssueItem] = Field(default_factory=list)
-    memory_draft: str = ""
 
 
 class ConsistencyChatOutput(BaseModel):
     reply: str = ""
     issues: list[IssueItem] = Field(default_factory=list)
-
-
-class MemoryDraftOutput(BaseModel):
-    memory_draft: str = ""

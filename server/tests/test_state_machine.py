@@ -122,17 +122,21 @@ def test_publish_rejects_stale_extraction(conn):
         state_machine.request_publish(conn, 1)
 
 
-def test_publish_approves_manuscript_and_memory(conn):
+def _in_review(conn, revision_id):
+    conn.execute("INSERT INTO episode_jobs(episode_no, design_id, state,"
+                 " attempt, manuscript_revision_id, updated_at)"
+                 " VALUES(1,1,'IN_REVIEW',0,?,'t')", (revision_id,))
+    conn.commit()
+
+
+def test_publish_auto_commits_fresh_pending(conn):
     from app import memory
     rev = drafting.save_revision(conn, 1, "서연은 서점주인이다")
     _store_proposal(conn, 1, rev["revision_id"], [{
         "operation": "create", "candidate_name": "서연",
         "attribute_path": "직업", "new_value": "서점주인",
         "evidence_quote": "서연은 서점주인이다"}])
-    conn.execute("INSERT INTO episode_jobs(episode_no, design_id, state,"
-                 " attempt, manuscript_revision_id, updated_at)"
-                 " VALUES(1,1,'IN_REVIEW',0,?,'t')", (rev["revision_id"],))
-    conn.commit()
+    _in_review(conn, rev["revision_id"])
     out = state_machine.request_publish(conn, 1)
     assert out["state"] == "PUBLISHING"
     assert out["commit"]["applied"] == 1
@@ -140,6 +144,95 @@ def test_publish_approves_manuscript_and_memory(conn):
     row = conn.execute("SELECT approval_status FROM manuscript_revisions"
                        " WHERE revision_id=?", (rev["revision_id"],)).fetchone()
     assert row["approval_status"] == "approved"
+
+
+def test_publish_with_saved_memory(conn):
+    from app import memory
+    rev = drafting.save_revision(conn, 1, "서연은 서점주인이다")
+    set_id = _store_proposal(conn, 1, rev["revision_id"], [{
+        "operation": "create", "candidate_name": "서연",
+        "attribute_path": "직업", "new_value": "서점주인",
+        "evidence_quote": "서연은 서점주인이다"}])
+    memory.save_episode_memory(conn, episode_no=1,
+                               revision_id=rev["revision_id"],
+                               proposal_set_id=set_id)
+    _in_review(conn, rev["revision_id"])
+    out = state_machine.request_publish(conn, 1)
+    assert out["state"] == "PUBLISHING"
+    assert out["commit"].get("already_saved") is True
+    row = conn.execute("SELECT COUNT(*) c FROM entity_changes"
+                       " WHERE episode_no=1").fetchone()
+    assert row["c"] == 1  # no double apply
+
+
+def test_save_replaces_stale_memory(conn):
+    from app import memory
+    rev1 = drafting.save_revision(conn, 1, "서연은 기사다")
+    set1 = _store_proposal(conn, 1, rev1["revision_id"], [{
+        "operation": "create", "candidate_name": "서연",
+        "attribute_path": "직업", "new_value": "기사",
+        "evidence_quote": "서연은 기사다"}])
+    memory.save_episode_memory(conn, episode_no=1,
+                               revision_id=rev1["revision_id"],
+                               proposal_set_id=set1)
+    rev2 = drafting.save_revision(conn, 1, "서연은 서점주인이다")
+    set2 = _store_proposal(conn, 1, rev2["revision_id"], [{
+        "operation": "set", "entity_id": "ch_0001",
+        "attribute_path": "직업", "new_value": "서점주인",
+        "evidence_quote": "서연은 서점주인이다"}])
+    out = memory.save_episode_memory(conn, episode_no=1,
+                                     revision_id=rev2["revision_id"],
+                                     proposal_set_id=set2)
+    assert out["committed"] is True
+    assert memory.reconstruct_state(conn, "ch_0001", 1) == {"직업": "서점주인"}
+    row = conn.execute("SELECT COUNT(*) c FROM entity_changes"
+                       " WHERE episode_no=1").fetchone()
+    assert row["c"] == 1  # old-revision memory replaced, not appended
+
+
+def test_story_time_flows_to_history(conn):
+    from app import memory
+    rev = drafting.save_revision(conn, 1, "오늘부로 종료다")
+    set_id = _store_proposal(conn, 1, rev["revision_id"], [{
+        "operation": "set", "candidate_name": "서연",
+        "attribute_path": "근로관계", "new_value": "2026-12-31부로 종료",
+        "story_time": "2026-12-31", "evidence_quote": "오늘부로 종료다"}])
+    memory.save_episode_memory(conn, episode_no=1,
+                               revision_id=rev["revision_id"],
+                               proposal_set_id=set_id)
+    ent = memory.search_entities(conn, q="서연")[0]
+    hist = memory.entity_history(conn, ent["entity_id"])
+    assert hist[0]["story_time"] == "2026-12-31"
+    assert memory.reconstruct_state(conn, ent["entity_id"], 1) == {
+        "근로관계": "2026-12-31부로 종료"}
+
+
+def test_extract_empty_result_raises(conn):
+    from app import extraction
+    from tests.test_consistency import IssueMeta
+    rev = drafting.save_revision(conn, 1, "본문")
+    meta = IssueMeta([{"items": [], "mentions": [], "events": []}])
+    with pytest.raises(ValueError, match="다시 실행"):
+        extraction.extract_changes(meta, conn, episode_no=1,
+                                   revision_id=rev["revision_id"],
+                                   manuscript="본문")
+    row = conn.execute("SELECT COUNT(*) c FROM change_proposals").fetchone()
+    assert row["c"] == 0  # 빈 결과는 저장하지 않는다
+
+
+def test_extract_passes_author_instruction(conn):
+    from app import extraction
+    from tests.test_consistency import IssueMeta
+    rev = drafting.save_revision(conn, 1, "본문")
+    meta = IssueMeta([{"items": [{"entity_ref": "new:서연",
+                                  "operation": "create",
+                                  "evidence_quote": "본문"}],
+                       "mentions": [], "events": []}])
+    extraction.extract_changes(meta, conn, episode_no=1,
+                               revision_id=rev["revision_id"],
+                               manuscript="본문",
+                               author_instruction="직업을 고쳐줘")
+    assert "직업을 고쳐줘" in meta.calls[0]
 
 
 def test_submit_snapshots_dirty_draft(conn):

@@ -133,10 +133,11 @@ def back_to_writing(conn, episode_no: int, reason: str = "") -> dict:
 
 
 def request_publish(conn, episode_no: int) -> dict:
-    """검토중 → 발간중: 원고와 기억을 원자적으로 확정한다.
+    """검토중 → 발간중: 원고를 확정하고 기억을 잠근다.
 
-    열린(open) 일관성 이슈가 남아 있거나, Entity 추출이 없거나,
-    원고가 바뀌어 추출이 낡았으면 차단된다.
+    열린(open) 일관성 이슈가 남아 있거나, 현재 원고 기준의 저장된
+    기억·신선한 추출이 없으면 차단된다. 저장은 검토 단계의 Entity
+    저장이 원칙이며, 미저장 신선 추출만 있으면 여기서 자동 확정한다.
     """
     from . import consistency, manuscripts
 
@@ -148,19 +149,26 @@ def request_publish(conn, episode_no: int) -> dict:
     open_issues = consistency.open_count(conn, episode_no)
     if open_issues:
         raise ValueError(f"{open_issues} open consistency issues remain")
-    pset = memory.get_pending_set_for_revision(
-        conn, episode_no, job["manuscript_revision_id"])
-    if pset is None:
-        if memory.has_any_proposal(conn, episode_no):
-            raise ValueError("원고가 바뀌어 Entity 재추출이 필요합니다")
-        raise ValueError("Entity 추출을 먼저 실행하세요")
-    memory.approve_proposal_set(conn, pset["proposal_set_id"])
-    job["proposal_set_id"] = pset["proposal_set_id"]
+    rev_id = job["manuscript_revision_id"]
+    saved = memory.get_committed_set_for_revision(conn, episode_no, rev_id)
+    pset = None
+    if saved is None:
+        pset = memory.get_pending_set_for_revision(conn, episode_no, rev_id)
+        if pset is None:
+            if memory.has_any_proposal(conn, episode_no):
+                raise ValueError("원고가 바뀌어 Entity 재추출이 필요합니다")
+            raise ValueError("Entity 추출을 먼저 실행하세요")
     try:
-        result = memory.commit_episode(
-            conn, episode_no=episode_no,
-            revision_id=job["manuscript_revision_id"],
-            proposal_set_id=job["proposal_set_id"])
+        if saved is not None:
+            memory.approve_manuscript_revision(conn, rev_id)
+            job["proposal_set_id"] = saved["proposal_set_id"]
+            result = {"committed": True, "already_saved": True,
+                      "proposal_set_id": saved["proposal_set_id"]}
+        else:
+            result = memory.save_episode_memory(
+                conn, episode_no=episode_no, revision_id=rev_id,
+                proposal_set_id=pset["proposal_set_id"])
+            job["proposal_set_id"] = pset["proposal_set_id"]
     except Exception:
         job["needs_attention"] = 1
         job["last_error"] = "publish commit failed"

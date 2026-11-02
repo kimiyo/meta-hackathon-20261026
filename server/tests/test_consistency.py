@@ -56,40 +56,18 @@ def test_issue_status_flow(conn):
         consistency.set_issue_status(conn, 999, "resolved")
 
 
-def test_memory_draft_roundtrip(conn):
-    assert consistency.get_memory_draft(conn, 1)["content"] == ""
-    out = consistency.save_memory_draft(conn, 1, "주인공이 검을 얻었다")
-    assert out["content"] == "주인공이 검을 얻었다"
-
-
-def test_generate_memory_draft(conn):
-    rev = drafting.save_revision(conn, 1, "주인공이 검을 얻었다")
-    meta = IssueMeta([{"memory_draft": "- 검 획득"}])
-    out = consistency.generate_memory_draft(meta, conn, episode_no=1,
-                                            revision_id=rev["revision_id"],
-                                            work_id=1)
-    assert out["content"] == "- 검 획득"
-    assert consistency.get_memory_draft(conn, 1)["content"] == "- 검 획득"
-    meta = IssueMeta([{"memory_draft": "  "}])
-    with pytest.raises(ValueError, match="empty memory draft"):
-        consistency.generate_memory_draft(meta, conn, episode_no=1,
-                                          revision_id=rev["revision_id"])
-
-
-def test_analyze_registers_issues_and_draft(conn):
+def test_analyze_registers_issues(conn):
     rev = drafting.save_revision(conn, 1, "그는 어제 죽었는데 오늘 웃었다")
     meta = IssueMeta([{
         "issues": [{"severity": "major", "title": "생사 모순",
                     "detail": "사망 후 등장", "manuscript_quote": "오늘 웃었다",
                     "evidence_episode": None, "evidence_quote": "",
                     "entity_id": ""}],
-        "memory_draft": "주인공 생존 여부가 흔들림",
     }])
     out = consistency.analyze_episode(meta, conn, episode_no=1,
                                       revision_id=rev["revision_id"],
                                       work_id=1)
     assert len(out["issues"]) == 1
-    assert out["memory_draft"]["content"] == "주인공 생존 여부가 흔들림"
     assert consistency.open_count(conn, 1) == 1
 
 

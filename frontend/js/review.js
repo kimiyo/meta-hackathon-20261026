@@ -36,12 +36,12 @@ function updateActionState() {
   const ok = !busy && inReview();
   for (const id of ["btn-back-to-writing", "btn-request-publish",
                     "btn-consistency-analyze", "btn-consistency-send",
-                    "btn-entity-extract",
-                    "btn-memory-generate", "btn-memory-save"]) {
+                    "btn-entity-extract", "btn-entity-save",
+                    "btn-entity-chat"]) {
     const b = $(id);
     if (b) b.disabled = !ok;
   }
-  for (const id of ["consistency-input", "memory-draft-input"]) {
+  for (const id of ["consistency-input", "entity-chat-input"]) {
     const input = $(id);
     if (input) input.disabled = !ok;
   }
@@ -85,10 +85,9 @@ function mountMsPanel(epNo, document) {
 async function load(epNo) {
   const j = await api.episode(epNo);
   const { document } = await api.manuscriptDoc(epNo);
-  const [iss, msgs, mem, ents, prop] = await Promise.all([
+  const [iss, msgs, ents, prop] = await Promise.all([
     api.consistencyIssues(epNo),
     api.consistencyMessages(epNo),
-    api.memoryDraft(epNo),
     api.entities(""),
     api.entityProposals(epNo),
   ]);
@@ -97,7 +96,6 @@ async function load(epNo) {
   issues = iss.issues ?? [];
   messages = msgs.messages ?? [];
   pending = prop;
-  $("memory-draft-input").value = mem.content ?? "";
   renderAll(ents.entities ?? []);
 }
 
@@ -171,25 +169,61 @@ function renderIssues() {
   });
 }
 
+function displayValue(v) {
+  if (v == null || v === "") return "";
+  try {
+    const p = JSON.parse(v);
+    return typeof p === "string" ? p : JSON.stringify(p);
+  } catch {
+    return String(v);
+  }
+}
+
+function proposalItemsHtml(items) {
+  if (!items.length) return `<li><span class="muted small">변경 항목 없음</span></li>`;
+  return items.map((it) => `
+    <li><span class="chip mono">${esc(it.operation)}</span>
+      <b>${esc(it.entity_id || it.candidate_name || "(미지정)")}</b>
+      ${it.attribute_path ? `<span class="small muted">${esc(it.attribute_path)}</span>` : ""}
+      ${it.story_time ? `<span class="chip">${esc(it.story_time)}</span>` : ""}
+      ${it.validation === "deferred" ? `<span class="small muted">(근거 미확인·제외)</span>` : ""}
+      <br><span class="small">${esc(displayValue(it.new_value).slice(0, 120))}</span>
+      <br><span class="small muted">인용: ${esc((it.evidence_quote || "").slice(0, 120))}</span></li>`
+  ).join("");
+}
+
+function proposalEventsHtml(events) {
+  if (!events.length) return "";
+  return `<div class="small" style="margin-top:6px"><b>사건 (${events.length})</b></div>
+    <ul class="ep-scenes">${events.map((ev) => `
+      <li>${ev.story_time ? `<span class="chip">${esc(ev.story_time)}</span> ` : ""}<span class="small">${esc(ev.summary || "")}</span></li>`
+    ).join("")}</ul>`;
+}
+
 function renderPending() {
   const box = $("memory-pending");
   const pset = pending?.proposal_set;
-  if (!pset) {
-    box.innerHTML = `<span class="muted small">임시 변경안이 없습니다. Entity 추출 실행을 눌러주세요.</span>`;
-    return;
+  const saved = pending?.saved_set;
+  let html = "";
+  if (saved) {
+    html += `<span class="chip">v${esc(saved.version ?? "?")} 저장됨 · 설정에 반영됨</span>`;
   }
-  const items = pending.items ?? [];
-  const badge = pending.fresh
-    ? `<span class="chip">v${esc(pset.version ?? "?")} 기준 · 발간 시 자동 확정</span>`
-    : `<span class="chip warn">낡음 · 원고가 바뀌어 재추출 필요</span>`;
-  box.innerHTML = `${badge}
-    <ul class="ep-scenes">${items.length ? items.map((it) => `
-      <li><span class="chip mono">${esc(it.operation)}</span>
-        <b>${esc(it.entity_id || it.candidate_name || "(미지정)")}</b>
-        ${it.attribute_path ? `<span class="small muted">${esc(it.attribute_path)}</span>` : ""}
-        ${it.validation === "deferred" ? `<span class="small muted">(근거 미확인·제외)</span>` : ""}
-        <br><span class="small">${esc((it.evidence_quote || "").slice(0, 120))}</span></li>`
-    ).join("") : `<li><span class="muted small">변경 항목 없음</span></li>`}</ul>`;
+  if (!pset) {
+    html += `<div class="small muted" style="margin-top:6px">임시 변경안이 없습니다. Entity 추출 실행을 눌러주세요.</div>`;
+  } else {
+    const badge = pending.fresh
+      ? `<span class="chip">v${esc(pset.version ?? "?")} 기준 · 저장 대기</span>`
+      : `<span class="chip warn">낡음 · 원고가 바뀌어 재추출 필요</span>`;
+    const items = pending.items ?? [];
+    const events = pending.events ?? [];
+    html += `<div style="margin-top:6px">${badge}</div>
+      <ul class="ep-scenes">${proposalItemsHtml(items)}</ul>
+      ${proposalEventsHtml(events)}`;
+    if (!items.length && events.length) {
+      html += `<div class="small muted">인물·장소 항목이 비어 있습니다. 아래 수정 요청으로 보완하거나 다시 추출하세요.</div>`;
+    }
+  }
+  box.innerHTML = html;
 }
 
 function renderMemory(entities) {
@@ -211,14 +245,8 @@ function renderAll(entities) {
   renderMemory(entities);
 }
 
-async function refreshIssuesAndDraft() {
-  const ep = currentEp();
-  const [iss, mem] = await Promise.all([
-    api.consistencyIssues(ep),
-    api.memoryDraft(ep),
-  ]);
-  issues = iss.issues ?? [];
-  $("memory-draft-input").value = mem.content ?? "";
+async function refreshIssues() {
+  issues = (await api.consistencyIssues(currentEp())).issues ?? [];
   renderIssues();
   renderNotice();
 }
@@ -262,7 +290,7 @@ export function initReview() {
       try {
         await api.consistencyAnalyze(currentEp());
         messages = (await api.consistencyMessages(currentEp())).messages ?? [];
-        await refreshIssuesAndDraft();
+        await refreshIssues();
         renderMessages();
       } finally {
         btn.textContent = "전체 분석 실행";
@@ -277,7 +305,7 @@ export function initReview() {
     const out = await api.consistencyChat(currentEp(), text);
     messages = (await api.consistencyMessages(currentEp())).messages ?? [];
     renderMessages();
-    await refreshIssuesAndDraft();
+    await refreshIssues();
     if (out.issues?.length) {
       showError("review-error", "");
     }
@@ -302,23 +330,41 @@ export function initReview() {
       }
     })
   );
-  $("btn-memory-generate").addEventListener("click", () =>
+  $("btn-entity-save").addEventListener("click", () =>
     run(async () => {
-      const btn = $("btn-memory-generate");
-      btn.textContent = "작성 중…";
-      try {
-        const out = await api.generateMemoryDraft(currentEp());
-        $("memory-draft-input").value = out.content ?? "";
-      } finally {
-        btn.textContent = "기억 초안 자동 작성";
-      }
+      const out = await api.saveEntities(currentEp());
+      pending = await api.entityProposals(currentEp());
+      renderPending();
+      renderMemory((await api.entities("")).entities ?? []);
+      alert(out.already
+        ? "이미 저장된 기억입니다."
+        : `Entity 기억을 저장했습니다: ${out.commit.applied}건 반영`);
     })
   );
-  $("btn-memory-save").addEventListener("click", () =>
-    run(async () => {
-      await api.saveMemoryDraft(currentEp(), $("memory-draft-input").value);
-      alert("기억 초안을 저장했습니다.");
-    })
-  );
+  const sendEntityChat = () => run(async () => {
+    const input = $("entity-chat-input");
+    const text = input.value.trim();
+    if (!text) {
+      showError("review-error", "수정 요청을 입력하세요.");
+      return;
+    }
+    input.value = "";
+    const btn = $("btn-entity-chat");
+    btn.textContent = "수정 중…";
+    try {
+      await api.extractEntities(currentEp(), text);
+      pending = await api.entityProposals(currentEp());
+      renderPending();
+    } finally {
+      btn.textContent = "요청";
+    }
+  });
+  $("btn-entity-chat").addEventListener("click", sendEntityChat);
+  $("entity-chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendEntityChat();
+    }
+  });
   run(() => load(1)).catch(() => {});
 }

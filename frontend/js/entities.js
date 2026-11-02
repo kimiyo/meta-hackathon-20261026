@@ -69,7 +69,7 @@ function renderHistory(history) {
   box.innerHTML = history
     .map(
       (h) => `<div class="tl-item">
-        <div class="ep">EP ${esc(h.episode_no)} · ${esc(h.operation)} ${esc(h.attribute_path ?? "")}</div>
+        <div class="ep">EP ${esc(h.episode_no)}${h.story_time ? ` · <span class="chip">${esc(h.story_time)}</span>` : ""} · ${esc(h.operation)} ${esc(h.attribute_path ?? "")}</div>
         <div class="what">${esc(h.old_value ?? "")} → ${esc(h.new_value ?? "")}</div>
         ${h.evidence_quote ? `<div class="q">"${esc(h.evidence_quote)}"</div>` : ""}
       </div>`

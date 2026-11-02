@@ -187,10 +187,10 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `review.issues.list`
 - `review.memory.panel` — Entity 기억 카드
 - `review.memory.extract-btn` — Entity 추출 실행 (프리셋 작업, 단일)
-- `review.memory.pending` — 임시 변경안 표시
+- `review.memory.save-btn` — Entity 저장 (단일)
+- `review.memory.pending` — 임시 변경안·저장 상태 표시
+- `review.memory.chat-input`, `review.memory.chat-btn` — 추출 수정 요청 입력·요청 (단일)
 - `review.memory.entities` — 확정 Entity 목록
-- `review.memory.draft-input`, `review.memory.save-btn`
-- `review.memory.generate-btn` — 기억 초안 자동 작성 (프리셋 작업, 단일)
 
 ### publish — 발간중
 
