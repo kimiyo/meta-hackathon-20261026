@@ -116,3 +116,22 @@ def save_memory_draft(episode_no: int, body: MemoryDraftIn,
                       author: dict = Depends(get_current_author)):
     _job_or_404(conn, episode_no, author["id"])
     return consistency.save_memory_draft(conn, episode_no, body.content)
+
+
+@router.post("/episodes/{episode_no}/memory-draft/generate")
+def generate_memory_draft(episode_no: int,
+                          conn: sqlite3.Connection = Depends(get_conn),
+                          meta=Depends(get_meta),
+                          author: dict = Depends(get_current_author)):
+    job = _job_or_404(conn, episode_no, author["id"])
+    design = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
+                          (job["design_id"],)).fetchone()
+    try:
+        return consistency.generate_memory_draft(
+            meta, conn, episode_no=episode_no,
+            revision_id=job["manuscript_revision_id"],
+            work_id=design["work_id"] if design else None)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except LLMStepError as e:
+        raise HTTPException(502, f"{e.reason}: {e.detail}")

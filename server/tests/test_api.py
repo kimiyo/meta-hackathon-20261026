@@ -244,7 +244,23 @@ def test_publish_and_ops_api(api_client):
                              json={"status": "resolved"})
         assert r.json()["status"] == "resolved"
         r = api_client.post("/api/v1/episodes/1/request-publish")
+        assert r.status_code == 400  # no extraction yet
+        app.dependency_overrides[get_meta] = lambda: IssueMeta([{
+            "items": [{"entity_ref": "new:민준", "candidate_name": "민준",
+                       "operation": "create", "attribute_path": "직업",
+                       "old_value": "", "new_value": "서점주인",
+                       "story_time": "", "evidence_quote": "가" * 100}],
+            "mentions": [], "events": []}])
+        r = api_client.post("/api/v1/episodes/1/entities/extract")
+        assert r.status_code == 200, r.text
+        assert len(r.json()["items"]) == 1
+        r = api_client.get("/api/v1/episodes/1/entity-proposals")
+        assert r.json()["fresh"] is True
+        r = api_client.post("/api/v1/episodes/1/request-publish")
         assert r.json()["state"] == "PUBLISHING"
+        assert r.json()["commit"]["applied"] == 1
+        r = api_client.get("/api/v1/entities?q=민준")
+        assert len(r.json()["entities"]) == 1
         r = api_client.get(f"/api/v1/designs/{did}/episodes")
         assert r.json()["episodes"][0]["job"]["state"] == "PUBLISHING"
         r = api_client.get(f"/api/v1/designs/{did}/publishing")

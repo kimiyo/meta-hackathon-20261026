@@ -143,6 +143,24 @@ def _adopt_revision(conn: sqlite3.Connection, job: dict,
     job.update(manuscript_revision_id=revision_id)
 
 
+def snapshot_draft_for_submit(conn: sqlite3.Connection, episode_no: int,
+                              job: dict, title: str = "") -> dict | None:
+    """검토 요청 시점: 작업 초안이 최신 버전과 다르면 제출 스냅샷을 남긴다.
+
+    검토·추출·발간 대상을 일치시키기 위함.
+    스냅샷이 생기면 job의 manuscript_revision_id가 함께 갱신된다.
+    """
+    row = ensure_doc_row(conn, episode_no)
+    versions = _versions(conn, episode_no)
+    if not versions or not row["draft_content"].strip():
+        return None
+    if row["draft_content"] == versions[-1]["text"]:
+        return None
+    return create_version(conn, episode_no, job, title, row["revision"],
+                          f"submit-{episode_no}-{row['revision']}",
+                          row["draft_content"], "제출 스냅샷")
+
+
 def _insert_version(conn: sqlite3.Connection, episode_no: int, content: str,
                     label: str) -> dict:
     from . import drafting

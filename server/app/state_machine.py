@@ -87,7 +87,13 @@ def start_writing(conn, meta, episode_no: int, *, design_id: int,
 
 
 def submit_for_review(conn, episode_no: int) -> dict:
-    """집필중 → 검토중: 작가의 검토를 요청한다."""
+    """집필중 → 검토중: 작가의 검토를 요청한다.
+
+    작업 초안이 최신 버전과 다르면 제출 스냅샷을 먼저 남겨
+    검토·추출·발간 대상 원고를 일치시킨다.
+    """
+    from . import manuscripts
+
     job = get_job(conn, episode_no)
     if not job:
         raise KeyError(f"episode {episode_no} has no job")
@@ -95,12 +101,21 @@ def submit_for_review(conn, episode_no: int) -> dict:
         raise ValueError(f"submit needs WRITING, got {job['state']}")
     if not job.get("manuscript_revision_id"):
         raise ValueError("no manuscript to review yet")
+    title_row = conn.execute(
+        "SELECT title FROM episode_outlines WHERE design_id=? AND episode_no=?",
+        (job["design_id"], episode_no)).fetchone()
+    snapshot = manuscripts.snapshot_draft_for_submit(
+        conn, episode_no, job, title_row["title"] if title_row else "")
+    job = get_job(conn, episode_no)
     job["state"] = "IN_REVIEW"
     job["return_reason"] = ""
     job["needs_attention"] = 0
     job["last_error"] = ""
     _save_job(conn, job)
-    return {"episode_no": episode_no, **_public(job)}
+    out = {"episode_no": episode_no, **_public(job)}
+    if snapshot is not None:
+        out["snapshot"] = True
+    return out
 
 
 def back_to_writing(conn, episode_no: int, reason: str = "") -> dict:
@@ -118,9 +133,10 @@ def back_to_writing(conn, episode_no: int, reason: str = "") -> dict:
 
 
 def request_publish(conn, episode_no: int) -> dict:
-    """검토중 → 발간중: 원고를 확정하고 기억을 반영한다.
+    """검토중 → 발간중: 원고와 기억을 원자적으로 확정한다.
 
-    열린(open) 일관성 이슈가 남아 있으면 차단된다.
+    열린(open) 일관성 이슈가 남아 있거나, Entity 추출이 없거나,
+    원고가 바뀌어 추출이 낡았으면 차단된다.
     """
     from . import consistency, manuscripts
 
@@ -132,16 +148,19 @@ def request_publish(conn, episode_no: int) -> dict:
     open_issues = consistency.open_count(conn, episode_no)
     if open_issues:
         raise ValueError(f"{open_issues} open consistency issues remain")
+    pset = memory.get_pending_set_for_revision(
+        conn, episode_no, job["manuscript_revision_id"])
+    if pset is None:
+        if memory.has_any_proposal(conn, episode_no):
+            raise ValueError("원고가 바뀌어 Entity 재추출이 필요합니다")
+        raise ValueError("Entity 추출을 먼저 실행하세요")
+    memory.approve_proposal_set(conn, pset["proposal_set_id"])
+    job["proposal_set_id"] = pset["proposal_set_id"]
     try:
-        if job.get("proposal_set_id"):
-            result = memory.commit_episode(
-                conn, episode_no=episode_no,
-                revision_id=job["manuscript_revision_id"],
-                proposal_set_id=job["proposal_set_id"])
-        else:
-            result = memory.commit_manuscript_only(
-                conn, episode_no=episode_no,
-                revision_id=job["manuscript_revision_id"])
+        result = memory.commit_episode(
+            conn, episode_no=episode_no,
+            revision_id=job["manuscript_revision_id"],
+            proposal_set_id=job["proposal_set_id"])
     except Exception:
         job["needs_attention"] = 1
         job["last_error"] = "publish commit failed"

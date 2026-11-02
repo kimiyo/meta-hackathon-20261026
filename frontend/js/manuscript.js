@@ -450,7 +450,7 @@ export function mountManuscriptPanel(root, options) {
     `<button type="button" class="btn sm" data-ui="reader">전체화면</button>` +
     `<span class="ms-copywrap"><button type="button" class="btn sm" data-ui="copy" aria-label="본문 복사"></button>` +
     `<span class="ms-tip" data-ui="copy-tip" role="status" hidden></span></span></div>` +
-    `<div class="ms-sub"><label class="small"><input type="checkbox" data-ui="diff" data-role="${roles.diffCheckbox}" checked> 직전 버전과 차이 강조</label> ` +
+    `<div class="ms-sub"><label class="small"><input type="checkbox" data-ui="diff" data-role="${roles.diffCheckbox}"> 직전 버전과 차이 강조</label> ` +
     `<output data-ui="summary" aria-live="polite" class="small muted"></output></div>` +
     `<p data-ui="meta" class="small muted"></p>` +
     `<div data-ui="body" class="manuscript-body" data-role="${roles.body}" tabindex="0"></div>` +
@@ -871,7 +871,7 @@ export function mountManuscriptPanel(root, options) {
         doc.versions.some((v) => v.id === restore.selected))) selected = restore.selected;
     query = restore.query ?? "";
     index = restore.index ?? -1;
-    ui("diff").checked = restore.showDiff ?? true;
+    ui("diff").checked = restore.showDiff ?? false;
     ui("include").checked = restore.include ?? true;
     if (restore.query) ui("query").value = restore.query;
     if (restore.editing && (selected === "draft") && !locked()) {

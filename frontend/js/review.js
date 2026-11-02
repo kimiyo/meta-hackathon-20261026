@@ -19,6 +19,7 @@ let job = null;
 let msPanel = null;
 let issues = [];
 let messages = [];
+let pending = null;
 let busy = false;
 
 function setBusy(v) {
@@ -34,12 +35,19 @@ function inReview() {
 function updateActionState() {
   const ok = !busy && inReview();
   for (const id of ["btn-back-to-writing", "btn-request-publish",
-                    "btn-consistency-analyze", "btn-consistency-send"]) {
+                    "btn-consistency-analyze", "btn-consistency-send",
+                    "btn-entity-extract",
+                    "btn-memory-generate", "btn-memory-save"]) {
     const b = $(id);
     if (b) b.disabled = !ok;
   }
-  const input = $("consistency-input");
-  if (input) input.disabled = !ok;
+  for (const id of ["consistency-input", "memory-draft-input"]) {
+    const input = $(id);
+    if (input) input.disabled = !ok;
+  }
+  for (const b of document.querySelectorAll("#issue-list button")) {
+    b.disabled = !ok;
+  }
 }
 
 async function run(fn) {
@@ -77,16 +85,18 @@ function mountMsPanel(epNo, document) {
 async function load(epNo) {
   const j = await api.episode(epNo);
   const { document } = await api.manuscriptDoc(epNo);
-  const [iss, msgs, mem, ents] = await Promise.all([
+  const [iss, msgs, mem, ents, prop] = await Promise.all([
     api.consistencyIssues(epNo),
     api.consistencyMessages(epNo),
     api.memoryDraft(epNo),
     api.entities(""),
+    api.entityProposals(epNo),
   ]);
   job = j;
   mountMsPanel(epNo, document);
   issues = iss.issues ?? [];
   messages = msgs.messages ?? [];
+  pending = prop;
   $("memory-draft-input").value = mem.content ?? "";
   renderAll(ents.entities ?? []);
 }
@@ -161,6 +171,27 @@ function renderIssues() {
   });
 }
 
+function renderPending() {
+  const box = $("memory-pending");
+  const pset = pending?.proposal_set;
+  if (!pset) {
+    box.innerHTML = `<span class="muted small">임시 변경안이 없습니다. Entity 추출 실행을 눌러주세요.</span>`;
+    return;
+  }
+  const items = pending.items ?? [];
+  const badge = pending.fresh
+    ? `<span class="chip">v${esc(pset.version ?? "?")} 기준 · 발간 시 자동 확정</span>`
+    : `<span class="chip warn">낡음 · 원고가 바뀌어 재추출 필요</span>`;
+  box.innerHTML = `${badge}
+    <ul class="ep-scenes">${items.length ? items.map((it) => `
+      <li><span class="chip mono">${esc(it.operation)}</span>
+        <b>${esc(it.entity_id || it.candidate_name || "(미지정)")}</b>
+        ${it.attribute_path ? `<span class="small muted">${esc(it.attribute_path)}</span>` : ""}
+        ${it.validation === "deferred" ? `<span class="small muted">(근거 미확인·제외)</span>` : ""}
+        <br><span class="small">${esc((it.evidence_quote || "").slice(0, 120))}</span></li>`
+    ).join("") : `<li><span class="muted small">변경 항목 없음</span></li>`}</ul>`;
+}
+
 function renderMemory(entities) {
   const box = $("memory-entities");
   if (!entities.length) {
@@ -176,6 +207,7 @@ function renderAll(entities) {
   renderNotice();
   renderMessages();
   renderIssues();
+  renderPending();
   renderMemory(entities);
 }
 
@@ -257,6 +289,31 @@ export function initReview() {
       sendChat();
     }
   });
+  $("btn-entity-extract").addEventListener("click", () =>
+    run(async () => {
+      const btn = $("btn-entity-extract");
+      btn.textContent = "추출 중…";
+      try {
+        await api.extractEntities(currentEp());
+        pending = await api.entityProposals(currentEp());
+        renderPending();
+      } finally {
+        btn.textContent = "Entity 추출 실행";
+      }
+    })
+  );
+  $("btn-memory-generate").addEventListener("click", () =>
+    run(async () => {
+      const btn = $("btn-memory-generate");
+      btn.textContent = "작성 중…";
+      try {
+        const out = await api.generateMemoryDraft(currentEp());
+        $("memory-draft-input").value = out.content ?? "";
+      } finally {
+        btn.textContent = "기억 초안 자동 작성";
+      }
+    })
+  );
   $("btn-memory-save").addEventListener("click", () =>
     run(async () => {
       await api.saveMemoryDraft(currentEp(), $("memory-draft-input").value);

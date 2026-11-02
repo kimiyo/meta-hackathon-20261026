@@ -321,10 +321,15 @@
       </div>
       <div class="card" data-role="review.memory.panel">
         <h3>Entity 기억 <span class="hint">다음 화 인계용</span></h3>
+        <div class="btn-row" style="margin-top:0">
+          <button class="btn sm" id="btn-entity-extract" data-role="review.memory.extract-btn">Entity 추출 실행</button>
+        </div>
+        <div id="memory-pending" data-role="review.memory.pending" style="margin-top:10px"><span class="muted small">회차를 불러오세요.</span></div>
         <div id="memory-entities" data-role="review.memory.entities"><span class="muted small">회차를 불러오세요.</span></div>
         <label class="f">이번 화 기억 초안</label>
         <textarea id="memory-draft-input" data-role="review.memory.draft-input" placeholder="다음 화에 꼭 필요한 정보를 정리하세요."></textarea>
         <div class="btn-row">
+          <button class="btn sm" id="btn-memory-generate" data-role="review.memory.generate-btn">기억 초안 자동 작성</button>
           <button class="btn sm" id="btn-memory-save" data-role="review.memory.save-btn">기억 저장</button>
         </div>
       </div>

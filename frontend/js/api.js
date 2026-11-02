@@ -149,6 +149,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ content }),
     }),
+  generateMemoryDraft: (no) =>
+    req(`/episodes/${no}/memory-draft/generate`, { method: "POST" }),
   manuscriptDoc: (no) => req(`/episodes/${no}/manuscript-doc`),
   saveManuscriptDraft: (no, body) =>
     reqEx(`/episodes/${no}/manuscript-draft`, {
@@ -165,6 +167,9 @@ export const api = {
   entities: (q) => req(`/entities${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   entityState: (id, ep) => req(`/entities/${id}/state?as_of_episode=${ep}`),
   entityHistory: (id) => req(`/entities/${id}/history`),
+  extractEntities: (no) =>
+    req(`/episodes/${no}/entities/extract`, { method: "POST" }),
+  entityProposals: (no) => req(`/episodes/${no}/entity-proposals`),
   llmCalls: () => req("/ops/llm-calls?limit=20"),
   opsBudget: () => req("/ops/budget"),
   model: () => req("/ops/model"),

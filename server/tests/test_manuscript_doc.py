@@ -175,7 +175,12 @@ def test_ai_revision_syncs_draft_and_label(conn):
 
 
 def test_publish_snapshots_approved_version(conn):
+    from app import memory
     rev = drafting.save_revision(conn, 1, "확정 원고", label="AI 초안")
+    memory.store_proposal(conn, episode_no=1, revision_id=rev["revision_id"],
+                          items=[{"operation": "create",
+                                  "candidate_name": "서연",
+                                  "evidence_quote": "확정 원고"}])
     conn.execute("UPDATE episode_jobs SET state='IN_REVIEW',"
                  " manuscript_revision_id=? WHERE episode_no=1",
                  (rev["revision_id"],))

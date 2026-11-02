@@ -206,6 +206,50 @@ def discard_proposal_set(conn, set_id: int) -> None:
     conn.commit()
 
 
+def discard_pending_for_revision(conn, episode_no: int, revision_id: int) -> None:
+    """Drop stale pending sets before a fresh extraction on the same text."""
+    conn.execute("UPDATE change_proposals SET status='discarded'"
+                 " WHERE episode_no=? AND manuscript_revision_id=?"
+                 " AND status='pending'",
+                 (episode_no, revision_id))
+    conn.commit()
+
+
+def get_pending_set_for_revision(conn, episode_no: int,
+                                revision_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM change_proposals WHERE episode_no=?"
+        " AND manuscript_revision_id=? AND status='pending'"
+        " ORDER BY proposal_set_id DESC LIMIT 1",
+        (episode_no, revision_id)).fetchone()
+    return dict(row) if row else None
+
+
+def latest_pending_set(conn, episode_no: int) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM change_proposals WHERE episode_no=?"
+        " AND status='pending' ORDER BY proposal_set_id DESC LIMIT 1",
+        (episode_no,)).fetchone()
+    return dict(row) if row else None
+
+
+def has_any_proposal(conn, episode_no: int) -> bool:
+    row = conn.execute("SELECT 1 FROM change_proposals WHERE episode_no=?"
+                       " LIMIT 1", (episode_no,)).fetchone()
+    return row is not None
+
+
+def approve_proposal_set(conn, set_id: int) -> None:
+    """발간 = 작가 승인: pending 항목을 ok로 확정한다.
+
+    deferred/error는 제외 유지되어 절대 커밋되지 않는다.
+    """
+    conn.execute("UPDATE change_proposal_items SET validation='ok'"
+                 " WHERE proposal_set_id=? AND validation='pending'",
+                 (set_id,))
+    conn.commit()
+
+
 # -- commit (idempotent) ---------------------------------------------------
 def is_committed(conn, episode_no: int, revision_id: int) -> bool:
     row = conn.execute(
@@ -214,26 +258,6 @@ def is_committed(conn, episode_no: int, revision_id: int) -> bool:
         (episode_no, revision_id),
     ).fetchone()
     return row is not None
-
-
-def commit_manuscript_only(conn, *, episode_no, revision_id) -> dict:
-    """Approve a manuscript with no proposal set (consistency-chat flow).
-
-    Idempotent on (episode, revision): without proposals there is nothing
-    to re-apply, so a repeat is a no-op success.
-    """
-    row = conn.execute(
-        "SELECT approval_status FROM manuscript_revisions WHERE revision_id=?",
-        (revision_id,)).fetchone()
-    if row and row["approval_status"] == "approved":
-        return {"committed": False, "reason": "already_committed"}
-    with conn:
-        conn.execute(
-            "UPDATE manuscript_revisions SET approval_status='approved'"
-            " WHERE revision_id=?",
-            (revision_id,),
-        )
-    return {"committed": True, "applied": 0, "entities": []}
 
 
 def commit_episode(conn, *, episode_no, revision_id, proposal_set_id) -> dict:
