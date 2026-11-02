@@ -230,6 +230,7 @@ function renderDetail() {
     ${d.hasJob ? `<div id="ms-mount"></div>` : `<span class="muted small">집필을 시작하면 초안이 생성됩니다.</span>`}
     <div class="btn-row" style="margin-top:10px">
       ${d.hasJob ? `<button class="btn primary" data-advance data-role="writing.episode.advance-btn">다음 단계로 전진</button>` : ""}
+      ${d.hasJob && ["VERIFY", "NEEDS_AUTHOR"].includes(d.state) ? `<button class="btn" data-revert data-role="writing.episode.revert-btn">초안으로 되돌리기</button>` : ""}
       ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">작가 검토로 이동 →</button>` : ""}
     </div>
     ${d.hasJob ? `<div class="small muted" style="margin-top:6px">※ 전진은 되돌릴 수 없습니다. 같은 상태에서 반복하면 재시도 횟수를 소모합니다.</div>` : ""}`;
@@ -237,6 +238,8 @@ function renderDetail() {
     advanceCurrent(e.currentTarget));
   box.querySelector("[data-advance]")?.addEventListener("click", (e) =>
     advanceCurrent(e.currentTarget));
+  box.querySelector("[data-revert]")?.addEventListener("click", (e) =>
+    revertCurrent(e.currentTarget));
   box.querySelector("[data-review]")?.addEventListener("click", goReview);
   mountPanel();
 }
@@ -523,6 +526,26 @@ async function fetchDetail(ep) {
 
 function openDetail(ep) {
   return run(() => fetchDetail(ep));
+}
+
+async function revertCurrent(btn) {
+  if (msPanel?.isHalted()) {
+    showError("monitor-error", "원고 저장 문제를 먼저 해결하세요. 입력은 유지됩니다.");
+    return;
+  }
+  await run(async () => {
+    if (!(await disposePanelOrAbort())) return;
+    const label = btn.textContent;
+    btn.textContent = "실행 중…";
+    try {
+      await api.revertEpisode(detail.ep);
+      await load(currentDesignId());
+      await fetchDetail(detail.ep);
+      await refreshBudgetChips();
+    } finally {
+      btn.textContent = label;
+    }
+  });
 }
 
 async function advanceCurrent(btn) {

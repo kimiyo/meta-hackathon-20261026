@@ -2,7 +2,7 @@
 import pytest
 
 from app import db as dbmod
-from app import state_machine
+from app import drafting, state_machine
 from app.errors import LLMStepError
 from tests.test_drafting import FakeMeta
 
@@ -54,6 +54,50 @@ def test_invalid_manuscript_records_error_and_retries(conn):
     job = state_machine.get_job(conn, 1)
     assert job["state"] == "PLAN" and job["attempt"] == 1
     assert "manuscript_invalid" in job["last_error"]
+
+
+def _job_with_proposals(conn, state, attempt):
+    rev = drafting.save_revision(conn, 1, "가" * 5000)
+    conn.execute("INSERT INTO change_proposals(episode_no,"
+                 " manuscript_revision_id, created_at) VALUES(1,?,'t')",
+                 (rev["revision_id"],))
+    sid = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
+    conn.execute("INSERT INTO episode_jobs(episode_no, design_id, state,"
+                 " attempt, manuscript_revision_id, proposal_set_id,"
+                 " last_error, updated_at)"
+                 " VALUES(1,1,?,?,?,?,?,'t')",
+                 (state, attempt, rev["revision_id"], sid, "err"))
+    conn.commit()
+    return sid
+
+
+def test_revert_verify_discards_set_and_keeps_attempt(conn):
+    sid = _job_with_proposals(conn, "VERIFY", 1)
+    out = state_machine.revert_to_draft(conn, 1)
+    assert out["state"] == "DRAFT" and out["attempt"] == 1
+    job = state_machine.get_job(conn, 1)
+    assert job["proposal_set_id"] is None and job["last_error"] == ""
+    row = conn.execute("SELECT status FROM change_proposals"
+                       " WHERE proposal_set_id=?", (sid,)).fetchone()
+    assert row["status"] == "discarded"
+
+
+def test_revert_needs_author_restarts_budget(conn):
+    _job_with_proposals(conn, "NEEDS_AUTHOR", 3)
+    out = state_machine.revert_to_draft(conn, 1)
+    assert out["state"] == "DRAFT" and out["attempt"] == 0
+
+
+def test_revert_rejects_other_states(conn):
+    with pytest.raises(KeyError):
+        state_machine.revert_to_draft(conn, 9)
+    for st in ("DRAFT", "READY_FOR_REVIEW", "COMMITTED"):
+        conn.execute("INSERT OR REPLACE INTO episode_jobs(episode_no,"
+                     " design_id, state, attempt, updated_at)"
+                     " VALUES(1,1,?,0,'t')", (st,))
+        conn.commit()
+        with pytest.raises(ValueError, match="revert needs"):
+            state_machine.revert_to_draft(conn, 1)
 
 
 def test_retry_limit_escalates_to_needs_author(conn):

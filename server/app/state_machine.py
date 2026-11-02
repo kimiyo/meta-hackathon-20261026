@@ -302,6 +302,30 @@ def request_change(conn, meta, episode_no: int, instruction: str, *,
             "unknown_refs": out["unknown_refs"]}
 
 
+def revert_to_draft(conn, episode_no: int) -> dict:
+    """Author-driven step back: VERIFY or NEEDS_AUTHOR → DRAFT.
+
+    Discards the pending proposal set (verification reruns on next advance).
+    Consumes no attempt: this is an author decision, not a failure. Resuming
+    from NEEDS_AUTHOR restarts the attempt budget the author just reviewed.
+    """
+    job = get_job(conn, episode_no)
+    if not job:
+        raise KeyError(f"episode {episode_no} has no job")
+    if job["state"] not in ("VERIFY", "NEEDS_AUTHOR"):
+        raise ValueError(f"revert needs VERIFY or NEEDS_AUTHOR, got {job['state']}")
+    if job["proposal_set_id"]:
+        memory.discard_proposal_set(conn, job["proposal_set_id"])
+    job["proposal_set_id"] = None
+    if job["state"] == "NEEDS_AUTHOR":
+        job["attempt"] = 0
+    job["state"] = "DRAFT"
+    job["last_error"] = ""
+    job["fix_instruction"] = ""
+    _save_job(conn, job)
+    return {"episode_no": episode_no, **_public(job)}
+
+
 def approve_episode(conn, episode_no: int) -> dict:
     """READY→AUTHOR_APPROVED→COMMITTED: atomic manuscript+memory commit."""
     job = get_job(conn, episode_no)

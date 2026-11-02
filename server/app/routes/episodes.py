@@ -68,6 +68,19 @@ def advance_episode(episode_no: int, body: AdvanceIn,
     return out
 
 
+@router.post("/episodes/{episode_no}/revert")
+def revert_episode(episode_no: int,
+                   conn: sqlite3.Connection = Depends(get_conn),
+                   author: dict = Depends(get_current_author)):
+    job = require_episode_job(conn, episode_no, author["id"])
+    if not job:
+        raise HTTPException(404, f"episode {episode_no} has no job yet")
+    try:
+        return state_machine.revert_to_draft(conn, episode_no)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/episodes/{episode_no}")
 def get_episode(episode_no: int,
                 conn: sqlite3.Connection = Depends(get_conn),

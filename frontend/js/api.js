@@ -115,6 +115,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ design_id: designId ?? null }),
     }),
+  revertEpisode: (no) =>
+    req(`/episodes/${no}/revert`, { method: "POST" }),
   manuscript: (no, version) =>
     req(`/episodes/${no}/manuscript${version ? `?version=${version}` : ""}`),
   requestChange: (no, instruction, full, base) =>

@@ -185,6 +185,35 @@ def test_episodes_api(api_client):
         del app.dependency_overrides[get_meta]
 
 
+def test_revert_api(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_verify_pipeline import ScriptedMeta, _item
+    from tests.test_planning import FakeMeta as PlanFake
+
+    wid = api_client.post("/api/v1/works", json={"title": "w"}).json()["id"]
+    app.dependency_overrides[get_meta] = lambda: PlanFake(1)
+    did = api_client.post(f"/api/v1/works/{wid}/designs",
+                          json={"keywords": "k", "total_episodes": 1}).json()["design_id"]
+    meta = ScriptedMeta(
+        [_item("ch_0001", "set", "직업", "서점주인", "달빛 서점의 주인이 되었다")],
+        [{"item_id": 1, "verdict": "ok", "reason": "신규"}])
+    app.dependency_overrides[get_meta] = lambda: meta
+    try:
+        api_client.post("/api/v1/episodes/1/advance", json={"design_id": did})
+        r = api_client.post("/api/v1/episodes/1/advance", json={})
+        assert r.json()["state"] == "VERIFY"
+        r = api_client.post("/api/v1/episodes/1/revert")
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] == "DRAFT"
+        r = api_client.post("/api/v1/episodes/1/revert")
+        assert r.status_code == 400
+        r = api_client.post("/api/v1/episodes/9/revert")
+        assert r.status_code == 404
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
 def test_approve_and_ops_api(api_client):
     from app.routes.works import get_meta
     from app.main import app
