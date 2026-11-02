@@ -36,7 +36,8 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 | `design` | `#sdesign` | 2 소설 설계 |
 | `writing` | `#s2` | 3 집필 |
 | `review` | `#s3` | 4 작가 검토 |
-| `entities` | `#s4` | 5 설정 |
+| `publish` | `#s5` | 5 발간중 |
+| `entities` | `#s4` | 6 설정 |
 | `shell` | 없음 | 상단바·탭·전역 다이얼로그 |
 
 ## 4. 정적 목록 (`index.html`, 문서 내 유일)
@@ -55,7 +56,7 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `shell.auth.rename-cancel-btn`, `shell.auth.rename-confirm-btn`
 - `shell.topbar.logout-btn` — 로그아웃 버튼
 - `shell.tabs` — 화면 탭 내비
-- `shell.tabs.tab-ideas`, `shell.tabs.tab-design`, `shell.tabs.tab-writing`, `shell.tabs.tab-review`, `shell.tabs.tab-entities`
+- `shell.tabs.tab-ideas`, `shell.tabs.tab-design`, `shell.tabs.tab-writing`, `shell.tabs.tab-review`, `shell.tabs.tab-publish`, `shell.tabs.tab-entities`
 - `shell.tabs.export-btn` — 내보내기 버튼
 - `shell.ailog.dialog` — AI 호출 로그 다이얼로그
 - `shell.ailog.close-btn`, `shell.ailog.list`, `shell.ailog.detail`
@@ -155,40 +156,44 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 
 - `writing.screen`
 - `writing.screen.col-resizer` — 진행·상세 열 분할선 (드래그)
-- `writing.screen.col-resizer-right` — 상세·대화 열 분할선 (드래그)
 - `writing.progress.panel` — 회차별 진행 카드
 - `writing.progress.collapse-btn`, `writing.progress.expand-btn` — 진행 열 접기/펼치기
 - `writing.progress.design-id-input`, `writing.progress.load-btn`
 - `writing.progress.episode-rows`
 - `writing.progress.expander` — 회차 행 아래 설계 줄거리·장면 펼침
 - `writing.episode.panel` — 회차 상세 카드
-- `writing.episode.state-seg` — 파이프라인 상태 표시 세그먼트 (조작 불가)
 - 중앙 원고는 공유 모듈(`frontend/js/manuscript.js`)이 `#ms-mount`에 마운트한다.
   버전 선택·비교 체크·본문은 아래 role을 유지하고, 검색·편집·저장·복원·읽기·복구 버튼은
   패널 내부 `data-ui` 계약(versions/query/search/edit/save/restore/reader/copy/diff/body/editor/recovery/quote/clear/status)을 따른다.
-- `writing.chat.panel` — 수정 대화 카드
-- `writing.chat.collapse-btn`, `writing.chat.expand-btn` — 대화 열 접기/펼치기
-- `writing.chat.messages` — 수정 요청 내역
-- `writing.chat.mode-seg`, `writing.chat.mode-partial`, `writing.chat.mode-full` — 부분/전체 방식 전환
-- `writing.chat.suggest` — @ 자동완성 목록
 
 ### review — 작가 검토
 
 - `review.screen`
-- `review.screen.col-resizer` — 원고·검증 열 분할선 (드래그)
+- `review.screen.col-resizer` — 원고·이슈 열 분할선 (드래그)
 - `review.loader.episode-input`, `review.loader.load-btn`
+- `review.actions.back-btn` — 집필중으로 돌아가기 버튼
+- `review.actions.publish-btn` — 발간요청 버튼
 - `review.manuscript.panel` — 원고 본문 카드
 - 집필과 동일한 공유 원고 패널을 읽기 전용(`readOnly`)으로 `#review-ms-mount`에 마운트한다.
   버전 선택·비교·본문 role은 그대로 유지하고, 검색·전체화면+읽기설정·복사를 제공한다.
   직접 수정·버전 저장·복원·인용·비우기 버튼과 초안 포함 체크는 숨긴다.
 - `review.manuscript.version-select`, `review.manuscript.diff-checkbox`
 - `review.manuscript.body`
-- `review.change.panel` — 수정 요청 카드
-- `review.change.request-input`, `review.change.send-btn`, `review.change.approve-btn`
-- `review.verdicts.panel` — 검증 카드
-- `review.verdicts.list`
-- `review.alias.panel` — 별명·동명이인 판정 카드
-- `review.alias.list`
+- `review.consistency.panel` — 일관성 분석 도우미 카드
+- `review.consistency.analyze-btn` — 전체 분석 실행 버튼
+- `review.consistency.messages` — 도우미 대화 내역
+- `review.consistency.input`, `review.consistency.send-btn`
+- `review.issues.panel` — 일관성 오류 목록 카드
+- `review.issues.list`
+- `review.memory.panel` — Entity 기억 카드
+- `review.memory.entities` — 확정 Entity 목록
+- `review.memory.draft-input`, `review.memory.save-btn`
+
+### publish — 발간중
+
+- `publish.screen`
+- `publish.list.panel` — 발간중 회차 카드
+- `publish.list.rows`
 
 ### entities — 설정
 
@@ -242,19 +247,16 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 ### monitor.js (writing)
 
 - `writing.progress.row-detail-btn` — 회차 행 상세 버튼
-- `writing.progress.row-advance-btn` — 회차 행 전진 버튼
-- `writing.episode.advance-btn` — 다음 단계로 전진 버튼 (단일)
+- `writing.progress.row-action-btn` — 회차 행 동작 버튼 (시작/검토 요청/검토로 이동)
+- `writing.episode.submit-btn` — 검토 요청 버튼 (단일)
 - `writing.episode.start-btn` — 이 화 집필 시작 버튼 (단일)
 - `writing.episode.version-select` — 원고 버전 선택: 작업 초안 + 최신순 저장 버전 (단일)
 - `writing.episode.manuscript` — 원고 본문: 줄 번호·차이 강조·검색 강조 (단일)
-- `writing.episode.change-input`, `writing.episode.change-btn` — 수정 대화 입력·요청 (우측 패널, 단일)
 - `writing.episode.review-link` — 작가 검토로 이동 버튼 (단일)
 
-### review.js
+### publish.js
 
-- `review.alias.entity-input` — 연결할 인물 ID 입력
-- `review.alias.confirm-btn` — 별명 판정 확정 버튼
-- `review.alias.reject-btn` — 별명 판정 기각 버튼
+- `publish.list.view-btn` — 발간 회차 보기 버튼
 
 ### home.js
 

@@ -119,13 +119,6 @@ def test_entities_api(api_client):
     assert r.status_code == 404
     r = api_client.get("/api/v1/entities/ch_0001/history")
     assert r.json()["history"] == []
-    r = api_client.get("/api/v1/episodes/1/proposals")
-    assert r.json()["items"] == []
-
-
-def test_alias_resolve_api(api_client):
-    r = api_client.post("/api/v1/aliases/999/resolve", json={"entity_id": "ch_0001"})
-    assert r.status_code == 404
 
 
 def test_works_designs_api(api_client):
@@ -171,12 +164,16 @@ def test_episodes_api(api_client):
                           json={"keywords": "k", "total_episodes": 2}).json()["design_id"]
     app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 5000])
     try:
-        r = api_client.post("/api/v1/episodes/1/advance",
+        r = api_client.post("/api/v1/episodes/1/start",
                             json={"design_id": did})
         assert r.status_code == 200, r.text
-        assert r.json()["state"] == "DRAFT"
+        assert r.json()["state"] == "WRITING"
+        r = api_client.post("/api/v1/episodes/1/start",
+                            json={"design_id": did})
+        assert r.status_code == 409
         r = api_client.get("/api/v1/episodes/1")
         assert r.json()["revisions"][0]["length"] == 5000
+        assert r.json()["issues"] == {"open": 0, "total": 0}
         r = api_client.get("/api/v1/episodes/1/manuscript")
         assert len(r.json()["text"]) == 5000
         r = api_client.get("/api/v1/episodes/9")
@@ -185,69 +182,77 @@ def test_episodes_api(api_client):
         del app.dependency_overrides[get_meta]
 
 
-def test_revert_api(api_client):
+def test_review_flow_api(api_client):
     from app.routes.works import get_meta
     from app.main import app
-    from tests.test_verify_pipeline import ScriptedMeta, _item
+    from tests.test_drafting import FakeMeta as DraftFake
     from tests.test_planning import FakeMeta as PlanFake
 
     wid = api_client.post("/api/v1/works", json={"title": "w"}).json()["id"]
     app.dependency_overrides[get_meta] = lambda: PlanFake(1)
     did = api_client.post(f"/api/v1/works/{wid}/designs",
                           json={"keywords": "k", "total_episodes": 1}).json()["design_id"]
-    meta = ScriptedMeta(
-        [_item("ch_0001", "set", "직업", "서점주인", "달빛 서점의 주인이 되었다")],
-        [{"item_id": 1, "verdict": "ok", "reason": "신규"}])
-    app.dependency_overrides[get_meta] = lambda: meta
+    app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 5000])
     try:
-        api_client.post("/api/v1/episodes/1/advance", json={"design_id": did})
-        r = api_client.post("/api/v1/episodes/1/advance", json={})
-        assert r.json()["state"] == "VERIFY"
-        r = api_client.post("/api/v1/episodes/1/revert")
-        assert r.status_code == 200, r.text
-        assert r.json()["state"] == "DRAFT"
-        r = api_client.post("/api/v1/episodes/1/revert")
+        api_client.post("/api/v1/episodes/1/start", json={"design_id": did})
+        r = api_client.post("/api/v1/episodes/1/back-to-writing",
+                            json={"reason": "x"})
         assert r.status_code == 400
-        r = api_client.post("/api/v1/episodes/9/revert")
+        r = api_client.post("/api/v1/episodes/1/submit-review")
+        assert r.json()["state"] == "IN_REVIEW"
+        r = api_client.post("/api/v1/episodes/1/back-to-writing",
+                            json={"reason": "다듬기"})
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] == "WRITING"
+        r = api_client.get("/api/v1/episodes/1")
+        assert r.json()["return_reason"] == "다듬기"
+        r = api_client.post("/api/v1/episodes/1/submit-review")
+        assert r.json()["state"] == "IN_REVIEW"
+        r = api_client.post("/api/v1/episodes/9/submit-review")
         assert r.status_code == 404
     finally:
         del app.dependency_overrides[get_meta]
 
 
-def test_approve_and_ops_api(api_client):
+def test_publish_and_ops_api(api_client):
     from app.routes.works import get_meta
     from app.main import app
-    from tests.test_verify_pipeline import ScriptedMeta, _item
+    from tests.test_drafting import FakeMeta as DraftFake
+    from tests.test_consistency import IssueMeta
 
     wid = api_client.post("/api/v1/works", json={"title": "w"}).json()["id"]
     from tests.test_planning import FakeMeta as PlanFake
     app.dependency_overrides[get_meta] = lambda: PlanFake(1)
     did = api_client.post(f"/api/v1/works/{wid}/designs",
                           json={"keywords": "k", "total_episodes": 1}).json()["design_id"]
-    meta = ScriptedMeta(
-        [_item("ch_0001", "set", "직업", "서점주인", "달빛 서점의 주인이 되었다")],
-        [{"item_id": 1, "verdict": "ok", "reason": "신규"}])
-    app.dependency_overrides[get_meta] = lambda: meta
+    app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 5000])
     try:
-        api_client.post("/api/v1/episodes/1/advance", json={"design_id": did})
-        api_client.post("/api/v1/episodes/1/advance", json={})
-        r = api_client.post("/api/v1/episodes/1/advance", json={})
-        assert r.json()["state"] == "READY_FOR_REVIEW"
-        r = api_client.post("/api/v1/episodes/1/request-change",
-                            json={"instruction": "고쳐줘"})
-        assert r.json()["state"] == "DRAFT"
-        # Re-run to READY then approve.
-        api_client.post("/api/v1/episodes/1/advance", json={})
-        api_client.post("/api/v1/episodes/1/advance", json={})
-        r = api_client.post("/api/v1/episodes/1/approve")
-        assert r.json()["state"] == "COMMITTED"
-        assert r.json()["commit"]["applied"] == 1
+        api_client.post("/api/v1/episodes/1/start", json={"design_id": did})
+        api_client.post("/api/v1/episodes/1/submit-review")
+        app.dependency_overrides[get_meta] = lambda: IssueMeta([{
+            "issues": [{"severity": "major", "title": "모순",
+                        "manuscript_quote": "가가가"}],
+            "memory_draft": "기억 메모",
+        }])
+        r = api_client.post("/api/v1/episodes/1/consistency/analyze")
+        assert r.status_code == 200, r.text
+        assert len(r.json()["issues"]) == 1
+        r = api_client.post("/api/v1/episodes/1/request-publish")
+        assert r.status_code == 400  # open issue blocks publish
+        issues = api_client.get("/api/v1/episodes/1/consistency/issues").json()["issues"]
+        r = api_client.patch(f"/api/v1/consistency/issues/{issues[0]['issue_id']}",
+                             json={"status": "resolved"})
+        assert r.json()["status"] == "resolved"
+        r = api_client.post("/api/v1/episodes/1/request-publish")
+        assert r.json()["state"] == "PUBLISHING"
         r = api_client.get(f"/api/v1/designs/{did}/episodes")
-        assert r.json()["episodes"][0]["job"]["state"] == "COMMITTED"
+        assert r.json()["episodes"][0]["job"]["state"] == "PUBLISHING"
+        r = api_client.get(f"/api/v1/designs/{did}/publishing")
+        assert len(r.json()["episodes"]) == 1
+        r = api_client.get("/api/v1/episodes/1/memory-draft")
+        assert r.json()["content"] == "기억 메모"
         r = api_client.get("/api/v1/ops/budget")
         assert r.json()["budget"] > 0
-        r = api_client.get("/api/v1/aliases?status=candidate")
-        assert r.status_code == 200
         r = api_client.post("/api/v1/admin/reset-demo")
         assert r.status_code == 403  # no token
     finally:

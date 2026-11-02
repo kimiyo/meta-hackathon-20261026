@@ -7,55 +7,41 @@ import { mountManuscriptPanel } from "./manuscript.js";
 
 const WRITING_RESIZER = { resizerId: "writing-resizer", varName: "--writing-left-w",
   storageKey: "writing-left-w", side: "left", min: 260, reserve: 320 };
-const WRITING_RESIZER_RIGHT = { resizerId: "writing-resizer-right", varName: "--writing-right-w",
-  storageKey: "writing-right-w", side: "right", min: 260, reserve: 620 };
 
-// 화면 3 · 집필: 회차 작업실 (선택한 1개 회차 중심)
-const ORDER = ["PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED", "COMMITTED"];
-
+// 화면 3 · 집필: 이 화면 자체가 '집필중'이다. 원고 수정은 여기서만 한다.
 let rows = [];
 let designNodes = [];
 let detail = null;
 let selectedEp = null;
 let expandedEp = null;
 let busy = false;
-let chatMode = "partial"; // or "full"
-let chatHistory = [];
-let settingTitles = [];
-let settingsWorkKey = null;
-let sugItems = [];
-let sugActive = -1;
 let msPanel = null;
 let msPanelEp = null;
 let msPanelUiState = null;
 let msDoc = null;
-let followLatestAfterChat = false;
 
 function setBusy(v) {
   busy = v;
   for (const b of document.querySelectorAll("#s2 button")) b.disabled = v;
-  if (!v) {
-    applyStartGate();
-    renderChatGate();
-  }
+  if (!v) applyStartGate();
 }
 
-// 순차 집필: EP N의 첫 시작은 EP N-1이 확정(COMMITTED)된 뒤에만 가능.
-// 확정된 앞 회차 원고가 다음 회차 검증의 근거가 된다. EP 1은 항상 가능.
+// 순차 집필: EP N의 첫 시작은 EP N-1이 발간중(PUBLISHING)된 뒤에만 가능.
+// 발간된 앞 회차 원고가 다음 회차 검증의 근거가 된다. EP 1은 항상 가능.
 function canStart(ep) {
   const prev = rows.find((r) => r.episode_no === ep - 1);
   if (!prev) return true;
-  return prev.job?.state === "COMMITTED";
+  return prev.job?.state === "PUBLISHING";
 }
 
 function gateHint(ep) {
-  return `EP ${ep - 1} 확정 후 시작할 수 있습니다`;
+  return `EP ${ep - 1} 발간 후 시작할 수 있습니다`;
 }
 
 function applyStartGate() {
   document.querySelectorAll("#ep-rows tr[data-ep]").forEach((tr) => {
     const ep = Number(tr.dataset.ep);
-    const btn = tr.querySelector("[data-advance-row]");
+    const btn = tr.querySelector("[data-row-action]");
     const row = rows.find((r) => r.episode_no === ep);
     if (btn && !row?.job) {
       btn.disabled = !canStart(ep);
@@ -81,16 +67,10 @@ async function run(fn) {
   }
 }
 
-function stateLabel(state) {
+function stateLabel(state, needsAttention) {
   if (!state) return "-";
-  return `<span class="st-${esc(state)} state-label">${esc(stateKo(state))}</span>`;
-}
-
-function stateSeg(state) {
-  const btns = ORDER.map((s) =>
-    `<button tabindex="-1"${s === state ? ' class="active"' : ""} title="${esc(stateKo(s))}">${esc(stateKo(s))}</button>`).join("");
-  const extra = state && !ORDER.includes(state) ? ` ${stateLabel(state)}` : "";
-  return `<span class="seg" data-role="writing.episode.state-seg" style="vertical-align:middle">${btns}</span>${extra}`;
+  const flag = needsAttention ? ` <span class="chip warn">확인 필요</span>` : "";
+  return `<span class="st-${esc(state)} state-label">${esc(stateKo(state))}</span>${flag}`;
 }
 
 function epSubHtml(ep) {
@@ -107,6 +87,12 @@ function epSubHtml(ep) {
     + (scenes.length ? `<div class="small" style="margin-top:6px"><b>장면 (${scenes.length})</b></div>${sc}` : "");
 }
 
+function rowActionLabel(row) {
+  if (!row?.job) return "집필 시작";
+  if (row.job.state === "WRITING") return "검토 요청";
+  return "검토로 이동";
+}
+
 function renderRows() {
   const tb = $("ep-rows");
   if (!rows.length) {
@@ -117,10 +103,10 @@ function renderRows() {
     .map(
       (r) => `<tr class="clickable${r.episode_no === selectedEp ? " selected" : ""}" data-ep="${r.episode_no}">
         <td><span class="exp">${r.episode_no === expandedEp ? "▾" : "▸"}</span> <b>EP ${esc(r.episode_no)}</b><br><span class="muted small">${esc(r.title)}</span></td>
-        <td>${stateLabel(r.job?.state)}</td>
+        <td>${stateLabel(r.job?.state, r.job?.needs_attention)}</td>
         <td style="white-space:nowrap">
           ${r.job ? `<button class="btn sm" data-detail data-role="writing.progress.row-detail-btn">상세</button> ` : ""}
-          <button class="btn sm" data-advance-row data-role="writing.progress.row-advance-btn"${!r.job && !canStart(r.episode_no) ? " disabled" : ""}${!r.job && !canStart(r.episode_no) ? ` title="${gateHint(r.episode_no)}"` : ""}>전진</button>
+          <button class="btn sm" data-row-action data-role="writing.progress.row-action-btn"${!r.job && !canStart(r.episode_no) ? " disabled" : ""}${!r.job && !canStart(r.episode_no) ? ` title="${gateHint(r.episode_no)}"` : ""}>${rowActionLabel(r)}</button>
         </td>
       </tr>
       <tr class="ep-sub" data-sub="${r.episode_no}" data-role="writing.progress.expander"${r.episode_no === expandedEp ? "" : " hidden"}>
@@ -136,9 +122,9 @@ function renderRows() {
       e.stopPropagation();
       openDetail(ep);
     });
-    tr.querySelector("[data-advance-row]").addEventListener("click", (e) => {
+    tr.querySelector("[data-row-action]").addEventListener("click", (e) => {
       e.stopPropagation();
-      advanceRow(ep, !!row?.job, e.currentTarget);
+      rowAction(ep, row);
     });
     tr.addEventListener("click", () => {
       if (selectedEp === ep && expandedEp === ep) {
@@ -150,7 +136,7 @@ function renderRows() {
       openDetail(ep);
     });
   });
-  const done = rows.filter((r) => r.job?.state === "COMMITTED").length;
+  const done = rows.filter((r) => r.job?.state === "PUBLISHING").length;
   const bar = $("monitor-progress");
   bar.style.display = "";
   bar.firstElementChild.style.width = `${rows.length ? Math.round((done / rows.length) * 100) : 0}%`;
@@ -184,22 +170,17 @@ function manuscriptLoader(ep) {
 function mountPanel() {
   const mount = $("ms-mount");
   if (!mount || !detail?.hasJob || !msDoc) return;
+  const readOnly = detail.state !== "WRITING";
   msPanel = mountManuscriptPanel(mount, {
     episodeNo: detail.ep,
     initialDocument: msDoc,
-    persist: manuscriptPersist(detail.ep),
+    persist: readOnly ? null : manuscriptPersist(detail.ep),
     loadDocument: manuscriptLoader(detail.ep),
-    onQuoteToChat: insertLinePin,
-    onHint: setChatHint,
-    restoreState: msPanelEp === detail.ep
-      ? (followLatestAfterChat && msPanelUiState
-        ? { ...msPanelUiState, selected: null }
-        : msPanelUiState)
-      : null,
+    readOnly,
+    restoreState: msPanelEp === detail.ep ? msPanelUiState : null,
   });
   msPanelEp = detail.ep;
   msPanelUiState = null;
-  followLatestAfterChat = false;
 }
 
 // 원고 미저장분을 저장한 뒤 패널을 닫는다. 실패하면 false(화면 전환 중단).
@@ -224,252 +205,29 @@ function renderDetail() {
     return;
   }
   const d = detail;
+  const notices = [];
+  if (d.hasJob && d.needs_attention) {
+    notices.push(`<div class="notice err"><b>확인 필요</b> — ${esc(d.last_error || "오류가 발생했습니다. 다시 시도하세요.")}</div>`);
+  }
+  if (d.hasJob && d.state === "WRITING" && d.return_reason) {
+    notices.push(`<div class="notice warn"><b>검토에서 돌아옴</b> — ${esc(d.return_reason)}</div>`);
+  }
   box.innerHTML = `
-    <h3>EP ${esc(d.ep)} · ${esc(d.title || "")} ${d.hasJob ? stateSeg(d.state) : `<span class="muted small">미시작</span>`}</h3>
+    <h3>EP ${esc(d.ep)} · ${esc(d.title || "")} ${d.hasJob ? stateLabel(d.state, d.needs_attention) : `<span class="muted small">미시작</span>`}</h3>
+    ${notices.join("")}
     ${d.hasJob ? "" : `<div class="btn-row"><button class="btn primary" data-start data-role="writing.episode.start-btn"${canStart(d.ep) ? "" : " disabled"}${canStart(d.ep) ? "" : ` title="${gateHint(d.ep)}"`}>이 화 집필 시작</button>${canStart(d.ep) ? "" : `<span class="small muted">${gateHint(d.ep)}</span>`}</div>`}
-    ${d.hasJob ? `<div id="ms-mount"></div>` : `<span class="muted small">집필을 시작하면 초안이 생성됩니다.</span>`}
+    ${d.hasJob ? `<div id="ms-mount"></div>` : `<span class="muted small">집필을 시작하면 AI 초안이 생성됩니다.</span>`}
     <div class="btn-row" style="margin-top:10px">
-      ${d.hasJob ? `<button class="btn primary" data-advance data-role="writing.episode.advance-btn">다음 단계로 전진</button>` : ""}
-      ${d.hasJob && ["VERIFY", "NEEDS_AUTHOR"].includes(d.state) ? `<button class="btn" data-revert data-role="writing.episode.revert-btn">초안으로 되돌리기</button>` : ""}
+      ${d.hasJob && d.state === "WRITING" ? `<button class="btn primary" data-submit data-role="writing.episode.submit-btn">검토 요청</button>` : ""}
       ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">작가 검토로 이동 →</button>` : ""}
     </div>
-    ${d.hasJob ? `<div class="small muted" style="margin-top:6px">※ 전진은 되돌릴 수 없습니다. 같은 상태에서 반복하면 재시도 횟수를 소모합니다.</div>` : ""}`;
+    ${d.hasJob && d.state !== "WRITING" ? `<div class="small muted" style="margin-top:6px">※ 이 회차는 ${esc(stateKo(d.state))} 상태라 여기서 수정할 수 없습니다.</div>` : ""}`;
   box.querySelector("[data-start]")?.addEventListener("click", (e) =>
-    advanceCurrent(e.currentTarget));
-  box.querySelector("[data-advance]")?.addEventListener("click", (e) =>
-    advanceCurrent(e.currentTarget));
-  box.querySelector("[data-revert]")?.addEventListener("click", (e) =>
-    revertCurrent(e.currentTarget));
+    startCurrent(e.currentTarget));
+  box.querySelector("[data-submit]")?.addEventListener("click", (e) =>
+    submitCurrent(e.currentTarget));
   box.querySelector("[data-review]")?.addEventListener("click", goReview);
   mountPanel();
-}
-
-// ---- 줄 지정 (@L) ----
-
-function insertAtCaret(input, text) {
-  const s = input.selectionStart ?? input.value.length;
-  const e = input.selectionEnd ?? input.value.length;
-  input.value = input.value.slice(0, s) + text + input.value.slice(e);
-  const pos = s + text.length;
-  input.setSelectionRange(pos, pos);
-}
-
-function insertLinePin({ startLine, endLine }) {
-  const input = $("draftchat-input");
-  insertAtCaret(input, startLine === endLine ? `@L${startLine} ` : `@L${startLine}-${endLine} `);
-  setChatHint("");
-  input.focus();
-}
-
-// ---- 수정 대화 (우측 패널) ----
-
-function chatSendable() {
-  return !!detail?.hasJob && ["DRAFT", "READY_FOR_REVIEW"].includes(detail?.state);
-}
-
-function setChatHint(text) {
-  $("draftchat-hint").textContent = text ?? "";
-}
-
-function hintForState() {
-  if (!detail) return "";
-  if (!detail.hasJob) return "이 화 집필 시작 후 이용 가능합니다.";
-  if (chatSendable()) return chatMode === "full" ? "전체 재생성은 지시를 비워도 됩니다." : "";
-  if (detail.state === "VERIFY") return "검토 중에는 요청할 수 없습니다. 전진을 계속하세요.";
-  if (detail.state === "NEEDS_AUTHOR") return "작가 확인이 필요한 상태입니다.";
-  return "확정된 회차는 수정할 수 없습니다.";
-}
-
-function highlightMentions(text) {
-  return esc(text).replace(/@([^\s@,]+)/g, "<b>@$1</b>");
-}
-
-function chatRowHtml(r) {
-  const instr = r.instruction?.trim()
-    ? highlightMentions(r.instruction)
-    : `<span class="muted">(전체 재생성)</span>`;
-  const user = `<div class="msg user"><div class="bubble">${instr}</div></div>`;
-  let verdict;
-  if (r.error) {
-    verdict = `<div class="msg assistant"><div class="bubble">실패: ${esc(r.error)}</div></div>`;
-  } else {
-    const bits = [`→ v${r.result_version} 생성됨`];
-    if (r.full) bits.push("전체");
-    const tail = (r.refs ?? []).length ? ` · @${r.refs.map(esc).join(" @")}` : "";
-    const unk = (r.unknown ?? []).length ? ` <span class="muted">(못 찾음: @${r.unknown.map(esc).join(" @")})</span>` : "";
-    verdict = `<div class="msg assistant"><div class="bubble">${esc(bits.join(" · "))}${tail}${unk}</div></div>`;
-  }
-  return user + verdict;
-}
-
-function renderChatGate() {
-  const ok = chatSendable() && !busy;
-  $("btn-draftchat-send").disabled = !ok;
-  $("draftchat-input").disabled = !chatSendable();
-  setChatHint(hintForState());
-}
-
-function renderChat() {
-  const box = $("draftchat-messages");
-  if (!detail) {
-    box.innerHTML = `<span class="muted small">회차를 선택하세요.</span>`;
-  } else if (!detail.hasJob) {
-    box.innerHTML = `<span class="muted small">집필을 시작하면 수정 대화를 할 수 있습니다.</span>`;
-  } else if (!chatHistory.length) {
-    box.innerHTML = `<span class="muted small">초안에 대한 수정 요청을 보내보세요. @로 설정·노드·줄을 참조할 수 있습니다.</span>`;
-  } else {
-    box.innerHTML = chatHistory.map(chatRowHtml).join("");
-  }
-  box.scrollTop = box.scrollHeight;
-  document.querySelectorAll("#draftchat-mode [data-dmode]").forEach((b) =>
-    b.classList.toggle("active", b.dataset.dmode === chatMode));
-  renderChatGate();
-}
-
-function appendPendingChat(instruction, full) {
-  const box = $("draftchat-messages");
-  const instr = instruction
-    ? highlightMentions(instruction)
-    : `<span class="muted">(전체 재생성)</span>`;
-  box.insertAdjacentHTML("beforeend",
-    `<div data-pending><div class="msg user"><div class="bubble">${instr}</div></div>` +
-    `<div class="msg assistant"><div class="typing" aria-label="처리 중"><span></span><span></span><span></span></div></div></div>`);
-  box.scrollTop = box.scrollHeight;
-}
-
-function removePendingChat() {
-  document.querySelector('#draftchat-messages [data-pending]')?.remove();
-}
-
-async function sendChat() {
-  const input = $("draftchat-input");
-  const instruction = input.value.trim();
-  const full = chatMode === "full";
-  if (!instruction && !full) {
-    setChatHint("수정 지시를 입력하세요.");
-    input.focus();
-    return;
-  }
-  hideSuggest();
-  if (msPanel?.isHalted()) {
-    setChatHint("원고 저장 문제를 먼저 해결하세요.");
-    return;
-  }
-  if (msPanel) {
-    try {
-      await msPanel.flush();
-    } catch (e) {
-      setChatHint(`원고 저장 실패: ${e.message}`);
-      return;
-    }
-  }
-  appendPendingChat(instruction, full);
-  const btn = $("btn-draftchat-send");
-  btn.textContent = "처리중…";
-  try {
-    await run(async () => {
-      const base = msPanel && !msPanel.getIncludeDraft() ? "version" : "draft";
-      const out = await api.requestChange(detail.ep, instruction, full, base);
-      input.value = "";
-      await load(currentDesignId());
-      // 수정대화 성공: 새 결과를 바로 보여주도록 최신 버전으로 이동.
-      followLatestAfterChat = true;
-      await fetchDetail(detail.ep);
-      await refreshBudgetChips();
-      if (out.unknown_refs?.length) setChatHint(`못 찾은 참조: @${out.unknown_refs.join(" @")}`);
-    });
-  } finally {
-    btn.textContent = "요청";
-    removePendingChat();
-  }
-}
-
-function mentionCandidates() {
-  const out = [];
-  for (const t of settingTitles) out.push({ token: t, label: t, kind: "설정" });
-  for (const n of designNodes) {
-    if (n.archived) continue;
-    const code = n.code ?? n.full_code ?? n.id;
-    if (!code) continue;
-    out.push({ token: String(code), label: `${code} ${n.title ?? ""}`.trim(), kind: "노드" });
-  }
-  return out;
-}
-
-function updateSuggest() {
-  const input = $("draftchat-input");
-  const caret = input.selectionStart ?? input.value.length;
-  const m = /@([^\s@,]*)$/.exec(input.value.slice(0, caret));
-  if (!m) {
-    hideSuggest();
-    return;
-  }
-  const q = m[1].toLowerCase();
-  sugItems = mentionCandidates().filter((c) =>
-    c.token.toLowerCase().includes(q) || c.label.toLowerCase().includes(q)).slice(0, 8);
-  if (!sugItems.length) {
-    hideSuggest();
-    return;
-  }
-  sugActive = 0;
-  renderSuggest();
-}
-
-function renderSuggest() {
-  const box = $("draftchat-suggest");
-  box.innerHTML = sugItems.map((c, i) =>
-    `<div class="sug-it${i === sugActive ? " active" : ""}" data-sug="${i}"><b>@${esc(c.token)}</b><span class="muted small">${esc(c.kind)} · ${esc(c.label)}</span></div>`).join("");
-  box.style.display = "";
-  box.querySelectorAll("[data-sug]").forEach((el) => {
-    el.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      acceptSuggest(Number(el.dataset.sug));
-    });
-  });
-}
-
-function acceptSuggest(i) {
-  const c = sugItems[i];
-  if (!c) return;
-  const input = $("draftchat-input");
-  const caret = input.selectionStart ?? input.value.length;
-  const before = input.value.slice(0, caret);
-  const m = /@([^\s@,]*)$/.exec(before);
-  if (!m) return;
-  const head = before.slice(0, before.length - m[0].length);
-  input.value = `${head}@${c.token} ${input.value.slice(caret)}`;
-  const pos = head.length + c.token.length + 2;
-  input.setSelectionRange(pos, pos);
-  hideSuggest();
-  input.focus();
-}
-
-function hideSuggest() {
-  sugItems = [];
-  sugActive = -1;
-  const box = $("draftchat-suggest");
-  if (box) {
-    box.innerHTML = "";
-    box.style.display = "none";
-  }
-}
-
-async function ensureSettingTitles() {
-  const w = getWork();
-  const key = w ? (w.uid || w.id) : null;
-  if (!key) {
-    settingTitles = [];
-    settingsWorkKey = null;
-    return;
-  }
-  if (key === settingsWorkKey) return;
-  try {
-    const s = await api.settings(key);
-    settingTitles = (s.settings ?? []).map((x) => x.title).filter(Boolean);
-  } catch {
-    settingTitles = [];
-  }
-  settingsWorkKey = key;
 }
 
 // ---- 접기 ----
@@ -477,11 +235,6 @@ async function ensureSettingTitles() {
 function setProgressCollapsed(collapsed) {
   localStorage.setItem("writing-progress-collapsed", collapsed ? "1" : "0");
   document.querySelector(".grid-monitor")?.classList.toggle("progress-collapsed", collapsed);
-}
-
-function setChatCollapsed(collapsed) {
-  localStorage.setItem("writing-chat-collapsed", collapsed ? "1" : "0");
-  document.querySelector(".grid-monitor")?.classList.toggle("chat-collapsed", collapsed);
 }
 
 function currentDesignId() {
@@ -509,26 +262,18 @@ async function fetchDetail(ep) {
     detail = { ep: selectedEp, hasJob: true, title: row.title,
       ...(await api.episode(selectedEp)) };
     msDoc = (await api.manuscriptDoc(selectedEp)).document;
-    try {
-      chatHistory = (await api.draftRequests(selectedEp)).requests ?? [];
-    } catch {
-      chatHistory = [];
-    }
   } else {
     detail = { ep: selectedEp, hasJob: false, title: row?.title ?? "" };
     msDoc = null;
-    chatHistory = [];
   }
-  await ensureSettingTitles();
   renderDetail();
-  renderChat();
 }
 
 function openDetail(ep) {
   return run(() => fetchDetail(ep));
 }
 
-async function revertCurrent(btn) {
+async function withPanelSaved(btn, fn) {
   if (msPanel?.isHalted()) {
     showError("monitor-error", "원고 저장 문제를 먼저 해결하세요. 입력은 유지됩니다.");
     return;
@@ -538,9 +283,9 @@ async function revertCurrent(btn) {
     const label = btn.textContent;
     btn.textContent = "실행 중…";
     try {
-      await api.revertEpisode(detail.ep);
+      await fn();
       await load(currentDesignId());
-      await fetchDetail(detail.ep);
+      await fetchDetail(detail?.ep ?? selectedEp);
       await refreshBudgetChips();
     } finally {
       btn.textContent = label;
@@ -548,54 +293,48 @@ async function revertCurrent(btn) {
   });
 }
 
-async function advanceCurrent(btn) {
-  if (msPanel?.isHalted()) {
-    showError("monitor-error", "원고 저장 문제를 먼저 해결하세요. 입력은 유지됩니다.");
-    return;
-  }
-  await run(async () => {
-    if (!(await disposePanelOrAbort())) return;
-    const label = btn.textContent;
-    btn.textContent = "실행 중… (취소 불가)";
-    try {
-      await api.advance(detail.ep, detail.hasJob ? undefined : Number(currentDesignId()));
-      await load(currentDesignId());
-      await fetchDetail(detail.ep);
-      await refreshBudgetChips();
-    } finally {
-      btn.textContent = label;
-    }
+async function startCurrent(btn) {
+  await withPanelSaved(btn, async () => {
+    await api.startEpisode(detail.ep, Number(currentDesignId()));
   });
 }
 
-async function advanceRow(ep, hasJob, btn) {
-  if (msPanel?.isHalted()) {
-    showError("monitor-error", "원고 저장 문제를 먼저 해결하세요. 입력은 유지됩니다.");
-    return;
-  }
-  await run(async () => {
-    if (!(await disposePanelOrAbort())) return;
-    const label = btn.textContent;
-    btn.textContent = "실행 중… (취소 불가)";
-    try {
-      await api.advance(ep, hasJob ? undefined : Number(currentDesignId()));
+async function submitCurrent(btn) {
+  await withPanelSaved(btn, async () => {
+    await api.submitReview(detail.ep);
+  });
+}
+
+async function rowAction(ep, row) {
+  if (!row?.job) {
+    await run(async () => {
+      await api.startEpisode(ep, Number(currentDesignId()));
       await load(currentDesignId());
       await fetchDetail(ep);
       await refreshBudgetChips();
-    } finally {
-      btn.textContent = label;
-    }
-  });
+    });
+    return;
+  }
+  if (row.job.state === "WRITING") {
+    await run(async () => {
+      await api.submitReview(ep);
+      await load(currentDesignId());
+      await fetchDetail(ep);
+      await refreshBudgetChips();
+    });
+    return;
+  }
+  goReview(ep);
 }
 
-function goReview() {
+function goReview(ep) {
   const w = getWork();
-  if (!w || !detail) return;
-  const ep = detail.ep;
+  const target = ep ?? detail?.ep;
+  if (!w || target == null) return;
   go(novelPath(w.uid || w.id, "review"));
   setTimeout(() => {
     document.dispatchEvent(new CustomEvent("review-episode", {
-      detail: { ep },
+      detail: { ep: target },
     }));
   }, 50);
 }
@@ -615,58 +354,15 @@ export async function refreshBudgetChips() {
 
 export function initMonitor() {
   initColResizer(WRITING_RESIZER);
-  initColResizer(WRITING_RESIZER_RIGHT);
   setProgressCollapsed(localStorage.getItem("writing-progress-collapsed") === "1");
-  setChatCollapsed(localStorage.getItem("writing-chat-collapsed") === "1");
   $("btn-progress-collapse").addEventListener("click", () => setProgressCollapsed(true));
   $("btn-progress-expand").addEventListener("click", () => setProgressCollapsed(false));
-  $("btn-draftchat-collapse").addEventListener("click", () => setChatCollapsed(true));
-  $("btn-draftchat-expand").addEventListener("click", () => setChatCollapsed(false));
   $("btn-monitor-load").addEventListener("click", () =>
     run(async () => {
       const did = currentDesignId();
       if (did) await load(did);
     })
   );
-  $("btn-draftchat-send").addEventListener("click", sendChat);
-  document.querySelectorAll("#draftchat-mode [data-dmode]").forEach((b) =>
-    b.addEventListener("click", () => {
-      chatMode = b.dataset.dmode;
-      renderChat();
-    }));
-  const chatInput = $("draftchat-input");
-  chatInput.addEventListener("input", updateSuggest);
-  chatInput.addEventListener("blur", () => setTimeout(hideSuggest, 150));
-  chatInput.addEventListener("keydown", (e) => {
-    if ($("draftchat-suggest").style.display !== "none" && sugItems.length) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        sugActive = (sugActive + 1) % sugItems.length;
-        renderSuggest();
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        sugActive = (sugActive - 1 + sugItems.length) % sugItems.length;
-        renderSuggest();
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        acceptSuggest(sugActive);
-        return;
-      }
-      if (e.key === "Escape") {
-        hideSuggest();
-        return;
-      }
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendChat();
-    }
-  });
-  renderChat();
   // 첫 작품의 최신 설계로 자동 초기화
   api
     .works()
@@ -695,7 +391,6 @@ export function initMonitor() {
   document.addEventListener("enter-screen", (e) => {
     if (e.detail?.section !== "s2") return;
     restoreColResizer(WRITING_RESIZER);
-    restoreColResizer(WRITING_RESIZER_RIGHT);
     const cur = getWork();
     if (!cur) return;
     run(async () => {

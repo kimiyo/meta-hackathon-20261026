@@ -1,7 +1,7 @@
-"""Phase 4: state machine PLAN→DRAFT (fake MetaClient, no AI calls)."""
+"""3-state machine: WRITING → IN_REVIEW → PUBLISHING (fake MetaClient)."""
 import pytest
 
-from app import db as dbmod
+from app import consistency, db as dbmod
 from app import drafting, state_machine
 from app.errors import LLMStepError
 from tests.test_drafting import FakeMeta
@@ -13,8 +13,6 @@ def conn(tmp_path):
     c.execute("INSERT INTO works(id, title, created_at) VALUES(1,'w','t')")
     c.execute("INSERT INTO story_designs(id, work_id, version, scope_total_episodes,"
               " concept_json, sections_json, status) VALUES(1,1,1,2,'{}','[]','approved')")
-    c.execute("INSERT INTO story_designs(id, work_id, version, scope_total_episodes,"
-              " concept_json, sections_json, status) VALUES(2,1,2,2,'{}','[]','draft')")
     c.execute("INSERT INTO episode_outlines(design_id, episode_no, title, goal)"
               " VALUES(1,1,'T','G')")
     c.commit()
@@ -22,87 +20,96 @@ def conn(tmp_path):
     c.close()
 
 
-def test_plan_to_draft(conn):
-    out = state_machine.advance(conn, FakeMeta(["가" * 5000]), 1, design_id=1)
-    assert out["state"] == "DRAFT"
+def _started(conn, ep=1):
+    return state_machine.start_writing(
+        conn, FakeMeta(["가" * 5000]), ep, design_id=1)
+
+
+def test_start_creates_writing_job(conn):
+    out = _started(conn)
+    assert out["state"] == "WRITING"
     assert out["revision"]["version"] == 1
     job = state_machine.get_job(conn, 1)
     assert job["manuscript_revision_id"] == out["revision"]["revision_id"]
 
 
-def test_draft_design_advances_without_approval(conn):
-    conn.execute("INSERT INTO episode_outlines(design_id, episode_no, title, goal)"
-                 " VALUES(2,1,'T','G')")
-    conn.commit()
-    out = state_machine.advance(conn, FakeMeta(["가" * 5000]), 1, design_id=2)
-    assert out["state"] == "DRAFT"
+def test_start_twice_rejected(conn):
+    _started(conn)
+    with pytest.raises(ValueError, match="already started"):
+        state_machine.start_writing(
+            conn, FakeMeta(["가" * 5000]), 1, design_id=1)
 
 
-def test_repeat_failed_advance_consumes_attempt(conn):
+def test_start_unknown_design(conn):
+    with pytest.raises(KeyError):
+        state_machine.start_writing(
+            conn, FakeMeta(["가" * 5000]), 1, design_id=99)
+
+
+def test_failed_start_sets_attention(conn):
     meta = FakeMeta(["짧다"] * 8)
-    for _ in range(2):
-        with pytest.raises(LLMStepError):
-            state_machine.advance(conn, meta, 1, design_id=1)
+    with pytest.raises(LLMStepError):
+        state_machine.start_writing(conn, meta, 1, design_id=1)
     job = state_machine.get_job(conn, 1)
-    assert job["state"] == "PLAN" and job["attempt"] == 2
-
-
-def test_invalid_manuscript_records_error_and_retries(conn):
-    meta = FakeMeta(["짧다"] * 4)
-    with pytest.raises(LLMStepError, match="manuscript_invalid"):
-        state_machine.advance(conn, meta, 1, design_id=1)
-    job = state_machine.get_job(conn, 1)
-    assert job["state"] == "PLAN" and job["attempt"] == 1
+    assert job["state"] == "WRITING" and job["needs_attention"] == 1
     assert "manuscript_invalid" in job["last_error"]
 
 
-def _job_with_proposals(conn, state, attempt):
-    rev = drafting.save_revision(conn, 1, "가" * 5000)
-    conn.execute("INSERT INTO change_proposals(episode_no,"
-                 " manuscript_revision_id, created_at) VALUES(1,?,'t')",
-                 (rev["revision_id"],))
-    sid = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
+def test_submit_and_back(conn):
+    _started(conn)
+    out = state_machine.submit_for_review(conn, 1)
+    assert out["state"] == "IN_REVIEW"
+    out = state_machine.back_to_writing(conn, 1, "문장 다듬기 필요")
+    assert out["state"] == "WRITING"
+    assert state_machine.get_job(conn, 1)["return_reason"] == "문장 다듬기 필요"
+
+
+def test_submit_needs_manuscript(conn):
     conn.execute("INSERT INTO episode_jobs(episode_no, design_id, state,"
-                 " attempt, manuscript_revision_id, proposal_set_id,"
-                 " last_error, updated_at)"
-                 " VALUES(1,1,?,?,?,?,?,'t')",
-                 (state, attempt, rev["revision_id"], sid, "err"))
+                 " attempt, updated_at) VALUES(1,1,'WRITING',0,'t')")
     conn.commit()
-    return sid
+    with pytest.raises(ValueError, match="no manuscript"):
+        state_machine.submit_for_review(conn, 1)
 
 
-def test_revert_verify_discards_set_and_keeps_attempt(conn):
-    sid = _job_with_proposals(conn, "VERIFY", 1)
-    out = state_machine.revert_to_draft(conn, 1)
-    assert out["state"] == "DRAFT" and out["attempt"] == 1
-    job = state_machine.get_job(conn, 1)
-    assert job["proposal_set_id"] is None and job["last_error"] == ""
-    row = conn.execute("SELECT status FROM change_proposals"
-                       " WHERE proposal_set_id=?", (sid,)).fetchone()
-    assert row["status"] == "discarded"
+def test_transitions_reject_wrong_states(conn):
+    _started(conn)
+    with pytest.raises(ValueError, match="back-to-writing needs"):
+        state_machine.back_to_writing(conn, 1)
+    with pytest.raises(ValueError, match="publish needs"):
+        state_machine.request_publish(conn, 1)
+    state_machine.submit_for_review(conn, 1)
+    with pytest.raises(ValueError, match="submit needs"):
+        state_machine.submit_for_review(conn, 1)
 
 
-def test_revert_needs_author_restarts_budget(conn):
-    _job_with_proposals(conn, "NEEDS_AUTHOR", 3)
-    out = state_machine.revert_to_draft(conn, 1)
-    assert out["state"] == "DRAFT" and out["attempt"] == 0
+def test_publish_blocked_by_open_issues(conn):
+    _started(conn)
+    state_machine.submit_for_review(conn, 1)
+    consistency.add_issues(conn, 1, [{"title": "모순", "severity": "major"}])
+    with pytest.raises(ValueError, match="open consistency issues"):
+        state_machine.request_publish(conn, 1)
+    assert state_machine.get_job(conn, 1)["state"] == "IN_REVIEW"
 
 
-def test_revert_rejects_other_states(conn):
-    with pytest.raises(KeyError):
-        state_machine.revert_to_draft(conn, 9)
-    for st in ("DRAFT", "READY_FOR_REVIEW", "COMMITTED"):
-        conn.execute("INSERT OR REPLACE INTO episode_jobs(episode_no,"
-                     " design_id, state, attempt, updated_at)"
-                     " VALUES(1,1,?,0,'t')", (st,))
-        conn.commit()
-        with pytest.raises(ValueError, match="revert needs"):
-            state_machine.revert_to_draft(conn, 1)
-
-
-def test_retry_limit_escalates_to_needs_author(conn):
-    conn.execute("INSERT INTO episode_jobs(episode_no, design_id, state, attempt,"
-                 " updated_at) VALUES(1,1,'PLAN',3,'t')")
+def test_publish_approves_manuscript(conn):
+    rev = drafting.save_revision(conn, 1, "확정 원고")
+    conn.execute("INSERT INTO episode_jobs(episode_no, design_id, state,"
+                 " attempt, manuscript_revision_id, updated_at)"
+                 " VALUES(1,1,'IN_REVIEW',0,?,'t')", (rev["revision_id"],))
     conn.commit()
-    out = state_machine.advance(conn, FakeMeta(["가" * 3000]), 1)
-    assert out["state"] == "NEEDS_AUTHOR"
+    out = state_machine.request_publish(conn, 1)
+    assert out["state"] == "PUBLISHING"
+    row = conn.execute("SELECT approval_status FROM manuscript_revisions"
+                       " WHERE revision_id=?", (rev["revision_id"],)).fetchone()
+    assert row["approval_status"] == "approved"
+
+
+def test_jobs_by_state(conn):
+    _started(conn)
+    state_machine.submit_for_review(conn, 1)
+    rows = state_machine.jobs_by_state(conn, 1, "IN_REVIEW")
+    assert [r["episode_no"] for r in rows] == [1]
+    assert rows[0]["title"] == "T"
+    with pytest.raises(ValueError, match="unknown state"):
+        state_machine.jobs_by_state(conn, 1, "DRAFT")

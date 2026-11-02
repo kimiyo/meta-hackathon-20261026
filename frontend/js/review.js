@@ -1,38 +1,45 @@
 import { api } from "./api.js";
-import { $, esc, showError, stateKo, verdictKo } from "./util.js";
+import { $, esc, showError, stateKo, severityKo, issueStatusKo } from "./util.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
 import { mountManuscriptPanel } from "./manuscript.js";
 
 const REVIEW_RESIZER = { resizerId: "review-resizer", varName: "--review-right-w",
   storageKey: "review-right-w", side: "right", min: 280, reserve: 420 };
 
-// 화면 4 · 작가 검토 (구 React판에서 이식)
+// 화면 4 · 작가 검토 (읽기 전용 원고 + 일관성 분석 + 이슈 + 기억)
 
-// 원고 보기는 집필과 동일한 공용 패널(읽기 전용)으로 제공한다.
+// 원고 보기는 공용 패널(읽기 전용)으로 제공한다.
 const REVIEW_MS_ROLES = {
   versionSelect: "review.manuscript.version-select",
   diffCheckbox: "review.manuscript.diff-checkbox",
   body: "review.manuscript.body",
 };
 
-const VCLASS = { ok: "v-ok", error: "v-error", change: "v-change", deferred: "v-deferred" };
-
 let job = null;
 let msPanel = null;
-let items = [];
-let aliases = [];
+let issues = [];
+let messages = [];
 let busy = false;
 
 function setBusy(v) {
   busy = v;
   for (const b of document.querySelectorAll("#s3 button")) b.disabled = v;
-  updateApproveState();
+  if (!v) updateActionState();
 }
 
-function updateApproveState() {
-  const btn = $("btn-approve-ep");
-  if (!btn) return;
-  btn.disabled = busy || !job || job.state !== "READY_FOR_REVIEW";
+function inReview() {
+  return !!job && job.state === "IN_REVIEW";
+}
+
+function updateActionState() {
+  const ok = !busy && inReview();
+  for (const id of ["btn-back-to-writing", "btn-request-publish",
+                    "btn-consistency-analyze", "btn-consistency-send"]) {
+    const b = $(id);
+    if (b) b.disabled = !ok;
+  }
+  const input = $("consistency-input");
+  if (input) input.disabled = !ok;
 }
 
 async function run(fn) {
@@ -70,15 +77,18 @@ function mountMsPanel(epNo, document) {
 async function load(epNo) {
   const j = await api.episode(epNo);
   const { document } = await api.manuscriptDoc(epNo);
-  const prop = await api.proposals(epNo);
-  const al = await api.aliases("candidate");
+  const [iss, msgs, mem, ents] = await Promise.all([
+    api.consistencyIssues(epNo),
+    api.consistencyMessages(epNo),
+    api.memoryDraft(epNo),
+    api.entities(""),
+  ]);
   job = j;
   mountMsPanel(epNo, document);
-  items = (prop.items ?? []).filter(
-    (it) => j.proposal_set_id == null || it.proposal_set_id === j.proposal_set_id
-  );
-  aliases = (al.aliases ?? []);
-  renderAll();
+  issues = iss.issues ?? [];
+  messages = msgs.messages ?? [];
+  $("memory-draft-input").value = mem.content ?? "";
+  renderAll(ents.entities ?? []);
 }
 
 function renderNotice() {
@@ -87,79 +97,98 @@ function renderNotice() {
     box.innerHTML = "";
     return;
   }
-  if (job.state === "READY_FOR_REVIEW") {
-    box.innerHTML = `<div class="notice ok"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — 검토한 원고와 설정 변경을 확정할까요? 확정하면 한꺼번에 반영되며 되돌릴 수 없습니다.</div>`;
-  } else if (job.state === "NEEDS_AUTHOR") {
-    box.innerHTML = `<div class="notice err"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — ${esc(job.last_error || "작가 판정이 필요합니다.")}</div>`;
+  const open = issues.filter((i) => i.status === "open").length;
+  if (job.state === "IN_REVIEW") {
+    box.innerHTML = `<div class="notice ok"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — 열린 이슈 ${open}건. 수정이 필요하면 집필중으로 돌아가세요. 문제없으면 발간요청을 누르세요.</div>`;
+  } else if (job.state === "PUBLISHING") {
+    box.innerHTML = `<div class="notice"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — 발간된 회차입니다. 읽기 전용입니다.</div>`;
+  } else if (job.needs_attention) {
+    box.innerHTML = `<div class="notice err"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — ${esc(job.last_error || "확인이 필요합니다.")}</div>`;
   } else {
-    box.innerHTML = "";
+    box.innerHTML = `<div class="notice warn"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — 집필중인 회차입니다. 집필 화면에서 검토를 요청하세요.</div>`;
   }
-  $("review-state").innerHTML = `상태: <b>${esc(stateKo(job.state))}</b> · 시도 ${esc(job.attempt)}`;
+  $("review-state").innerHTML = `상태: <b>${esc(stateKo(job.state))}</b>`;
 }
 
-function renderVerdicts() {
-  const box = $("verdict-list");
-  $("verdict-count").textContent = `새 문장 vs 기존 근거 · ${items.length}건`;
-  if (!items.length) {
-    box.innerHTML = `<span class="muted small">검증 항목이 없습니다.</span>`;
+function renderMessages() {
+  const box = $("consistency-messages");
+  if (!messages.length) {
+    box.innerHTML = `<span class="muted small">전체 분석을 실행하거나 질문을 입력하세요. 발견된 오류는 오른쪽 목록에 등록됩니다.</span>`;
     return;
   }
-  box.innerHTML = items
-    .map(
-      (it) => `<div class="verdict-card">
-        <div class="verdict-head"><span class="${VCLASS[it.validation] ?? "v-deferred"}">${esc(verdictKo(it.validation))}</span><span class="op">${esc(it.operation)} · ${esc(it.entity_id || it.candidate_name || "")} ${esc(it.attribute_path || "")}</span></div>
-        <div class="quote-box"><span class="src">신규</span>${esc(it.evidence_quote || "(인용 없음)")}</div>
-        ${it.counter_quote ? `<div class="quote-box"><span class="src">기존 근거</span>${esc(it.counter_quote)}</div>` : ""}
-        ${it.reason ? `<div class="reason">${esc(it.reason)}</div>` : ""}
-        ${it.validation === "deferred" && !it.evidence_start ? `<span class="unverified">근거 미확인 — 충돌 증거로 사용하지 않음</span>` : ""}
-      </div>`
-    )
-    .join("");
+  box.innerHTML = messages.map((m) =>
+    `<div class="msg ${m.role === "user" ? "user" : "assistant"}"><div class="bubble">${esc(m.content)}</div></div>`
+  ).join("");
+  box.scrollTop = box.scrollHeight;
 }
 
-function renderAliases() {
-  const box = $("alias-list");
-  if (!aliases.length) {
-    box.innerHTML = `<p class="muted small">대기 중인 별명 후보 없음</p>`;
+function renderIssues() {
+  const box = $("issue-list");
+  const open = issues.filter((i) => i.status === "open").length;
+  $("issue-count").textContent = `열린 이슈 ${open}건 / 전체 ${issues.length}건`;
+  if (!issues.length) {
+    box.innerHTML = `<span class="muted small">등록된 이슈가 없습니다.</span>`;
     return;
   }
-  box.innerHTML = aliases
-    .map(
-      (a) => `<div class="alias-card" data-alias="${esc(a.alias_id)}">
-        <b>${esc(a.alias)}</b> <span class="small muted">— ${esc(a.basis)} (현재 연결: ${esc(a.canonical_name ?? "없음")})</span>
-        <div class="btn-row">
-          <input type="text" placeholder="연결할 인물 ID" data-ent-input data-role="review.alias.entity-input" style="width:140px" value="">
-          <button class="btn sm" data-confirm data-role="review.alias.confirm-btn">확정(빈칸=새 인물)</button>
-          <button class="btn sm ghost" data-reject data-role="review.alias.reject-btn">기각</button>
-        </div>
-      </div>`
-    )
-    .join("");
-  box.querySelectorAll("[data-alias]").forEach((card) => {
-    const aliasId = card.dataset.alias;
-    card.querySelector("[data-confirm]").addEventListener("click", () =>
-      run(async () => {
-        const entityId = card.querySelector("[data-ent-input]").value.trim() || null;
-        await api.resolveAlias(aliasId, { entity_id: entityId, basis: "작가 판정" });
-        aliases = ((await api.aliases("candidate")).aliases ?? []);
-        renderAliases();
-      })
-    );
-    card.querySelector("[data-reject]").addEventListener("click", () =>
-      run(async () => {
-        await api.resolveAlias(aliasId, { reject: true });
-        aliases = ((await api.aliases("candidate")).aliases ?? []);
-        renderAliases();
-      })
-    );
+  box.innerHTML = issues.map((it) => `
+    <div class="issue-card" data-issue="${it.issue_id}" data-status="${esc(it.status)}">
+      <div class="issue-head">
+        <span class="sev-${esc(it.severity)}">${esc(severityKo(it.severity))}</span>
+        <span class="title">${esc(it.title || "(제목 없음)")}</span>
+        <span class="issue-status">${esc(issueStatusKo(it.status))}</span>
+      </div>
+      ${it.detail ? `<div class="issue-detail">${esc(it.detail)}</div>` : ""}
+      ${it.manuscript_quote ? `<div class="quote-box"><span class="src">원고 인용</span>${esc(it.manuscript_quote)}</div>` : ""}
+      ${it.evidence_quote ? `<div class="quote-box"><span class="src">근거${it.evidence_episode ? ` · EP ${esc(it.evidence_episode)}` : ""}${it.entity_id ? ` · ${esc(it.entity_id)}` : ""}</span>${esc(it.evidence_quote)}</div>` : ""}
+      <div class="btn-row">
+        ${it.status === "open"
+          ? `<button class="btn sm" data-resolve>해결됨</button>
+             <button class="btn sm ghost" data-wontfix>수정 안 함</button>`
+          : `<button class="btn sm ghost" data-reopen>다시 열기</button>`}
+      </div>
+    </div>`).join("");
+  box.querySelectorAll("[data-issue]").forEach((card) => {
+    const id = Number(card.dataset.issue);
+    const set = (status) => run(async () => {
+      await api.setIssueStatus(id, status);
+      issues = (await api.consistencyIssues(currentEp())).issues ?? [];
+      renderIssues();
+      renderNotice();
+    });
+    card.querySelector("[data-resolve]")?.addEventListener("click", () => set("resolved"));
+    card.querySelector("[data-wontfix]")?.addEventListener("click", () => set("wontfix"));
+    card.querySelector("[data-reopen]")?.addEventListener("click", () => set("open"));
   });
 }
 
-function renderAll() {
+function renderMemory(entities) {
+  const box = $("memory-entities");
+  if (!entities.length) {
+    box.innerHTML = `<span class="muted small">확정된 Entity가 없습니다.</span>`;
+    return;
+  }
+  box.innerHTML = `<ul class="ep-scenes">${entities.map((e) =>
+    `<li><span class="chip mono">${esc(e.entity_id)}</span> <b>${esc(e.canonical_name)}</b> <span class="small muted">${esc(e.type)}</span></li>`
+  ).join("")}</ul>`;
+}
+
+function renderAll(entities) {
   renderNotice();
-  renderVerdicts();
-  renderAliases();
-  updateApproveState();
+  renderMessages();
+  renderIssues();
+  renderMemory(entities);
+}
+
+async function refreshIssuesAndDraft() {
+  const ep = currentEp();
+  const [iss, mem] = await Promise.all([
+    api.consistencyIssues(ep),
+    api.memoryDraft(ep),
+  ]);
+  issues = iss.issues ?? [];
+  $("memory-draft-input").value = mem.content ?? "";
+  renderIssues();
+  renderNotice();
 }
 
 export function initReview() {
@@ -175,23 +204,63 @@ export function initReview() {
     $("review-ep").value = ep;
     run(() => load(Number(ep)));
   });
-  $("btn-request-change").addEventListener("click", () =>
+  $("btn-back-to-writing").addEventListener("click", () =>
     run(async () => {
-      const instruction = $("change-req").value.trim();
-      if (!instruction) {
-        showError("review-error", "수정 지시를 입력하세요.");
-        return;
-      }
-      await api.requestChange(currentEp(), instruction);
-      $("change-req").value = "";
+      const reason = window.prompt("집필중으로 돌아가는 이유를 입력하세요 (집필 화면에 표시됩니다).", "") ?? "";
+      await api.backToWriting(currentEp(), reason);
       await load(currentEp());
     })
   );
-  $("btn-approve-ep").addEventListener("click", () =>
+  $("btn-request-publish").addEventListener("click", () =>
     run(async () => {
-      const r = await api.approveEpisode(currentEp());
-      alert(`확정 완료: ${r.commit.applied}건 반영`);
+      const open = issues.filter((i) => i.status === "open").length;
+      if (open > 0) {
+        showError("review-error", `열린 이슈 ${open}건이 남아 있어 발간요청을 할 수 없습니다.`);
+        return;
+      }
+      const r = await api.requestPublish(currentEp());
+      alert(`발간요청 완료: EP ${r.episode_no}`);
       await load(currentEp());
+    })
+  );
+  $("btn-consistency-analyze").addEventListener("click", () =>
+    run(async () => {
+      const btn = $("btn-consistency-analyze");
+      btn.textContent = "분석 중…";
+      try {
+        await api.consistencyAnalyze(currentEp());
+        messages = (await api.consistencyMessages(currentEp())).messages ?? [];
+        await refreshIssuesAndDraft();
+        renderMessages();
+      } finally {
+        btn.textContent = "전체 분석 실행";
+      }
+    })
+  );
+  const sendChat = () => run(async () => {
+    const input = $("consistency-input");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    const out = await api.consistencyChat(currentEp(), text);
+    messages = (await api.consistencyMessages(currentEp())).messages ?? [];
+    renderMessages();
+    await refreshIssuesAndDraft();
+    if (out.issues?.length) {
+      showError("review-error", "");
+    }
+  });
+  $("btn-consistency-send").addEventListener("click", sendChat);
+  $("consistency-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
+  $("btn-memory-save").addEventListener("click", () =>
+    run(async () => {
+      await api.saveMemoryDraft(currentEp(), $("memory-draft-input").value);
+      alert("기억 초안을 저장했습니다.");
     })
   );
   run(() => load(1)).catch(() => {});

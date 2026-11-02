@@ -12,7 +12,7 @@ from . import budget as budgetmod
 from . import db as dbmod
 from .config import PROJECT_ROOT, load_settings
 from .meta_client import build_client
-from .routes import auth, design_threads, entities, episodes, ideas, nodes, ops, works
+from .routes import auth, consistency, design_threads, entities, episodes, ideas, nodes, ops, works
 
 settings = load_settings()
 _settings_lock = threading.Lock()
@@ -70,6 +70,7 @@ app.include_router(design_threads.router)
 app.include_router(entities.router)
 app.include_router(works.router)
 app.include_router(episodes.router)
+app.include_router(consistency.router)
 app.include_router(ideas.router)
 app.include_router(nodes.router)
 app.include_router(ops.router)

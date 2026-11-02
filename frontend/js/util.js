@@ -23,23 +23,25 @@ export function showError(boxId, message) {
 
 // 회차 상태 코드 → 화면 표시 한글. 코드 식별자(API·CSS 클래스)는 그대로 둔다.
 const STATE_KO = {
-  PLAN: "준비",
-  DRAFT: "초안 작성 중",
-  VERIFY: "검토 중",
-  READY_FOR_REVIEW: "작가 검토 대기",
-  AUTHOR_APPROVED: "확정 처리 중",
-  COMMITTED: "확정됨",
-  NEEDS_AUTHOR: "작가 확인 필요",
+  WRITING: "집필중",
+  IN_REVIEW: "검토중",
+  PUBLISHING: "발간중",
 };
 
 export function stateKo(state) {
   return STATE_KO[state] ?? String(state ?? "-");
 }
 
-// 검증 판정 코드 → 화면 표시 한글.
-const VERDICT_KO = { ok: "일치", error: "충돌", change: "변화", deferred: "보류" };
+// 일관성 이슈 심각도·상태 → 화면 표시 한글.
+const SEVERITY_KO = { critical: "심각", major: "주요", minor: "경미" };
 
-export function verdictKo(v) {
-  return VERDICT_KO[v] ?? String(v ?? "-");
+export function severityKo(s) {
+  return SEVERITY_KO[s] ?? String(s ?? "-");
+}
+
+const ISSUE_STATUS_KO = { open: "열림", resolved: "해결됨", wontfix: "수정 안 함" };
+
+export function issueStatusKo(s) {
+  return ISSUE_STATUS_KO[s] ?? String(s ?? "-");
 }
 

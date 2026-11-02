@@ -548,7 +548,7 @@ def test_design_assistant_bundles(client, fakes):
                   json={"content": "x"}).status_code == 404
 
 
-def test_advance_marks_writing_stage(client, fakes):
+def test_start_marks_writing_stage(client, fakes):
     from app.main import app
     from app.routes.works import get_meta
     from tests.test_drafting import FakeMeta as DraftFake
@@ -561,8 +561,8 @@ def test_advance_marks_writing_stage(client, fakes):
                  "logline": "목표1"})
     app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 5000])
     try:
-        r = c.post("/api/v1/episodes/1/advance", json={"design_id": did})
-        assert r.json()["state"] == "DRAFT", r.text
+        r = c.post("/api/v1/episodes/1/start", json={"design_id": did})
+        assert r.json()["state"] == "WRITING", r.text
     finally:
         del app.dependency_overrides[get_meta]
     assert c.get(f"/api/v1/works/{w['uid']}").json()["stage"] == "writing"

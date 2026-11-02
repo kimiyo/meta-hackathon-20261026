@@ -166,7 +166,7 @@ def test_rename_pen_name_needs_password(client):
                    json={"pen_name": "x", "password": "pw1234"}).status_code == 401
 
 
-def test_advance_guard_conflict(client):
+def test_start_guard_conflict(client):
     c, _ = client
     from app.main import app
     from app.routes.works import get_meta as works_meta
@@ -177,16 +177,16 @@ def test_advance_guard_conflict(client):
         wa = _mkwork(c, ta, "A작품")
         ha = c.post(f"/api/v1/works/{wa['uid']}/handoff", json={},
                     headers=_h(ta)).json()
-        r = c.post("/api/v1/episodes/1/advance",
+        r = c.post("/api/v1/episodes/1/start",
                    json={"design_id": ha["design_id"]}, headers=_h(ta))
-        assert r.json()["state"] == "DRAFT", r.text
+        assert r.json()["state"] == "WRITING", r.text
         _register(c, login_id="other", pen_name="타인")
         tb = _login(c, login_id="other")
         wb = _mkwork(c, tb, "B작품")
         hb = c.post(f"/api/v1/works/{wb['uid']}/handoff", json={},
                     headers=_h(tb)).json()
         # same episode number in another design is blocked, not corrupted
-        r = c.post("/api/v1/episodes/1/advance",
+        r = c.post("/api/v1/episodes/1/start",
                    json={"design_id": hb["design_id"]}, headers=_h(tb))
         assert r.status_code == 409, r.text
         assert c.get("/api/v1/episodes/1", headers=_h(tb)).status_code == 404

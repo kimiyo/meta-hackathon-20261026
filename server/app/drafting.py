@@ -10,7 +10,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-from . import memory, refs, style_presets
+from . import memory, style_presets
 from .db import now_iso
 from .errors import LLMStepError
 from .schemas import drafting as sch
@@ -232,109 +232,6 @@ def validate_manuscript(text: str, constraints: list[str],
             if phrase and phrase in text:
                 problems.append(f"forbidden phrase present: {phrase}")
     return problems
-
-
-REF_CONTEXT_BUDGET = 12000  # chars of @-resolved context per redraft
-
-
-def expand_line_refs(text: str,
-                     tokens: list[str]) -> tuple[list[str], list[str]]:
-    """Turn @L tokens into quoted excerpts. Returns (quotes, rest).
-
-    Line numbers are 1-based over text.split("\n") — the exact split the
-    writing screen renders, so displayed and server numbers always match.
-    Out-of-range pins raise ValueError: quoting wrong lines silently
-    would be worse than refusing."""
-    lines = (text or "").split("\n")
-    quotes, rest = [], []
-    for tok in tokens:
-        rng = refs.parse_line_token(tok)
-        if rng is None:
-            rest.append(tok)
-            continue
-        start, end = rng
-        if not (1 <= start <= end <= len(lines)):
-            raise ValueError(
-                f"line ref @{tok} out of range "
-                f"(manuscript has {len(lines)} lines)")
-        excerpt = "\n".join(lines[start - 1:end])
-        quotes.append(f"[원고 L{start}-{end}]\n{excerpt}")
-    return quotes, rest
-
-
-def log_draft_request(conn: sqlite3.Connection, episode_no: int, *,
-                      instruction: str, resolved: list[str],
-                      unknown: list[str], full: bool,
-                      base_version: int | None,
-                      result_version: int | None = None,
-                      error: str = "") -> int:
-    """Append one chat-history row (attempts and failures alike)."""
-    cur = conn.execute(
-        "INSERT INTO draft_requests(episode_no, instruction, refs_json,"
-        " unknown_json, full_regen, base_version, result_version, error,"
-        " created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-        (episode_no, instruction, json.dumps(resolved, ensure_ascii=False),
-         json.dumps(unknown, ensure_ascii=False), 1 if full else 0,
-         base_version, result_version, error, now_iso()))
-    conn.commit()
-    return cur.lastrowid
-
-
-def list_draft_requests(conn: sqlite3.Connection,
-                        episode_no: int) -> list[dict]:
-    rows = conn.execute(
-        "SELECT * FROM draft_requests WHERE episode_no=? ORDER BY id",
-        (episode_no,)).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        d["refs"] = json.loads(d.pop("refs_json"))
-        d["unknown"] = json.loads(d.pop("unknown_json"))
-        d["full"] = bool(d.pop("full_regen"))
-        out.append(d)
-    return out
-
-
-def redraft_episode(meta, conn, *, design_id: int, work_id: int,
-                    episode_no: int, base_text: str,
-                    base_version: int | None, instruction: str,
-                    full: bool = False, max_tokens: int = 8000) -> dict:
-    """Author-driven redraft: instruction + @ context → new revision.
-
-    full=False revises base_text (manuscript_draft); full=True writes
-    fresh from the outline. @Title/@E001 tokens resolve to setting/node
-    text, @L7/@L12-15 pins to quoted manuscript lines. Unknown @ tokens
-    are reported, never fatal."""
-    instruction = (instruction or "").strip()
-    if not instruction and not full:
-        raise ValueError(
-            "instruction must not be blank (or request full regeneration)")
-    if full and not instruction:
-        instruction = "원고 전체를 새로 써라."
-    tokens = refs.parse_mentions(instruction)
-    line_toks = [t for t in tokens if refs.parse_line_token(t) is not None]
-    ref_toks = [t for t in tokens if refs.parse_line_token(t) is None]
-    if line_toks and (full or not base_text):
-        raise ValueError(
-            "@L line pins need a base manuscript (partial redraft only)")
-    setting_lines, node_lines, unknown = refs.resolve_refs(
-        conn, work_id, ref_toks)
-    quotes, _ = expand_line_refs(base_text, line_toks)
-    context = "\n".join(setting_lines + node_lines + quotes)
-    if len(context) > REF_CONTEXT_BUDGET:
-        context = context[:REF_CONTEXT_BUDGET] + "\n[이하 생략]"
-    composed = instruction
-    if context:
-        composed += "\n\n[참조 자료]\n" + context
-    rev = draft_episode(meta, conn, design_id=design_id, work_id=work_id,
-                        episode_no=episode_no,
-                        manuscript_draft="" if full else base_text,
-                        author_instruction=composed, max_tokens=max_tokens,
-                        revision_label="AI 전체 재생성" if full else "AI 부분 수정")
-    resolved = [t for t in ref_toks if t not in unknown]
-    return {**rev, "base_version": base_version,
-            "resolved_refs": resolved, "unknown_refs": unknown,
-            "line_quotes": len(quotes)}
 
 
 def save_revision(conn, episode_no: int, text: str, label: str = "") -> dict:

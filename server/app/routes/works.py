@@ -58,7 +58,7 @@ def list_works(conn: sqlite3.Connection = Depends(get_conn),
     rows = conn.execute(
         "SELECT w.*, (SELECT COUNT(*) FROM episode_jobs j"
         " JOIN story_designs d ON d.id=j.design_id"
-        " WHERE d.work_id=w.id AND j.state='COMMITTED')"
+        " WHERE d.work_id=w.id AND j.state='PUBLISHING')"
         " AS completed_episodes,"
         " (SELECT scope_total_episodes FROM story_designs"
         " WHERE work_id=w.id ORDER BY version DESC LIMIT 1)"

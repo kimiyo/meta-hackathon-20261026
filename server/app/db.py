@@ -215,6 +215,38 @@ CREATE TABLE IF NOT EXISTS episode_jobs (
   manuscript_revision_id INTEGER,
   proposal_set_id INTEGER,
   last_error TEXT DEFAULT '',
+  needs_attention INTEGER NOT NULL DEFAULT 0,
+  return_reason TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS review_messages (
+  id INTEGER PRIMARY KEY,
+  episode_no INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_review_messages_ep
+  ON review_messages(episode_no, id);
+CREATE TABLE IF NOT EXISTS consistency_issues (
+  issue_id INTEGER PRIMARY KEY,
+  episode_no INTEGER NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'major',
+  title TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  manuscript_quote TEXT NOT NULL DEFAULT '',
+  evidence_episode INTEGER,
+  evidence_quote TEXT NOT NULL DEFAULT '',
+  entity_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open',
+  resolved_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_consistency_issues_ep
+  ON consistency_issues(episode_no, issue_id);
+CREATE TABLE IF NOT EXISTS episode_memory_drafts (
+  episode_no INTEGER PRIMARY KEY,
+  content TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS llm_calls (
@@ -439,11 +471,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE style_policies ADD COLUMN style_preset TEXT DEFAULT ''",
   "ALTER TABLE manuscript_revisions ADD COLUMN label TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE style_policies ADD COLUMN custom_style_id INTEGER",
+  "ALTER TABLE episode_jobs ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE episode_jobs ADD COLUMN return_reason TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass  # already migrated
+    # 3-state migration: 집필중/검토중/발간중. PLAN jobs had no manuscript yet.
+    conn.execute("DELETE FROM episode_jobs WHERE state='PLAN'")
+    conn.execute("UPDATE episode_jobs SET state='WRITING'"
+                 " WHERE state IN ('DRAFT','VERIFY','NEEDS_AUTHOR')")
+    conn.execute("UPDATE episode_jobs SET state='IN_REVIEW'"
+                 " WHERE state IN ('READY_FOR_REVIEW','AUTHOR_APPROVED')")
+    conn.execute("UPDATE episode_jobs SET state='PUBLISHING'"
+                 " WHERE state='COMMITTED'")
     # Backfill pre-UID rows.
     for row in conn.execute("SELECT id FROM works WHERE uid IS NULL OR uid=''"):
         conn.execute("UPDATE works SET uid=? WHERE id=?", (new_uid(), row["id"]))

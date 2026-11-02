@@ -388,11 +388,12 @@ export function createDraftRecovery(episodeId, onWarning) {
 
 const LOCKED_STATES = ["approved", "publication_ready", "published"];
 
-function stateLabelKo(doc) {
-  if (doc.state === "approved") return "확정됨";
+function stateLabelKo(doc, readOnly) {
+  if (doc.state === "approved") return "발간중";
   if (doc.state === "publication_ready") return "발간 준비 중";
   if (doc.state === "published") return "발간됨";
-  return doc.draft.trim() ? "집필 중" : "집필 전";
+  if (readOnly) return "작가 검토중";
+  return doc.draft.trim() ? "집필중" : "집필 전";
 }
 
 function initialSelection(doc) {
@@ -522,7 +523,7 @@ export function mountManuscriptPanel(root, options) {
     ui("meta").textContent = `${currentVersionLabel()} · ${base ? `v${base.number}와 비교` : "비교 기준 없음"}` +
       (version ? ` · ${version.label} · ${new Date(version.createdAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 읽기 전용` : "") +
       (selected === doc.approvedVersionId ? " · 확정 원고" : "");
-    ui("state").textContent = stateLabelKo(doc);
+    ui("state").textContent = stateLabelKo(doc, readOnly);
     ui("edit").textContent = editing ? "원고 보기" : "직접 수정";
     ui("edit").disabled = busy || halted || locked() || (selected !== "draft" && selected !== doc.currentVersionId);
     ui("save").hidden = readOnly || selected !== "draft";

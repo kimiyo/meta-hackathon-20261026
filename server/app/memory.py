@@ -216,6 +216,26 @@ def is_committed(conn, episode_no: int, revision_id: int) -> bool:
     return row is not None
 
 
+def commit_manuscript_only(conn, *, episode_no, revision_id) -> dict:
+    """Approve a manuscript with no proposal set (consistency-chat flow).
+
+    Idempotent on (episode, revision): without proposals there is nothing
+    to re-apply, so a repeat is a no-op success.
+    """
+    row = conn.execute(
+        "SELECT approval_status FROM manuscript_revisions WHERE revision_id=?",
+        (revision_id,)).fetchone()
+    if row and row["approval_status"] == "approved":
+        return {"committed": False, "reason": "already_committed"}
+    with conn:
+        conn.execute(
+            "UPDATE manuscript_revisions SET approval_status='approved'"
+            " WHERE revision_id=?",
+            (revision_id,),
+        )
+    return {"committed": True, "applied": 0, "entities": []}
+
+
 def commit_episode(conn, *, episode_no, revision_id, proposal_set_id) -> dict:
     """Atomically apply approved proposal items. Idempotent on (episode, revision)."""
     if is_committed(conn, episode_no, revision_id):

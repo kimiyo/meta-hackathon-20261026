@@ -1,4 +1,4 @@
-"""Episode execution routes (§5.2)."""
+"""Episode execution routes: start → review → publish."""
 from __future__ import annotations
 
 import sqlite3
@@ -6,7 +6,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import manuscripts, state_machine
+from .. import consistency, manuscripts, state_machine
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from .deps import (get_conn, get_current_author, require_design,
@@ -16,8 +16,8 @@ from .works import get_meta
 router = APIRouter(prefix="/api/v1", tags=["episodes"])
 
 
-class AdvanceIn(BaseModel):
-    design_id: int | None = None
+class StartIn(BaseModel):
+    design_id: int
 
 
 def _mark_writing(conn: sqlite3.Connection, episode_no: int,
@@ -35,48 +35,67 @@ def _mark_writing(conn: sqlite3.Connection, episode_no: int,
         conn.commit()
 
 
-@router.post("/episodes/{episode_no}/advance")
-def advance_episode(episode_no: int, body: AdvanceIn,
-                    conn: sqlite3.Connection = Depends(get_conn),
-                    meta=Depends(get_meta),
-                    author: dict = Depends(get_current_author)):
+def _owned_job(conn, episode_no, author_id):
+    job = require_episode_job(conn, episode_no, author_id)
+    if not job:
+        raise HTTPException(404, f"episode {episode_no} has no job yet")
+    return job
+
+
+@router.post("/episodes/{episode_no}/start")
+def start_episode(episode_no: int, body: StartIn,
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  meta=Depends(get_meta),
+                  author: dict = Depends(get_current_author)):
+    require_design(conn, body.design_id, author["id"])
     job = state_machine.get_job(conn, episode_no)
-    if job is None:
-        if body.design_id is not None:
-            require_design(conn, body.design_id, author["id"])
-    else:
-        wanted = (body.design_id if body.design_id is not None
-                  else job["design_id"])
-        d = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
-                         (job["design_id"],)).fetchone()
-        w = find_work(conn, d["work_id"]) if d else None
-        owned = bool(w and w.get("author_id") == author["id"])
-        if wanted != job["design_id"] or not owned:
-            raise HTTPException(
-                409, f"episode {episode_no} is already being written"
-                f" in design {job['design_id']}")
+    if job is not None:
+        raise HTTPException(409, f"episode {episode_no} is already being"
+                                 f" written in design {job['design_id']}")
     try:
-        out = state_machine.advance(conn, meta, episode_no,
-                                    design_id=body.design_id)
+        out = state_machine.start_writing(conn, meta, episode_no,
+                                          design_id=body.design_id)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
-    except NotImplementedError as e:
-        raise HTTPException(501, str(e))
     except LLMStepError as e:
         raise HTTPException(502, f"{e.reason}: {e.detail}")
     _mark_writing(conn, episode_no, body.design_id)
     return out
 
 
-@router.post("/episodes/{episode_no}/revert")
-def revert_episode(episode_no: int,
-                   conn: sqlite3.Connection = Depends(get_conn),
-                   author: dict = Depends(get_current_author)):
-    job = require_episode_job(conn, episode_no, author["id"])
-    if not job:
-        raise HTTPException(404, f"episode {episode_no} has no job yet")
+@router.post("/episodes/{episode_no}/submit-review")
+def submit_review(episode_no: int,
+                  conn: sqlite3.Connection = Depends(get_conn),
+                  author: dict = Depends(get_current_author)):
+    _owned_job(conn, episode_no, author["id"])
     try:
-        return state_machine.revert_to_draft(conn, episode_no)
+        return state_machine.submit_for_review(conn, episode_no)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+
+class BackIn(BaseModel):
+    reason: str = ""
+
+
+@router.post("/episodes/{episode_no}/back-to-writing")
+def back_to_writing(episode_no: int, body: BackIn,
+                    conn: sqlite3.Connection = Depends(get_conn),
+                    author: dict = Depends(get_current_author)):
+    _owned_job(conn, episode_no, author["id"])
+    try:
+        return state_machine.back_to_writing(conn, episode_no, body.reason)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/episodes/{episode_no}/request-publish")
+def request_publish(episode_no: int,
+                    conn: sqlite3.Connection = Depends(get_conn),
+                    author: dict = Depends(get_current_author)):
+    _owned_job(conn, episode_no, author["id"])
+    try:
+        return state_machine.request_publish(conn, episode_no)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
 
@@ -85,79 +104,16 @@ def revert_episode(episode_no: int,
 def get_episode(episode_no: int,
                 conn: sqlite3.Connection = Depends(get_conn),
                 author: dict = Depends(get_current_author)):
-    job = require_episode_job(conn, episode_no, author["id"])
-    if not job:
-        raise HTTPException(404, f"episode {episode_no} has no job yet")
+    job = _owned_job(conn, episode_no, author["id"])
     revs = conn.execute(
         "SELECT revision_id, version, approval_status, LENGTH(text) AS length"
         " FROM manuscript_revisions WHERE episode_no=? ORDER BY version",
         (episode_no,)).fetchall()
-    verification = None
-    if job.get("proposal_set_id"):
-        from .. import memory
-        items = [i for i in memory.get_proposals(conn, episode_no)
-                 if i["proposal_set_id"] == job["proposal_set_id"]]
-        counts: dict[str, int] = {}
-        for i in items:
-            counts[i["validation"]] = counts.get(i["validation"], 0) + 1
-        verification = {"proposal_set_id": job["proposal_set_id"],
-                        "counts": counts, "items": len(items)}
-    import json as _json
-    quality = None
-    if job.get("quality_json"):
-        try:
-            quality = _json.loads(job["quality_json"]) or None
-        except ValueError:
-            quality = None
+    issues = consistency.list_issues(conn, episode_no)
+    open_issues = sum(1 for i in issues if i["status"] == "open")
     return {"episode_no": episode_no, **state_machine._public(job),
             "revisions": [dict(r) for r in revs],
-            "verification": verification, "quality": quality}
-
-
-class ChangeIn(BaseModel):
-    instruction: str = ""
-    full: bool = False
-    base: str = "draft"
-
-
-@router.post("/episodes/{episode_no}/request-change")
-def request_change(episode_no: int, body: ChangeIn,
-                   conn: sqlite3.Connection = Depends(get_conn),
-                   meta=Depends(get_meta),
-                   author: dict = Depends(get_current_author)):
-    require_episode_job(conn, episode_no, author["id"])
-    try:
-        return state_machine.request_change(conn, meta, episode_no,
-                                            body.instruction, full=body.full,
-                                            base_source=body.base)
-    except (KeyError, ValueError) as e:
-        raise HTTPException(400, str(e))
-    except LLMStepError as e:
-        raise HTTPException(502, f"{e.reason}: {e.detail}")
-
-
-@router.get("/episodes/{episode_no}/draft-requests")
-def list_draft_requests(episode_no: int,
-                        conn: sqlite3.Connection = Depends(get_conn),
-                        author: dict = Depends(get_current_author)):
-    from .. import drafting
-
-    job = require_episode_job(conn, episode_no, author["id"])
-    if not job:
-        return {"episode_no": episode_no, "requests": []}
-    return {"episode_no": episode_no,
-            "requests": drafting.list_draft_requests(conn, episode_no)}
-
-
-@router.post("/episodes/{episode_no}/approve")
-def approve_episode(episode_no: int,
-                    conn: sqlite3.Connection = Depends(get_conn),
-                    author: dict = Depends(get_current_author)):
-    require_episode_job(conn, episode_no, author["id"])
-    try:
-        return state_machine.approve_episode(conn, episode_no)
-    except (KeyError, ValueError) as e:
-        raise HTTPException(400, str(e))
+            "issues": {"open": open_issues, "total": len(issues)}}
 
 
 @router.get("/designs/{design_id}/episodes")
@@ -176,10 +132,31 @@ def design_episodes(design_id: int,
     return {"design_id": design_id, "episodes": [
         {"episode_no": o["episode_no"], "title": o["title"],
          "job": ({k: jobs[o["episode_no"]][k] for k in
-                 ("state", "attempt", "manuscript_revision_id",
-                  "proposal_set_id", "last_error")}
+                 ("state", "manuscript_revision_id",
+                  "last_error", "needs_attention", "return_reason")}
                  if o["episode_no"] in jobs else None)}
         for o in outlines]}
+
+
+@router.get("/designs/{design_id}/publishing")
+def publishing_episodes(design_id: int,
+                        conn: sqlite3.Connection = Depends(get_conn),
+                        author: dict = Depends(get_current_author)):
+    """Episodes in 발간중 (for the publishing tab)."""
+    require_design(conn, design_id, author["id"])
+    jobs = state_machine.jobs_by_state(conn, design_id, "PUBLISHING")
+    out = []
+    for j in jobs:
+        issues = consistency.list_issues(conn, j["episode_no"])
+        out.append({"episode_no": j["episode_no"],
+                    "title": j.get("title") or "",
+                    "state": j["state"],
+                    "manuscript_revision_id": j.get("manuscript_revision_id"),
+                    "updated_at": j.get("updated_at", ""),
+                    "issues": {"open": sum(1 for i in issues
+                                           if i["status"] == "open"),
+                               "total": len(issues)}})
+    return {"design_id": design_id, "episodes": out}
 
 
 def _episode_title(conn: sqlite3.Connection, job: dict) -> str:

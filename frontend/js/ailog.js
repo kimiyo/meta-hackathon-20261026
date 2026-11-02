@@ -7,6 +7,7 @@ const ROLE = {
   planning: "기획", drafting: "집필", entity: "추출", verify: "검증",
   quality: "품질", idea_chat: "아이디어 대화", idea_extract: "아이디어 정리",
   design_chat: "설계 파트너", design_expand: "설계 확장",
+  consistency: "일관성 분석", "consistency-chat": "일관성 대화",
 };
 
 let calls = [];

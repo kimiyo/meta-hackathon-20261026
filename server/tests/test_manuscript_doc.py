@@ -6,7 +6,6 @@ from app import auth as authmod
 from app import db as dbmod
 from app import drafting, manuscripts, state_machine
 from app.routes.deps import get_conn, get_current_author
-from tests.test_drafting import FakeMeta
 
 
 @pytest.fixture()
@@ -18,7 +17,7 @@ def conn(tmp_path):
     c.execute("INSERT INTO episode_outlines(design_id, episode_no, title, goal,"
               " constraints_json) VALUES(1,1,'T','G','[]')")
     c.execute("INSERT INTO episode_jobs(episode_no, design_id, state, attempt,"
-              " updated_at) VALUES(1,1,'DRAFT',0,'t')")
+              " updated_at) VALUES(1,1,'WRITING',0,'t')")
     c.commit()
     yield c
     c.close()
@@ -100,7 +99,7 @@ def test_create_version_snapshots_and_adopts(conn):
     assert doc["currentVersionId"] == doc["versions"][0]["id"]
     assert doc["draft"] == "손글 원고" and doc["revision"] == 2
     fresh = state_machine.get_job(conn, 1)
-    assert fresh["state"] == "DRAFT"
+    assert fresh["state"] == "WRITING"
     assert fresh["manuscript_revision_id"] == int(doc["currentVersionId"])
 
 
@@ -152,7 +151,7 @@ def test_restore_unknown_source_raises_key_error(conn):
 
 
 def test_locked_job_rejects_writes_but_reads(conn):
-    conn.execute("UPDATE episode_jobs SET state='COMMITTED' WHERE episode_no=1")
+    conn.execute("UPDATE episode_jobs SET state='PUBLISHING' WHERE episode_no=1")
     conn.commit()
     job = _job(conn)
     assert manuscripts.get_doc(conn, 1, job, "T")["state"] == "approved"
@@ -175,42 +174,14 @@ def test_ai_revision_syncs_draft_and_label(conn):
     assert doc["currentVersionId"] == str(rev["revision_id"])
 
 
-def test_redraft_uses_working_draft_as_base(conn):
-    drafting.save_revision(conn, 1, "AI 원고 " + "가" * 5000, label="AI 초안")
-    job = _job(conn)
-    manuscripts.save_draft(conn, 1, job, "T", 1, "손글 수정 " + "나" * 5000)
-    meta = FakeMeta(["새 원고 " + "다" * 5000])
-    out = state_machine.request_change(conn, meta, 1, "마무리만 다듬어줘")
-    assert out["state"] == "DRAFT"
-    assert "손글 수정" in meta.calls[0]  # draft, not the AI revision
-    assert "AI 원고" not in meta.calls[0]
-
-
-def test_redraft_version_base_ignores_working_draft(conn):
-    drafting.save_revision(conn, 1, "AI 원고 " + "가" * 5000, label="AI 초안")
-    job = _job(conn)
-    manuscripts.save_draft(conn, 1, job, "T", 1, "손글 수정 " + "나" * 5000)
-    meta = FakeMeta(["새 원고 " + "다" * 5000])
-    out = state_machine.request_change(conn, meta, 1, "다듬어줘",
-                                       base_source="version")
-    assert out["state"] == "DRAFT"
-    assert "AI 원고" in meta.calls[0]
-    assert "손글 수정" not in meta.calls[0]
-    with pytest.raises(ValueError, match="base must be"):
-        state_machine.request_change(conn, meta, 1, "x", base_source="bogus")
-
-
-def test_approve_snapshots_approved_version(conn):
+def test_publish_snapshots_approved_version(conn):
     rev = drafting.save_revision(conn, 1, "확정 원고", label="AI 초안")
-    conn.execute("INSERT INTO change_proposals(episode_no, manuscript_revision_id,"
-                 " created_at) VALUES(1,?,'t')", (rev["revision_id"],))
-    set_id = conn.execute("SELECT last_insert_rowid() i").fetchone()["i"]
-    conn.execute("UPDATE episode_jobs SET state='READY_FOR_REVIEW',"
-                 " manuscript_revision_id=?, proposal_set_id=? WHERE episode_no=1",
-                 (rev["revision_id"], set_id))
+    conn.execute("UPDATE episode_jobs SET state='IN_REVIEW',"
+                 " manuscript_revision_id=? WHERE episode_no=1",
+                 (rev["revision_id"],))
     conn.commit()
-    out = state_machine.approve_episode(conn, 1)
-    assert out["state"] == "COMMITTED"
+    out = state_machine.request_publish(conn, 1)
+    assert out["state"] == "PUBLISHING"
     doc = manuscripts.get_doc(conn, 1, _job(conn), "T")
     assert doc["state"] == "approved"
     assert doc["approvedVersionId"] == str(rev["revision_id"])
@@ -251,7 +222,7 @@ def _mkjob(c, db_path):
     conn.execute("INSERT INTO episode_outlines(design_id, episode_no, title, goal,"
                  " constraints_json) VALUES(? ,1,'제1화','G','[]')", (did,))
     conn.execute("INSERT INTO episode_jobs(episode_no, design_id, state, attempt,"
-                 " updated_at) VALUES(1,?, 'DRAFT',0,'t')", (did,))
+                 " updated_at) VALUES(1,?, 'WRITING',0,'t')", (did,))
     conn.commit()
     conn.close()
 
@@ -292,7 +263,7 @@ def test_doc_api_locked_returns_423(client):
     c, db_path = client
     _mkjob(c, db_path)
     conn = dbmod.connect(db_path)
-    conn.execute("UPDATE episode_jobs SET state='COMMITTED' WHERE episode_no=1")
+    conn.execute("UPDATE episode_jobs SET state='PUBLISHING' WHERE episode_no=1")
     conn.commit()
     conn.close()
     r = c.get("/api/v1/episodes/1/manuscript-doc")

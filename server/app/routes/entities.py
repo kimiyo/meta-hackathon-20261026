@@ -4,11 +4,9 @@ from __future__ import annotations
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from .. import memory
-from .deps import (get_conn, get_current_author,
-                       require_episode_job)
+from .deps import get_conn, get_current_author
 
 router = APIRouter(prefix="/api/v1", tags=["memory"])
 
@@ -42,43 +40,4 @@ def entity_history(entity_id: str, from_episode: int | None = None,
             "history": memory.entity_history(conn, entity_id, from_episode, to_episode)}
 
 
-@router.get("/episodes/{episode_no}/proposals")
-def episode_proposals(episode_no: int,
-                      conn: sqlite3.Connection = Depends(get_conn),
-                  author: dict = Depends(get_current_author)):
-    require_episode_job(conn, episode_no, author["id"])
-    return {"episode_no": episode_no,
-            "items": memory.get_proposals(conn, episode_no)}
 
-
-@router.get("/aliases")
-def list_aliases(status: str | None = None,
-                 conn: sqlite3.Connection = Depends(get_conn),
-                  author: dict = Depends(get_current_author)):
-    sql = ("SELECT a.*, e.canonical_name FROM entity_aliases a"
-           " LEFT JOIN entities e ON e.entity_id=a.entity_id WHERE 1=1")
-    args: list = []
-    if status:
-        sql += " AND a.status=?"
-        args.append(status)
-    sql += " ORDER BY a.alias_id DESC"
-    return {"aliases": [dict(r) for r in conn.execute(sql, args)]}
-
-
-class AliasResolve(BaseModel):
-    entity_id: str | None = None  # None → register as new entity
-    basis: str = ""
-    reject: bool = False
-
-
-@router.post("/aliases/{alias_id}/resolve")
-def alias_resolve(alias_id: int, body: AliasResolve,
-                  conn: sqlite3.Connection = Depends(get_conn),
-                  author: dict = Depends(get_current_author)):
-    try:
-        if body.reject:
-            return memory.reject_alias(conn, alias_id, body.basis)
-        return memory.resolve_alias(conn, alias_id, entity_id=body.entity_id,
-                                    basis=body.basis)
-    except KeyError as e:
-        raise HTTPException(404, str(e))

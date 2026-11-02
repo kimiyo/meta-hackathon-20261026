@@ -109,21 +109,45 @@ export const api = {
       body: JSON.stringify(body),
     }),
   designEpisodes: (designId) => req(`/designs/${designId}/episodes`),
+  publishingEpisodes: (designId) => req(`/designs/${designId}/publishing`),
   episode: (no) => req(`/episodes/${no}`),
-  advance: (no, designId) =>
-    req(`/episodes/${no}/advance`, {
+  startEpisode: (no, designId) =>
+    req(`/episodes/${no}/start`, {
       method: "POST",
-      body: JSON.stringify({ design_id: designId ?? null }),
+      body: JSON.stringify({ design_id: designId }),
     }),
-  revertEpisode: (no) =>
-    req(`/episodes/${no}/revert`, { method: "POST" }),
+  submitReview: (no) =>
+    req(`/episodes/${no}/submit-review`, { method: "POST" }),
+  backToWriting: (no, reason) =>
+    req(`/episodes/${no}/back-to-writing`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason ?? "" }),
+    }),
+  requestPublish: (no) =>
+    req(`/episodes/${no}/request-publish`, { method: "POST" }),
   manuscript: (no, version) =>
     req(`/episodes/${no}/manuscript${version ? `?version=${version}` : ""}`),
-  requestChange: (no, instruction, full, base) =>
-    req(`/episodes/${no}/request-change`, {
+  consistencyAnalyze: (no) =>
+    req(`/episodes/${no}/consistency/analyze`, { method: "POST" }),
+  consistencyMessages: (no) =>
+    req(`/episodes/${no}/consistency/messages`),
+  consistencyChat: (no, message) =>
+    req(`/episodes/${no}/consistency/chat`, {
       method: "POST",
-      body: JSON.stringify({ instruction: instruction ?? "", full: !!full,
-                             base: base ?? "draft" }),
+      body: JSON.stringify({ message }),
+    }),
+  consistencyIssues: (no, status) =>
+    req(`/episodes/${no}/consistency/issues${status ? `?status=${status}` : ""}`),
+  setIssueStatus: (id, status) =>
+    req(`/consistency/issues/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+  memoryDraft: (no) => req(`/episodes/${no}/memory-draft`),
+  saveMemoryDraft: (no, content) =>
+    req(`/episodes/${no}/memory-draft`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
     }),
   manuscriptDoc: (no) => req(`/episodes/${no}/manuscript-doc`),
   saveManuscriptDraft: (no, body) =>
@@ -138,15 +162,9 @@ export const api = {
     reqEx(`/episodes/${no}/manuscript-restore`, {
       method: "POST", body: JSON.stringify(body), timeoutMs: 15000,
     }),
-  draftRequests: (no) => req(`/episodes/${no}/draft-requests`),
-  approveEpisode: (no) => req(`/episodes/${no}/approve`, { method: "POST" }),
-  proposals: (no) => req(`/episodes/${no}/proposals`),
   entities: (q) => req(`/entities${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   entityState: (id, ep) => req(`/entities/${id}/state?as_of_episode=${ep}`),
   entityHistory: (id) => req(`/entities/${id}/history`),
-  aliases: (status) => req(`/aliases${status ? `?status=${status}` : ""}`),
-  resolveAlias: (id, body) =>
-    req(`/aliases/${id}/resolve`, { method: "POST", body: JSON.stringify(body) }),
   llmCalls: () => req("/ops/llm-calls?limit=20"),
   opsBudget: () => req("/ops/budget"),
   model: () => req("/ops/model"),

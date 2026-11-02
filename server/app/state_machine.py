@@ -1,20 +1,19 @@
-"""Episode state machine (§7). The program performs transitions;
-the LLM never decides the next state.
+"""Episode state machine: WRITING → IN_REVIEW → PUBLISHING.
 
-MVP: PLAN → DRAFT → VERIFY → READY_FOR_REVIEW → AUTHOR_APPROVED → COMMITTED,
-with VERIFY→DRAFT loops and NEEDS_AUTHOR escalation. Phase 4 wires PLAN→DRAFT;
-later phases add the remaining transitions.
+집필중 → 검토중 → 발간중. No automatic gates: the author moves the
+episode forward, sends it back for fixes, or requests publishing.
+Errors (budget, LLM failures) are not states; they set needs_attention
+with last_error so the author can see and retry.
 """
 from __future__ import annotations
 
 import sqlite3
 
-from . import drafting, extraction, memory, quality, verification
+from . import drafting, memory
 from .db import now_iso
 from .errors import BudgetExceeded, LLMStepError
 
-STATES = ("PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED",
-          "COMMITTED", "NEEDS_AUTHOR")
+STATES = ("WRITING", "IN_REVIEW", "PUBLISHING")
 
 
 def get_job(conn: sqlite3.Connection, episode_no: int) -> dict | None:
@@ -27,329 +26,153 @@ def _save_job(conn, job: dict) -> None:
     conn.execute(
         "INSERT INTO episode_jobs(episode_no, design_id, state, attempt,"
         " manuscript_revision_id, proposal_set_id, last_error, fix_instruction,"
-        " quality_json, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)"
+        " quality_json, needs_attention, return_reason, updated_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"
         " ON CONFLICT(episode_no) DO UPDATE SET state=excluded.state,"
         " attempt=excluded.attempt, manuscript_revision_id=excluded.manuscript_revision_id,"
         " proposal_set_id=excluded.proposal_set_id, last_error=excluded.last_error,"
         " fix_instruction=excluded.fix_instruction,"
-        " quality_json=excluded.quality_json, updated_at=excluded.updated_at",
+        " quality_json=excluded.quality_json,"
+        " needs_attention=excluded.needs_attention,"
+        " return_reason=excluded.return_reason, updated_at=excluded.updated_at",
         (job["episode_no"], job["design_id"], job["state"], job["attempt"],
          job.get("manuscript_revision_id"), job.get("proposal_set_id"),
          job.get("last_error", ""), job.get("fix_instruction", ""),
-         job.get("quality_json", "{}"), now_iso()))
+         job.get("quality_json", "{}"),
+         job.get("needs_attention", 0), job.get("return_reason", ""),
+         now_iso()))
     conn.commit()
 
 
-def advance(conn, meta, episode_no: int, *, design_id: int | None = None,
-            max_tokens: int = 8000, retry_limit: int = 3) -> dict:
-    """Move one step forward. Not idempotent: repeats consume retry budget."""
+def _fail(conn, job: dict, message: str) -> dict:
+    job["needs_attention"] = 1
+    job["last_error"] = message[:300]
+    _save_job(conn, job)
+    return {"episode_no": job["episode_no"], **_public(job)}
+
+
+def start_writing(conn, meta, episode_no: int, *, design_id: int,
+                max_tokens: int = 8000) -> dict:
+    """미시작 → 집필중: AI 초안을 생성하고 집필을 시작한다."""
     job = get_job(conn, episode_no)
-    if job is None:
-        if design_id is None:
-            raise ValueError("design_id required on first advance")
-        design = conn.execute("SELECT * FROM story_designs WHERE id=?",
-                              (design_id,)).fetchone()
-        if not design:
-            raise KeyError(f"design {design_id} not found")
-        job = {"episode_no": episode_no, "design_id": design_id, "state": "PLAN",
-               "attempt": 0, "manuscript_revision_id": None,
-               "proposal_set_id": None, "last_error": ""}
-    if job["attempt"] >= retry_limit and job["state"] not in ("COMMITTED",):
-        job["state"] = "NEEDS_AUTHOR"
-        job["last_error"] = f"retry limit {retry_limit} reached"
-        _save_job(conn, job)
-        return {"episode_no": episode_no, **_public(job)}
-
-    state = job["state"]
-    if state == "PLAN":
-        return _run_draft(conn, meta, job, max_tokens)
-    if state == "DRAFT":
-        return _run_verify_batch(conn, meta, job, max_tokens)
-    if state == "VERIFY":
-        return _gate_verify(conn, job, retry_limit)
-    if state in ("READY_FOR_REVIEW", "AUTHOR_APPROVED", "COMMITTED", "NEEDS_AUTHOR"):
-        return {"episode_no": episode_no, **_public(job), "note": "no forward step"}
-    raise ValueError(f"unknown state {state}")
-
-
-def _run_draft(conn, meta, job: dict, max_tokens: int) -> dict:
-    episode_no = job["episode_no"]
+    if job is not None:
+        raise ValueError(f"episode {episode_no} already started"
+                         f" ({job['state']})")
+    design = conn.execute("SELECT * FROM story_designs WHERE id=?",
+                          (design_id,)).fetchone()
+    if not design:
+        raise KeyError(f"design {design_id} not found")
+    job = {"episode_no": episode_no, "design_id": design_id,
+           "state": "WRITING", "attempt": 0, "manuscript_revision_id": None,
+           "proposal_set_id": None, "last_error": "",
+           "needs_attention": 0, "return_reason": ""}
     try:
-        design = conn.execute("SELECT * FROM story_designs WHERE id=?",
-                              (job["design_id"],)).fetchone()
         rev = drafting.draft_episode(
-            meta, conn, design_id=job["design_id"],
+            meta, conn, design_id=design_id,
             work_id=design["work_id"], episode_no=episode_no,
-            author_instruction=job.get("fix_instruction", "") or "",
             max_tokens=max_tokens)
     except BudgetExceeded as e:
-        job["state"] = "NEEDS_AUTHOR"
         job["last_error"] = f"budget_exceeded: {e}"[:300]
+        job["needs_attention"] = 1
         _save_job(conn, job)
         return {"episode_no": episode_no, **_public(job)}
     except LLMStepError as e:
-        job["attempt"] += 1  # failed step stays in state, consumes retry
         job["last_error"] = f"{e.reason}: {e.detail}"[:300]
+        job["needs_attention"] = 1
         _save_job(conn, job)
         raise
-    job["state"] = "DRAFT"
     job["manuscript_revision_id"] = rev["revision_id"]
-    job["last_error"] = ""
-    job["fix_instruction"] = ""
     _save_job(conn, job)
     return {"episode_no": episode_no, **_public(job), "revision": rev}
 
 
-def _work_of(conn, design_id: int) -> int | None:
-    row = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
-                       (design_id,)).fetchone()
-    return row["work_id"] if row else None
+def submit_for_review(conn, episode_no: int) -> dict:
+    """집필중 → 검토중: 작가의 검토를 요청한다."""
+    job = get_job(conn, episode_no)
+    if not job:
+        raise KeyError(f"episode {episode_no} has no job")
+    if job["state"] != "WRITING":
+        raise ValueError(f"submit needs WRITING, got {job['state']}")
+    if not job.get("manuscript_revision_id"):
+        raise ValueError("no manuscript to review yet")
+    job["state"] = "IN_REVIEW"
+    job["return_reason"] = ""
+    job["needs_attention"] = 0
+    job["last_error"] = ""
+    _save_job(conn, job)
+    return {"episode_no": episode_no, **_public(job)}
 
 
-def _extract_and_verify(conn, meta, episode_no: int, design_id: int,
-                        revision_id: int, manuscript: str,
-                        max_tokens: int) -> tuple[dict, dict]:
-    # Discard any stale pending set for this revision before regenerating.
-    for ps in conn.execute(
-            "SELECT proposal_set_id FROM change_proposals"
-            " WHERE episode_no=? AND manuscript_revision_id=? AND status='pending'",
-            (episode_no, revision_id)):
-        memory.discard_proposal_set(conn, ps["proposal_set_id"])
-    ext = extraction.extract_changes(
-        meta, conn, episode_no=episode_no, revision_id=revision_id,
-        manuscript=manuscript, max_tokens=max_tokens,
-        work_id=_work_of(conn, design_id))
-    outline = drafting.get_outline(conn, design_id, episode_no)
-    ver = verification.verify_proposals(
-        meta, conn, episode_no=episode_no, revision_id=revision_id,
-        proposal_set_id=ext["proposal_set_id"], manuscript=manuscript,
-        world_rules=outline.get("constraints", []), max_tokens=max_tokens,
-        work_id=_work_of(conn, design_id))
-    return ext, ver
+def back_to_writing(conn, episode_no: int, reason: str = "") -> dict:
+    """검토중 → 집필중: 수정이 필요해 집필 화면으로 되돌린다."""
+    job = get_job(conn, episode_no)
+    if not job:
+        raise KeyError(f"episode {episode_no} has no job")
+    if job["state"] != "IN_REVIEW":
+        raise ValueError(f"back-to-writing needs IN_REVIEW, got {job['state']}")
+    job["state"] = "WRITING"
+    job["return_reason"] = (reason or "")[:500]
+    job["needs_attention"] = 0
+    _save_job(conn, job)
+    return {"episode_no": episode_no, **_public(job)}
 
 
-def _run_verify_batch(conn, meta, job: dict, max_tokens: int) -> dict:
-    """DRAFT→VERIFY: extraction → verification → quality in one batch.
+def request_publish(conn, episode_no: int) -> dict:
+    """검토중 → 발간중: 원고를 확정하고 기억을 반영한다.
 
-    If proofreading produces a new revision, extraction+verification re-run
-    once on the new text so the reviewed text is exactly the verified text.
+    열린(open) 일관성 이슈가 남아 있으면 차단된다.
     """
-    import json as _json
+    from . import consistency, manuscripts
 
-    episode_no = job["episode_no"]
+    job = get_job(conn, episode_no)
+    if not job:
+        raise KeyError(f"episode {episode_no} has no job")
+    if job["state"] != "IN_REVIEW":
+        raise ValueError(f"publish needs IN_REVIEW, got {job['state']}")
+    open_issues = consistency.open_count(conn, episode_no)
+    if open_issues:
+        raise ValueError(f"{open_issues} open consistency issues remain")
     try:
-        rev_row = conn.execute(
-            "SELECT * FROM manuscript_revisions WHERE revision_id=?",
-            (job["manuscript_revision_id"],)).fetchone()
-        outline = drafting.get_outline(conn, job["design_id"], episode_no)
-        ext, ver = _extract_and_verify(
-            conn, meta, episode_no, job["design_id"],
-            job["manuscript_revision_id"], rev_row["text"], max_tokens)
-        qual = quality.run_quality(
-            meta, conn, episode_no=episode_no,
-            revision_id=job["manuscript_revision_id"],
-            manuscript=rev_row["text"], outline=outline, max_tokens=max_tokens,
-            work_id=_work_of(conn, job["design_id"]))
-        if qual["new_revision"]:
-            job["manuscript_revision_id"] = qual["new_revision"]["revision_id"]
-            ext, ver = _extract_and_verify(
-                conn, meta, episode_no, job["design_id"],
-                job["manuscript_revision_id"], qual["manuscript"], max_tokens)
-    except BudgetExceeded as e:
-        job["state"] = "NEEDS_AUTHOR"
-        job["last_error"] = f"budget_exceeded: {e}"[:300]
-        _save_job(conn, job)
-        return {"episode_no": episode_no, **_public(job)}
-    except LLMStepError as e:
-        job["attempt"] += 1
-        job["last_error"] = f"{e.reason}: {e.detail}"[:300]
+        if job.get("proposal_set_id"):
+            result = memory.commit_episode(
+                conn, episode_no=episode_no,
+                revision_id=job["manuscript_revision_id"],
+                proposal_set_id=job["proposal_set_id"])
+        else:
+            result = memory.commit_manuscript_only(
+                conn, episode_no=episode_no,
+                revision_id=job["manuscript_revision_id"])
+    except Exception:
+        job["needs_attention"] = 1
+        job["last_error"] = "publish commit failed"
         _save_job(conn, job)
         raise
-    job["state"] = "VERIFY"
-    job["proposal_set_id"] = ext["proposal_set_id"]
+    memory.mark_stale_from(conn, episode_no)
+    job["state"] = "PUBLISHING"
     job["last_error"] = ""
-    job["quality_json"] = _json.dumps(
-        {"scores": qual["scores"], "issues": qual["issues"],
-         "edits_applied": qual["edits_applied"],
-         "gate_pass": qual["gate_pass"]}, ensure_ascii=False)
+    job["needs_attention"] = 0
     _save_job(conn, job)
-    return {"episode_no": episode_no, **_public(job),
-            "extraction": ext, "verification": ver,
-            "quality": {k: qual[k] for k in
-                        ("scores", "issues", "edits_applied", "gate_pass")}}
+    manuscripts.snapshot_approval(conn, episode_no,
+                                job["manuscript_revision_id"])
+    return {"episode_no": episode_no, **_public(job), "commit": result}
 
 
-def _gate_verify(conn, job: dict, retry_limit: int) -> dict:
-    """VERIFY resting-state decision (no AI): error/quality→DRAFT,
-    else READY/NEEDS_AUTHOR."""
-    import json as _json
-
-    episode_no = job["episode_no"]
-    items = [i for i in memory.get_proposals(conn, episode_no)
-             if i["proposal_set_id"] == job["proposal_set_id"]]
-    counts: dict[str, int] = {}
-    for i in items:
-        counts[i["validation"]] = counts.get(i["validation"], 0) + 1
-    qual = _json.loads(job.get("quality_json") or "{}")
-    if counts.get("error", 0) > 0 or not qual.get("gate_pass", True):
-        memory.discard_proposal_set(conn, job["proposal_set_id"])
-        if counts.get("error", 0) > 0:
-            job["fix_instruction"] = verification.build_fix_instruction(
-                conn, episode_no, job["proposal_set_id"])
-            job["last_error"] = (f"verify errors: {counts.get('error', 0)},"
-                                 " redrafting")
-        else:
-            job["fix_instruction"] = quality.build_quality_fix(
-                qual.get("issues", []), qual.get("scores", {}))
-            job["last_error"] = "quality gate failed, redrafting"
-        job["proposal_set_id"] = None
-        job["attempt"] += 1
-        job["state"] = "DRAFT"
-        _save_job(conn, job)
-        return {"episode_no": episode_no, **_public(job), "counts": counts}
-    if counts.get("deferred", 0) > 0 or job["attempt"] >= retry_limit:
-        job["state"] = "NEEDS_AUTHOR"
-        job["last_error"] = ("deferred items need author review"
-                             if counts.get("deferred", 0) > 0
-                             else f"retry limit {retry_limit} reached")
-        _save_job(conn, job)
-        return {"episode_no": episode_no, **_public(job), "counts": counts}
-    job["state"] = "READY_FOR_REVIEW"
-    job["last_error"] = ""
-    _save_job(conn, job)
-    return {"episode_no": episode_no, **_public(job), "counts": counts}
+def jobs_by_state(conn, design_id: int, state: str) -> list[dict]:
+    if state not in STATES:
+        raise ValueError(f"unknown state {state}")
+    rows = conn.execute(
+        "SELECT j.*, o.title FROM episode_jobs j"
+        " LEFT JOIN episode_outlines o ON o.design_id=j.design_id"
+        " AND o.episode_no=j.episode_no"
+        " WHERE j.design_id=? AND j.state=? ORDER BY j.episode_no",
+        (design_id, state)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def _public(job: dict) -> dict:
     return {"state": job["state"], "attempt": job["attempt"],
             "manuscript_revision_id": job.get("manuscript_revision_id"),
             "proposal_set_id": job.get("proposal_set_id"),
-            "last_error": job.get("last_error", "")}
-
-
-def request_change(conn, meta, episode_no: int, instruction: str, *,
-                   full: bool = False, max_tokens: int = 8000,
-                   base_source: str = "draft") -> dict:
-    """DRAFT/READY: author asks for changes → immediate redraft.
-
-    Lands in DRAFT either way; the new revision is verified by the next
-    advance. Every attempt is logged to draft_requests (failures too).
-    Validation failures (blank instruction, bad @L range) change nothing."""
-    job = get_job(conn, episode_no)
-    if not job:
-        raise KeyError(f"episode {episode_no} has no job")
-    if job["state"] not in ("DRAFT", "READY_FOR_REVIEW"):
-        raise ValueError(
-            "request-change needs DRAFT or READY_FOR_REVIEW"
-            f" got {job['state']}")
-    rev_row = None
-    if job.get("manuscript_revision_id"):
-        rev_row = conn.execute(
-            "SELECT * FROM manuscript_revisions WHERE revision_id=?",
-            (job["manuscript_revision_id"],)).fetchone()
-    if rev_row is None:
-        rev_row = conn.execute(
-            "SELECT * FROM manuscript_revisions WHERE episode_no=?"
-            " ORDER BY version DESC LIMIT 1", (episode_no,)).fetchone()
-    if base_source not in ("draft", "version"):
-        raise ValueError("base must be 'draft' or 'version'")
-    from . import manuscripts
-    rev_text = rev_row["text"] if rev_row else ""
-    base_text = manuscripts.draft_base(conn, episode_no, rev_text) \
-        if base_source == "draft" else rev_text
-    base_version = rev_row["version"] if rev_row else None
-    design = conn.execute("SELECT * FROM story_designs WHERE id=?",
-                          (job["design_id"],)).fetchone()
-    try:
-        out = drafting.redraft_episode(
-            meta, conn, design_id=job["design_id"],
-            work_id=design["work_id"], episode_no=episode_no,
-            base_text=base_text, base_version=base_version,
-            instruction=instruction, full=full or not base_text,
-            max_tokens=max_tokens)
-    except BudgetExceeded as e:
-        job["state"] = "NEEDS_AUTHOR"
-        job["last_error"] = f"budget_exceeded: {e}"[:300]
-        _save_job(conn, job)
-        drafting.log_draft_request(
-            conn, episode_no, instruction=instruction or "",
-            resolved=[], unknown=[], full=full,
-            base_version=base_version, error=job["last_error"])
-        return {"episode_no": episode_no, **_public(job)}
-    except LLMStepError:
-        job["attempt"] += 1
-        job["last_error"] = "redraft failed: manuscript_invalid"
-        _save_job(conn, job)
-        drafting.log_draft_request(
-            conn, episode_no, instruction=instruction or "",
-            resolved=[], unknown=[], full=full,
-            base_version=base_version, error=job["last_error"])
-        raise
-    if job["proposal_set_id"]:
-        memory.discard_proposal_set(conn, job["proposal_set_id"])
-    job["proposal_set_id"] = None
-    job["state"] = "DRAFT"
-    job["manuscript_revision_id"] = out["revision_id"]
-    job["last_error"] = ""
-    job["fix_instruction"] = ""
-    _save_job(conn, job)
-    drafting.log_draft_request(
-        conn, episode_no, instruction=instruction or "",
-        resolved=out["resolved_refs"], unknown=out["unknown_refs"],
-        full=full, base_version=base_version,
-        result_version=out["version"])
-    return {"episode_no": episode_no, **_public(job), "revision": out,
-            "unknown_refs": out["unknown_refs"]}
-
-
-def revert_to_draft(conn, episode_no: int) -> dict:
-    """Author-driven step back: VERIFY or NEEDS_AUTHOR → DRAFT.
-
-    Discards the pending proposal set (verification reruns on next advance).
-    Consumes no attempt: this is an author decision, not a failure. Resuming
-    from NEEDS_AUTHOR restarts the attempt budget the author just reviewed.
-    """
-    job = get_job(conn, episode_no)
-    if not job:
-        raise KeyError(f"episode {episode_no} has no job")
-    if job["state"] not in ("VERIFY", "NEEDS_AUTHOR"):
-        raise ValueError(f"revert needs VERIFY or NEEDS_AUTHOR, got {job['state']}")
-    if job["proposal_set_id"]:
-        memory.discard_proposal_set(conn, job["proposal_set_id"])
-    job["proposal_set_id"] = None
-    if job["state"] == "NEEDS_AUTHOR":
-        job["attempt"] = 0
-    job["state"] = "DRAFT"
-    job["last_error"] = ""
-    job["fix_instruction"] = ""
-    _save_job(conn, job)
-    return {"episode_no": episode_no, **_public(job)}
-
-
-def approve_episode(conn, episode_no: int) -> dict:
-    """READY→AUTHOR_APPROVED→COMMITTED: atomic manuscript+memory commit."""
-    job = get_job(conn, episode_no)
-    if not job:
-        raise KeyError(f"episode {episode_no} has no job")
-    if job["state"] != "READY_FOR_REVIEW":
-        raise ValueError(f"approve needs READY_FOR_REVIEW, got {job['state']}")
-    job["state"] = "AUTHOR_APPROVED"
-    _save_job(conn, job)
-    try:
-        result = memory.commit_episode(
-            conn, episode_no=episode_no,
-            revision_id=job["manuscript_revision_id"],
-            proposal_set_id=job["proposal_set_id"])
-    except Exception:
-        job["state"] = "READY_FOR_REVIEW"  # commit failed: back to review
-        _save_job(conn, job)
-        raise
-    stale = memory.mark_stale_from(conn, episode_no)
-    job["state"] = "COMMITTED"
-    job["last_error"] = ""
-    _save_job(conn, job)
-    from . import manuscripts
-    manuscripts.snapshot_approval(conn, episode_no,
-                                job["manuscript_revision_id"])
-    return {"episode_no": episode_no, **_public(job), "commit": result,
-            "marked_stale": stale}
+            "last_error": job.get("last_error", ""),
+            "needs_attention": job.get("needs_attention", 0),
+            "return_reason": job.get("return_reason", "")}

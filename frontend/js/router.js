@@ -4,12 +4,14 @@
 //   #/novels/{uid}/design   소설 설계
 //   #/novels/{uid}/monitor  집필
 //   #/novels/{uid}/review   작가 검토
+//   #/novels/{uid}/publish  발간중
 //   #/novels/{uid}/entities 설정
 export const SCREENS = {
   ideas: "ideas",
   design: "sdesign",
   monitor: "s2",
   review: "s3",
+  publish: "s5",
   entities: "s4",
 };
 
