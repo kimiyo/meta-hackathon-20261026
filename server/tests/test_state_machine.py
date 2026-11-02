@@ -39,7 +39,7 @@ def test_draft_design_advances_without_approval(conn):
 
 
 def test_repeat_failed_advance_consumes_attempt(conn):
-    meta = FakeMeta(["짧다", "짧다"])
+    meta = FakeMeta(["짧다"] * 8)
     for _ in range(2):
         with pytest.raises(LLMStepError):
             state_machine.advance(conn, meta, 1, design_id=1)
@@ -48,7 +48,7 @@ def test_repeat_failed_advance_consumes_attempt(conn):
 
 
 def test_invalid_manuscript_records_error_and_retries(conn):
-    meta = FakeMeta(["짧다"])
+    meta = FakeMeta(["짧다"] * 4)
     with pytest.raises(LLMStepError, match="manuscript_invalid"):
         state_machine.advance(conn, meta, 1, design_id=1)
     job = state_machine.get_job(conn, 1)

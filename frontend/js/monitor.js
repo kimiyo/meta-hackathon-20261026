@@ -29,6 +29,7 @@ let msPanel = null;
 let msPanelEp = null;
 let msPanelUiState = null;
 let msDoc = null;
+let followLatestAfterChat = false;
 
 function setBusy(v) {
   busy = v;
@@ -190,10 +191,15 @@ function mountPanel() {
     loadDocument: manuscriptLoader(detail.ep),
     onQuoteToChat: insertLinePin,
     onHint: setChatHint,
-    restoreState: msPanelEp === detail.ep ? msPanelUiState : null,
+    restoreState: msPanelEp === detail.ep
+      ? (followLatestAfterChat && msPanelUiState
+        ? { ...msPanelUiState, selected: null }
+        : msPanelUiState)
+      : null,
   });
   msPanelEp = detail.ep;
   msPanelUiState = null;
+  followLatestAfterChat = false;
 }
 
 // 원고 미저장분을 저장한 뒤 패널을 닫는다. 실패하면 false(화면 전환 중단).
@@ -363,6 +369,8 @@ async function sendChat() {
       const out = await api.requestChange(detail.ep, instruction, full, base);
       input.value = "";
       await load(currentDesignId());
+      // 수정대화 성공: 새 결과를 바로 보여주도록 최신 버전으로 이동.
+      followLatestAfterChat = true;
       await fetchDetail(detail.ep);
       await refreshBudgetChips();
       if (out.unknown_refs?.length) setChatHint(`못 찾은 참조: @${out.unknown_refs.join(" @")}`);

@@ -33,17 +33,108 @@ export function refreshWorkPill() {
   pill.textContent = work ? work.title : "작품 없음";
 }
 
+function setNovelTab(style) {
+  $("novel-tab-general").setAttribute("aria-selected", style ? "false" : "true");
+  $("novel-tab-style").setAttribute("aria-selected", style ? "true" : "false");
+  $("novel-panel-general").hidden = style;
+  $("novel-panel-style").hidden = !style;
+  $("btn-novel-info-save").style.display = style ? "none" : "";
+  if (style) autogrowStyleEditors();
+}
+
 function openNovelInfo() {
   if (!work) return;
   $("novel-info-title-input").value = work.title;
   showError("novel-info-dialog-error", "");
+  setNovelTab(false);
   $("novel-info-dialog-backdrop").style.display = "";
   $("novel-info-title-input").focus();
   $("novel-info-title-input").select();
   loadNovelStyle();
 }
 
-async function loadNovelStyle() {
+function styleValue(p) {
+  return p.kind === "custom" ? `c:${p.id}` : `s:${p.key}`;
+}
+
+function allStyles() {
+  const sys = (workStyle?.presets ?? []).map((p) => ({ ...p, kind: "system" }));
+  const own = (workStyle?.custom_styles ?? []).map((s) => ({
+    kind: "custom", id: s.id, key: null, label: s.name, description: "",
+    pov: s.pov, diction: s.diction, feedback: s.feedback,
+  }));
+  return [...sys, ...own];
+}
+
+function selectedStyle() {
+  const v = $("novel-info-preset-select").value;
+  return allStyles().find((p) => styleValue(p) === v) ?? null;
+}
+
+function editorVoice() {
+  return { pov: $("novel-style-pov").value, diction: $("novel-style-diction").value,
+           feedback: $("novel-style-feedback").value };
+}
+
+function editorDirty() {
+  const p = selectedStyle();
+  if (!p) return false;
+  const e = editorVoice();
+  if (p.kind === "custom" && $("novel-style-name").value.trim() !== p.label) return true;
+  return e.pov !== (p.pov ?? "") || e.diction !== (p.diction ?? "") ||
+    e.feedback !== (p.feedback ?? "");
+}
+
+function setStyleHint(text) {
+  $("novel-style-hint").textContent = text ?? "";
+}
+
+function renderStyleList(keepValue) {
+  const sel = $("novel-info-preset-select");
+  const sys = (workStyle?.presets ?? [])
+    .map((p) => `<option value="s:${esc(p.key)}">${esc(p.label)}</option>`).join("");
+  const own = (workStyle?.custom_styles ?? [])
+    .map((s) => `<option value="c:${s.id}">${esc(s.name)}</option>`).join("");
+  sel.innerHTML = `<optgroup label="시스템 스타일">${sys}</optgroup>` +
+    (own ? `<optgroup label="내 스타일">${own}</optgroup>` : "");
+  const current = workStyle?.custom_style_id != null
+    ? `c:${workStyle.custom_style_id}` : `s:${workStyle?.preset}`;
+  sel.value = [...sel.options].some((o) => o.value === keepValue) ? keepValue
+    : [...sel.options].some((o) => o.value === current) ? current
+    : sel.options[0]?.value ?? "";
+  fillStyleEditor();
+}
+
+function autogrowStyleEditors() {
+  for (const id of ["novel-style-pov", "novel-style-diction", "novel-style-feedback"]) {
+    const el = $(id);
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }
+}
+
+function fillStyleEditor() {
+  const p = selectedStyle();
+  $("novel-info-preset-desc").textContent = p?.description ?? "";
+  $("novel-style-name").value = p?.kind === "custom" ? p.label : "";
+  $("novel-style-pov").value = p?.pov ?? "";
+  $("novel-style-diction").value = p?.diction ?? "";
+  $("novel-style-feedback").value = p?.feedback ?? "";
+  const own = p?.kind === "custom";
+  $("btn-style-update").disabled = !own;
+  $("btn-style-delete").disabled = !own;
+  autogrowStyleEditors();
+}
+
+function renderStyleCurrent() {
+  $("novel-style-current").textContent = workStyle?.custom_style_id != null
+    ? (workStyle.custom_style_name ?? "(삭제됨)") + " (내 스타일)"
+    : (workStyle?.presets ?? []).find((p) => p.key === workStyle?.preset)?.label
+      ?? workStyle?.preset ?? "-";
+}
+
+async function loadNovelStyle(keepValue) {
+  const keep = keepValue ?? $("novel-info-preset-select").value ?? "";
   workStyle = null;
   $("novel-info-length-min").value = "";
   $("novel-info-length-max").value = "";
@@ -55,20 +146,84 @@ async function loadNovelStyle() {
     $("novel-info-length-min").value = workStyle.length_min;
     $("novel-info-length-max").value = workStyle.length_max;
     $("novel-info-length-hint").textContent = workStyle.is_default ? "(기본값)" : "";
-    $("novel-info-preset-select").innerHTML = (workStyle.presets ?? [])
-      .map((p) => `<option value="${esc(p.key)}">${esc(p.label)}</option>`).join("");
-    $("novel-info-preset-select").value = workStyle.preset;
-    updatePresetDesc();
+    renderStyleList(keep);
+    renderStyleCurrent();
   } catch (e) {
     $("novel-info-length-hint").textContent = "";
     showError("novel-info-dialog-error", `소설 설정을 불러오지 못했습니다: ${e}`);
   }
 }
 
-function updatePresetDesc() {
-  const key = $("novel-info-preset-select").value;
-  const p = (workStyle?.presets ?? []).find((x) => x.key === key);
-  $("novel-info-preset-desc").textContent = p ? p.description : "";
+async function saveCustomStyleAsNew() {
+  const name = $("novel-style-name").value.trim();
+  if (!name) {
+    setStyleHint("새 스타일 이름을 입력하세요.");
+    $("novel-style-name").focus();
+    return;
+  }
+  setStyleHint("저장 중…");
+  try {
+    const row = await api.createStyleCustom({ name, ...editorVoice() });
+    setStyleHint(`'${row.name}' 저장됨.`);
+    await loadNovelStyle(`c:${row.id}`);
+  } catch (e) {
+    setStyleHint(`저장 실패: ${e.message ?? e}`);
+  }
+}
+
+async function updateCustomStyle() {
+  const p = selectedStyle();
+  if (p?.kind !== "custom") return;
+  const name = $("novel-style-name").value.trim();
+  if (!name) {
+    setStyleHint("스타일 이름을 입력하세요.");
+    return;
+  }
+  setStyleHint("저장 중…");
+  try {
+    const row = await api.patchStyleCustom(p.id, { name, ...editorVoice() });
+    setStyleHint(`'${row.name}' 저장됨.`);
+    await loadNovelStyle(`c:${row.id}`);
+  } catch (e) {
+    setStyleHint(`저장 실패: ${e.message ?? e}`);
+  }
+}
+
+async function deleteCustomStyle() {
+  const p = selectedStyle();
+  if (p?.kind !== "custom") return;
+  if (!window.confirm(`'${p.label}' 스타일을 삭제할까요? 사용 중인 소설은 기본 스타일로 바뀝니다.`)) return;
+  setStyleHint("삭제 중…");
+  try {
+    const out = await api.deleteStyleCustom(p.id);
+    const wasInUse = workStyle?.custom_style_id === p.id;
+    await loadNovelStyle();
+    setStyleHint(wasInUse || (out.works_reset ?? 0) > 0
+      ? `'${p.label}' 삭제됨. 사용 중이던 소설은 기본 스타일로 바뀌었습니다.`
+      : `'${p.label}' 삭제됨.`);
+  } catch (e) {
+    setStyleHint(`삭제 실패: ${e.message ?? e}`);
+  }
+}
+
+async function useSelectedStyle() {
+  const p = selectedStyle();
+  if (!p) return;
+  if (editorDirty()) {
+    setStyleHint("수정 내용을 먼저 저장하세요.");
+    return;
+  }
+  setStyleHint("적용 중…");
+  try {
+    workStyle = p.kind === "custom"
+      ? await api.patchWorkStyle(work.uid || work.id, { custom_style_id: p.id })
+      : await api.patchWorkStyle(work.uid || work.id, { preset: p.key });
+    renderStyleList(styleValue(p));
+    renderStyleCurrent();
+    setStyleHint(`'${p.label}' 사용 중.`);
+  } catch (e) {
+    setStyleHint(`적용 실패: ${e.message ?? e}`);
+  }
 }
 
 function closeNovelInfo() {
@@ -99,12 +254,9 @@ async function saveNovelInfo() {
     showError("novel-info-dialog-error", "분량은 1 ≤ 최소 ≤ 최대 ≤ 10000 이어야 합니다.");
     return;
   }
-  const preset = $("novel-info-preset-select").value;
   const titleChanged = title !== work.title;
   const lengthChanged = workStyle && (lo !== workStyle.length_min || hi !== workStyle.length_max);
-  const presetChanged = workStyle && preset && preset !== workStyle.preset;
-  const styleChanged = lengthChanged || presetChanged;
-  if (!titleChanged && !styleChanged) {
+  if (!titleChanged && !lengthChanged) {
     closeNovelInfo();
     return;
   }
@@ -117,15 +269,11 @@ async function saveNovelInfo() {
       refreshWorkPill();
       document.dispatchEvent(new CustomEvent("work-renamed"));
     }
-    if (styleChanged) {
+    if (lengthChanged) {
       try {
-        const body = {};
-        if (lengthChanged) {
-          body.length_min = lo;
-          body.length_max = hi;
-        }
-        if (presetChanged) body.preset = preset;
-        workStyle = await api.patchWorkStyle(work.uid || work.id, body);
+        workStyle = await api.patchWorkStyle(work.uid || work.id, {
+          length_min: lo, length_max: hi,
+        });
       } catch (e) {
         showError("novel-info-dialog-error", `${titleChanged ? "제목은 저장됐으나 " : ""}설정 저장 실패: ${e}`);
         return;
@@ -144,7 +292,19 @@ export function initWork() {
   $("work-pill").addEventListener("click", openNovelInfo);
   $("btn-novel-info-cancel").addEventListener("click", closeNovelInfo);
   $("btn-novel-info-save").addEventListener("click", saveNovelInfo);
-  $("novel-info-preset-select").addEventListener("change", updatePresetDesc);
+  $("novel-tab-general").addEventListener("click", () => setNovelTab(false));
+  $("novel-tab-style").addEventListener("click", () => setNovelTab(true));
+  $("novel-info-preset-select").addEventListener("change", () => {
+    setStyleHint("");
+    fillStyleEditor();
+  });
+  $("btn-style-save-new").addEventListener("click", saveCustomStyleAsNew);
+  $("btn-style-update").addEventListener("click", updateCustomStyle);
+  $("btn-style-delete").addEventListener("click", deleteCustomStyle);
+  $("btn-style-use").addEventListener("click", useSelectedStyle);
+  for (const id of ["novel-style-pov", "novel-style-diction", "novel-style-feedback"]) {
+    $(id).addEventListener("input", autogrowStyleEditors);
+  }
   $("novel-info-dialog-backdrop").addEventListener("click", (e) => {
     if (e.target === $("novel-info-dialog-backdrop")) closeNovelInfo();
   });

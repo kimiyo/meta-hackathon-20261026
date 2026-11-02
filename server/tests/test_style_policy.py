@@ -60,6 +60,8 @@ def test_get_style_returns_default_without_creating_row(client):
             body["preset"]) == (5000, 7000, True, "fusion-fantasy")
     assert [p["key"] for p in body["presets"]] == [
         "fusion-fantasy", "romance", "mystery", "classic"]
+    for p in body["presets"]:
+        assert p["pov"] and p["diction"] and p["feedback"], p["key"]
     conn = dbmod.connect(db_path)
     try:
         rows = conn.execute("SELECT * FROM style_policies").fetchall()
@@ -165,6 +167,22 @@ def test_draft_input_carries_preset_voice(conn):
     meta = FakeMeta(["가" * 5000])
     drafting.draft_episode(meta, conn, design_id=1, work_id=1, episode_no=1)
     assert "밀착 시점" in meta.calls[0]
+
+
+def test_breath_breaks_require_blank_line():
+    """One breath ends -> one blank line, so readers can rest.
+
+    Regression: manuscripts ran sentences back-to-back with line breaks
+    only, leaving no visual pause between beats."""
+    from pathlib import Path
+
+    from app import style_presets
+
+    prompt = (Path(__file__).parent.parent / "app" / "prompts"
+              / "drafting.txt").read_text(encoding="utf-8")
+    assert "빈 줄" in prompt
+    for key, preset in style_presets.PRESETS.items():
+        assert "빈 줄" in preset["diction"], key
 
 
 def test_style_missing_work_404(client):

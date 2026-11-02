@@ -133,19 +133,28 @@ export function renderManuscript(container, { text, previous, showDiff, matches,
   };
   const fragment = document.createDocumentFragment();
   let offset = 0;
-  function deleted(oldText) {
+  let pendingDeleted = [];
+  function flushDeleted() {
+    if (!pendingDeleted.length) return;
     const detail = document.createElement("details");
     detail.className = "deleted-marker";
     const summary = document.createElement("summary");
-    summary.textContent = "− 직전 버전에서 삭제된 문장";
-    const body = document.createElement("p");
-    body.textContent = oldText;
-    detail.append(summary, body);
+    summary.textContent = pendingDeleted.length === 1
+      ? "− 직전 버전에서 삭제된 문장"
+      : `− 직전 버전에서 삭제된 문장 ${pendingDeleted.length}개`;
+    detail.append(summary);
+    for (const oldText of pendingDeleted) {
+      const body = document.createElement("p");
+      body.textContent = oldText;
+      detail.append(body);
+    }
     fragment.append(detail);
+    pendingDeleted = [];
   }
   for (const line of result.lines) {
-    if (line.type === "delete") { deleted(line.text); continue; }
-    if (line.type === "change" && line.words.some((w) => w.type === "delete")) deleted(line.old);
+    if (line.type === "delete") { pendingDeleted.push(line.text); continue; }
+    if (line.type === "change" && line.words.some((w) => w.type === "delete")) pendingDeleted.push(line.old);
+    flushDeleted();
     const row = document.createElement("div");
     row.className = "manuscript-line " + line.type;
     row.dataset.line = line.number;
@@ -167,6 +176,7 @@ export function renderManuscript(container, { text, previous, showDiff, matches,
     fragment.append(row);
     offset += 1; // 현재 본문의 LF. 마지막 줄 뒤의 가상 1은 이후 사용하지 않는다.
   }
+  flushDeleted(); // 맨 끝까지 남은 연속 삭제
   const top = container.scrollTop, left = container.scrollLeft;
   container.replaceChildren(fragment);
   container.scrollTop = top;
@@ -207,6 +217,8 @@ export function focusEditorMatch(editor, match) {
 // ---------- §8.4 전체화면과 읽기 설정 ----------
 
 export const readerIcon = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13 11L19 5M15.5 5H19V8.5M11 13L5 19M8.5 19H5V15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+export const copyIcon = '<svg width="16" height="15" viewBox="0 0 16 15" fill="none" aria-hidden="true"><g stroke="#48c5d3" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="10.4,4.4 10.4,1.6 1.6,1.6 1.6,10.4 5.6,10.4"/><rect x="5.6" y="4.4" width="8.8" height="9" rx="1.8"/></g></svg>';
 
 const READER_FONTS = [
   ["Noto Serif KR", "Noto+Serif+KR", "serif"], ["Noto Sans KR", "Noto+Sans+KR", "sans-serif"],
@@ -423,7 +435,9 @@ export function mountManuscriptPanel(root, options) {
     `<button type="button" class="btn sm" data-ui="edit">직접 수정</button>` +
     `<button type="button" class="btn sm" data-ui="save">버전 저장</button>` +
     `<button type="button" class="btn sm" data-ui="restore">이 버전 복원</button>` +
-    `<button type="button" class="btn sm" data-ui="reader">전체화면</button></div>` +
+    `<button type="button" class="btn sm" data-ui="reader">전체화면</button>` +
+    `<span class="ms-copywrap"><button type="button" class="btn sm" data-ui="copy" aria-label="본문 복사"></button>` +
+    `<span class="ms-tip" data-ui="copy-tip" role="status" hidden></span></span></div>` +
     `<div class="ms-sub"><label class="small"><input type="checkbox" data-ui="diff" checked> 직전 버전과 차이 강조</label> ` +
     `<output data-ui="summary" aria-live="polite" class="small muted"></output></div>` +
     `<p data-ui="meta" class="small muted"></p>` +
@@ -748,6 +762,41 @@ export function mountManuscriptPanel(root, options) {
 
   connectReader(ui("reader"), text, () => doc.title || "원고", currentVersionLabel);
 
+  let tipTimer;
+  ui("copy").innerHTML = copyIcon;
+  function showTip(message) {
+    const tip = ui("copy-tip");
+    tip.textContent = message;
+    tip.hidden = false;
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => { tip.hidden = true; }, 3000);
+  }
+  async function copyText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch { /* fall through to the legacy path */ }
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.append(ta);
+    ta.select();
+    try {
+      if (!document.execCommand("copy")) throw new Error("copy failed");
+    } finally {
+      ta.remove();
+    }
+  }
+  ui("copy").onclick = async () => {
+    try {
+      await copyText(text());
+      showTip("복사되었습니다.");
+    } catch {
+      showTip("복사에 실패했습니다.");
+    }
+  };
+
   async function api_resumeFromLatest(latest, useLocal, localContent) {
     const local = localContent ?? (editing ? ui("editor").value : doc.draft);
     clearTimeout(timer);
@@ -844,6 +893,6 @@ export function mountManuscriptPanel(root, options) {
     quoteSelectionToChat,
     resumeFromLatest: api_resumeFromLatest,
     retryPending: api_retryPending,
-    dispose() { clearTimeout(timer); window.removeEventListener("beforeunload", beforeLeave); },
+    dispose() { clearTimeout(timer); clearTimeout(tipTimer); window.removeEventListener("beforeunload", beforeLeave); },
   };
 }

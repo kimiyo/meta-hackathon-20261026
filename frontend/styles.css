@@ -433,6 +433,27 @@ h3 input[type="checkbox"].inc { margin-top: 0; }
 }
 #handoff-backdrop .modal { max-width: 980px; }
 #novel-info-dialog-backdrop .modal { max-width: 560px; }
+#novel-info-dialog-backdrop .modal.modal-full { max-width: none;
+  width: calc(100vw - 32px); height: calc(100vh - 32px);
+  height: calc(100dvh - 32px); max-height: none;
+  display: flex; flex-direction: column; }
+.novel-body { display: flex; gap: 20px; flex: 1; min-height: 0; }
+.novel-side { display: flex; flex-direction: column; gap: 4px;
+  flex: 0 0 170px; border-right: 1px solid var(--line); padding-right: 14px; }
+.novel-side [role="tab"] { text-align: left; border: 0; background: none;
+  padding: 10px 12px; font-size: 14px; color: var(--ink-soft); cursor: pointer;
+  border-radius: 8px; }
+.novel-side [role="tab"][aria-selected="true"] { color: var(--ink);
+  font-weight: 700; background: var(--accent-bg); }
+.novel-content { flex: 1; min-width: 0; overflow-y: auto; padding-right: 4px; }
+.style-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.style-grid textarea { width: 100%; resize: none; overflow: hidden;
+  min-height: 60px; }
+@media(max-width:700px) {
+  .novel-body { flex-direction: column; }
+  .novel-side { flex-direction: row; flex: none; border-right: 0;
+    border-bottom: 1px solid var(--line); padding: 0 0 8px; }
+}
 #handoff-preview { max-height: 70vh; overflow: auto; }
 #handoff-preview h4 { margin: 12px 0 4px; }
 #handoff-preview ul { margin: 4px 0; padding-left: 20px; }
@@ -693,6 +714,11 @@ header.topbar .logo { display: flex; align-items: center; gap: 8px; }
 .ms-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .ms-compare pre { white-space: pre-wrap; max-height: 160px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 6px; font-size: 12px; }
 .ms-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ms-copywrap { position: relative; display: inline-flex; }
+.ms-copywrap .btn svg { display: block; }
+.ms-tip { position: absolute; top: calc(100% + 6px); right: 0; white-space: nowrap;
+  background: #202c29; color: #fff; font-size: 11px; padding: 4px 8px;
+  border-radius: 6px; z-index: 5; }
 .manuscript-reader, .manuscript-reader * { box-sizing: border-box; }
 .manuscript-reader { position: fixed; inset: 0; margin: 0; padding: 0; border: 0; border-radius: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; background: var(--surface); color: var(--ink); overflow: hidden; }
 .manuscript-reader[open] { display: flex; flex-direction: column; }

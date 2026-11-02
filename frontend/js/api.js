@@ -88,6 +88,12 @@ export const api = {
   workStyle: (key) => req(`/works/${key}/style`),
   patchWorkStyle: (key, body) =>
     req(`/works/${key}/style`, { method: "PATCH", body: JSON.stringify(body) }),
+  styleCustoms: () => req("/style-customs"),
+  createStyleCustom: (body) =>
+    req("/style-customs", { method: "POST", body: JSON.stringify(body) }),
+  patchStyleCustom: (id, body) =>
+    req(`/style-customs/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteStyleCustom: (id) => req(`/style-customs/${id}`, { method: "DELETE" }),
   deleteWork: (key, title) =>
     req(`/works/${key}`, {
       method: "DELETE",

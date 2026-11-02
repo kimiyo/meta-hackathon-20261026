@@ -242,7 +242,19 @@ CREATE TABLE IF NOT EXISTS style_policies (
   length_target TEXT DEFAULT '',
   feedback TEXT DEFAULT '',
   style_preset TEXT DEFAULT '',
+  custom_style_id INTEGER,
   updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS custom_styles (
+  id INTEGER PRIMARY KEY,
+  author_id INTEGER NOT NULL REFERENCES authors(id),
+  name TEXT NOT NULL,
+  pov TEXT DEFAULT '',
+  diction TEXT DEFAULT '',
+  feedback TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (author_id, name)
 );
 CREATE TABLE IF NOT EXISTS idea_threads (
   id INTEGER PRIMARY KEY,
@@ -426,6 +438,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE change_proposal_items ADD COLUMN counter_quote TEXT DEFAULT ''",
         "ALTER TABLE style_policies ADD COLUMN style_preset TEXT DEFAULT ''",
   "ALTER TABLE manuscript_revisions ADD COLUMN label TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE style_policies ADD COLUMN custom_style_id INTEGER",
     ):
         try:
             conn.execute(sql)

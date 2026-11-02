@@ -62,8 +62,39 @@ def test_length_and_constraints_validated(conn):
                                         "3000-5000")
     assert any("forbidden" in p for p in bad2)
     with pytest.raises(LLMStepError, match="manuscript_invalid"):
-        drafting.draft_episode(FakeMeta(["짧다"]), conn, design_id=1, work_id=1,
+        drafting.draft_episode(FakeMeta(["짧다"] * 4), conn, design_id=1,
+                               work_id=1, episode_no=1)
+
+
+def test_draft_retries_length_miss_with_feedback(conn):
+    meta = FakeMeta(["가" * 2544, "가" * 5000])
+    out = drafting.draft_episode(meta, conn, design_id=1, work_id=1,
+                                 episode_no=1)
+    assert out["version"] == 1 and len(meta.calls) == 2
+    assert "[분량 교정]" in meta.calls[1] and "2544" in meta.calls[1]
+
+
+def test_draft_gives_up_after_three_retries(conn):
+    meta = FakeMeta(["짧다"] * 4)
+    with pytest.raises(LLMStepError, match="manuscript_invalid"):
+        drafting.draft_episode(meta, conn, design_id=1, work_id=1,
                                episode_no=1)
+    assert len(meta.calls) == 4
+    rows = conn.execute("SELECT * FROM manuscript_revisions").fetchall()
+    assert rows == []
+
+
+def test_draft_no_retry_on_schema_error(conn):
+    class FailMeta(FakeMeta):
+        def chat_json(self, **kw):
+            self.calls.append(kw["user"])
+            raise LLMStepError("drafting", 1, "schema_error", "bad json")
+
+    meta = FailMeta([])
+    with pytest.raises(LLMStepError, match="schema_error"):
+        drafting.draft_episode(meta, conn, design_id=1, work_id=1,
+                               episode_no=1)
+    assert len(meta.calls) == 1
 
 
 def test_lookup_round_executes_and_injects(conn):

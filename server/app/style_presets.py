@@ -15,7 +15,8 @@ PRESETS: dict[str, dict[str, str]] = {
         "pov": "3인칭 관찰자 시점. 주인공의 판단과 이득 계산을 서술 중심에 둔다.",
         "diction": (
             "모바일 기준 1~3문장마다 줄을 바꾼다. 주어·서술어가 바로 이어지는 "
-            "단문 위주, 동사 중심. 어려운 한자어·난해한 어휘를 피하고 쉬운 우리말로 쓴다."
+            "단문 위주, 동사 중심. 어려운 한자어·난해한 어휘를 피하고 쉬운 우리말로 쓴다. "
+            "하나의 호흡이 끝나면 빈 줄을 넣어 문단을 나누고, 빈 줄 없이 줄만 바꿔 나열하지 않는다."
         ),
         "feedback": (
             "상황 파악은 간결한 설명(Tell)으로 빠르게 넘기고 템포를 유지한다. "
@@ -31,7 +32,8 @@ PRESETS: dict[str, dict[str, str]] = {
         "pov": "3인칭 밀착 시점. 주인공의 감정 변화와 상대의 반응을 섬세하게 좇는다.",
         "diction": (
             "감정이 고조되는 장면은 짧은 호흡으로, 여운이 필요한 장면은 조금 긴 호흡으로 "
-            "완급을 조절한다. 직설적인 설명보다 표정·몸짓·대사의 여백으로 감정을 보여준다."
+            "완급을 조절한다. 직설적인 설명보다 표정·몸짓·대사의 여백으로 감정을 보여준다. "
+            "호흡 단위가 바뀌면 빈 줄을 넣어 문단을 나누고 숨 쉴 틈을 준다."
         ),
         "feedback": (
             "사건의 인과보다 인물 감정의 흐름을 우선한다. 갈등은 오해가 아닌 가치관·입장 "
@@ -44,7 +46,8 @@ PRESETS: dict[str, dict[str, str]] = {
         "pov": "3인칭 제한 시점. 독자가 아는 것을 주인공이 아는 범위로 묶는다.",
         "diction": (
             "1~2문장마다 줄을 바꿔 압박감을 유지한다. 단정적인 해설을 피하고 단서만 "
-            "제시한다. 진실을 직접 말하는 문장을 쓰지 않는다."
+            "제시한다. 진실을 직접 말하는 문장을 쓰지 않는다. "
+            "하나의 호흡이 끝나면 빈 줄을 넣어 문단을 나누고, 빈 줄 없이 줄만 바꿔 나열하지 않는다."
         ),
         "feedback": (
             "매 회차에 단서 하나와 오도 하나를 배치한다. 추리는 주인공의 입으로 직접 "
@@ -58,7 +61,8 @@ PRESETS: dict[str, dict[str, str]] = {
         "pov": "3인칭 전지적 시점. 인물의 내면과 세계를 깊이 있게 비춘다.",
         "diction": (
             "장면의 질감을 살리는 묘사를 우선하고, 필요하면 만연체도 허용한다. "
-            "어휘 선택에 공을 들이되 과장된 수식은 피한다."
+            "어휘 선택에 공을 들이되 과장된 수식은 피한다. "
+            "문단이 바뀌면 빈 줄로 띄워 읽기 리듬을 살린다."
         ),
         "feedback": (
             "사건을 서둘러 설명하지 않고 장면을 충분히 보여준다. 인물의 선택에는 "
@@ -72,7 +76,9 @@ def preset_list() -> list[dict[str, str]]:
     """Selectable presets for the novel-info dialog (default first)."""
     keys = [DEFAULT_PRESET] + [k for k in PRESETS if k != DEFAULT_PRESET]
     return [{"key": k, "label": PRESETS[k]["label"],
-             "description": PRESETS[k]["description"]} for k in keys]
+             "description": PRESETS[k]["description"],
+             "pov": PRESETS[k]["pov"], "diction": PRESETS[k]["diction"],
+             "feedback": PRESETS[k]["feedback"]} for k in keys]
 
 
 def resolve_preset(key: str | None) -> tuple[str, dict[str, str]]:

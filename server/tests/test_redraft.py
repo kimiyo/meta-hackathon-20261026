@@ -240,10 +240,20 @@ def test_request_change_api_redrafts_and_lists_history(api_client):
 def test_request_change_logs_failure_and_raises(conn):
     state_machine.advance(conn, FakeMeta(["가" * 5000]), 1, design_id=1)
     with pytest.raises(LLMStepError, match="manuscript_invalid"):
-        state_machine.request_change(conn, FakeMeta(["짧다"]), 1, "고쳐줘")
+        state_machine.request_change(conn, FakeMeta(["짧다"] * 4), 1, "고쳐줘")
     job = state_machine.get_job(conn, 1)
     assert job["state"] == "DRAFT" and job["attempt"] == 1
     hist = drafting.list_draft_requests(conn, 1)
     assert len(hist) == 1
     assert hist[0]["result_version"] is None
     assert "manuscript_invalid" in hist[0]["error"]
+
+
+def test_request_change_recovers_within_request(conn):
+    state_machine.advance(conn, FakeMeta(["가" * 5000]), 1, design_id=1)
+    out = state_machine.request_change(
+        conn, FakeMeta(["짧다", "나" * 5000]), 1, "고쳐줘")
+    assert out["state"] == "DRAFT" and out["attempt"] == 0
+    assert out["revision"]["version"] == 2
+    hist = drafting.list_draft_requests(conn, 1)
+    assert len(hist) == 1 and hist[0]["result_version"] == 2

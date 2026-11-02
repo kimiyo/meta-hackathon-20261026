@@ -403,23 +403,56 @@
 </div>
 
 <div id="novel-info-dialog-backdrop" class="modal-backdrop" style="display:none">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-info-dialog-title" data-role="home.novel-info.dialog">
+  <div class="modal modal-full" role="dialog" aria-modal="true" aria-labelledby="novel-info-dialog-title" data-role="home.novel-info.dialog">
     <h3 id="novel-info-dialog-title">소설 정보 수정</h3>
     <div id="novel-info-dialog-error"></div>
-    <label class="f">소설 제목 (최대 80자)</label>
-    <input type="text" id="novel-info-title-input" data-role="home.novel-info.title-input" placeholder="소설 제목" maxlength="80">
-    <label class="f">회차 목표 분량 (자 · 최소 ~ 최대, 최대 10000)</label>
-    <div style="display:flex;gap:8px;align-items:center">
-      <input type="number" id="novel-info-length-min" data-role="home.novel-info.length-min-input" min="1" max="10000" step="100" style="width:130px">
-      <span class="muted">~</span>
-      <input type="number" id="novel-info-length-max" data-role="home.novel-info.length-max-input" min="1" max="10000" step="100" style="width:130px">
-      <span class="small muted" id="novel-info-length-hint"></span>
+    <div class="novel-body">
+    <nav class="novel-side" role="tablist" aria-label="소설 정보">
+      <button type="button" role="tab" aria-selected="true" id="novel-tab-general"
+        data-role="home.novel-info.tab-general" aria-controls="novel-panel-general">일반</button>
+      <button type="button" role="tab" aria-selected="false" id="novel-tab-style"
+        data-role="home.novel-info.tab-style" aria-controls="novel-panel-style">글쓰기 스타일</button>
+    </nav>
+    <div class="novel-content">
+    <div id="novel-panel-general" role="tabpanel" aria-labelledby="novel-tab-general">
+      <label class="f">소설 제목 (최대 80자)</label>
+      <input type="text" id="novel-info-title-input" data-role="home.novel-info.title-input" placeholder="소설 제목" maxlength="80">
+      <label class="f">회차 목표 분량 (자 · 최소 ~ 최대, 최대 10000)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="number" id="novel-info-length-min" data-role="home.novel-info.length-min-input" min="1" max="10000" step="100" style="width:130px">
+        <span class="muted">~</span>
+        <input type="number" id="novel-info-length-max" data-role="home.novel-info.length-max-input" min="1" max="10000" step="100" style="width:130px">
+        <span class="small muted" id="novel-info-length-hint"></span>
+      </div>
+      <div class="small muted" style="margin-top:4px">저장 이후에 시작하는 집필부터 적용되며, 기존 원고에는 소급 적용되지 않습니다.</div>
     </div>
-    <div class="small muted" style="margin-top:4px">저장 이후에 시작하는 집필부터 적용되며, 기존 원고에는 소급 적용되지 않습니다.</div>
-    <label class="f">글쓰기 스타일</label>
-    <select id="novel-info-preset-select" data-role="home.novel-info.preset-select"></select>
-    <div class="small muted" id="novel-info-preset-desc" style="margin:4px 0 8px"></div>
-    <div class="btn-row" style="justify-content:flex-end">
+    <div id="novel-panel-style" role="tabpanel" aria-labelledby="novel-tab-style" hidden>
+      <div class="small" style="margin-bottom:6px">사용 중: <b id="novel-style-current" data-role="home.novel-info.style-current">-</b></div>
+      <label class="f">스타일 선택</label>
+      <select id="novel-info-preset-select" data-role="home.novel-info.preset-select"></select>
+      <div class="small muted" id="novel-info-preset-desc" style="margin:4px 0 8px"></div>
+      <label class="f">내 스타일 이름 (최대 40자)</label>
+      <input type="text" id="novel-style-name" data-role="home.novel-info.style-name-input" placeholder="예: 나의 사이다체" maxlength="40">
+      <div class="style-grid">
+        <div><label class="f">시점</label>
+          <textarea id="novel-style-pov" data-role="home.novel-info.style-pov-input" rows="3"></textarea></div>
+        <div><label class="f">문체</label>
+          <textarea id="novel-style-diction" data-role="home.novel-info.style-diction-input" rows="3"></textarea></div>
+        <div><label class="f">전개</label>
+          <textarea id="novel-style-feedback" data-role="home.novel-info.style-feedback-input" rows="3"></textarea></div>
+      </div>
+      <div class="small muted" style="margin-top:4px">시스템 스타일은 읽기 전용입니다. 고쳐서 새 이름으로 저장하면 내 스타일이 됩니다. 저장한 스타일만 이 소설에 사용할 수 있습니다.</div>
+      <div class="btn-row" style="margin-top:8px">
+        <button type="button" class="btn sm" id="btn-style-save-new" data-role="home.novel-info.style-save-new-btn">새 이름으로 저장</button>
+        <button type="button" class="btn sm" id="btn-style-update" data-role="home.novel-info.style-update-btn">수정 내용 저장</button>
+        <button type="button" class="btn sm danger" id="btn-style-delete" data-role="home.novel-info.style-delete-btn">삭제</button>
+        <button type="button" class="btn sm primary" id="btn-style-use" data-role="home.novel-info.style-use-btn">이 스타일로 사용</button>
+        <span class="small" id="novel-style-hint" data-role="home.novel-info.style-hint"></span>
+      </div>
+    </div>
+    </div>
+    </div>
+    <div class="btn-row" style="justify-content:flex-end;margin-top:12px">
       <button class="btn ghost" id="btn-novel-info-cancel" data-role="home.novel-info.cancel-btn">취소</button>
       <button class="btn primary" id="btn-novel-info-save" data-role="home.novel-info.save-btn">저장</button>
     </div>

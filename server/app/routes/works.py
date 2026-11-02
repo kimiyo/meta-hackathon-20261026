@@ -7,7 +7,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import drafting, planning, style_presets
+from .. import custom_styles, drafting, planning, style_presets
 from ..db import find_work, new_uid, now_iso, touch_work
 from ..errors import LLMStepError
 from ..ideas import check_total_episodes
@@ -182,6 +182,21 @@ class StylePatch(BaseModel):
     length_min: int | None = None
     length_max: int | None = None
     preset: str | None = None
+    custom_style_id: int | None = None
+
+
+class CustomStyleIn(BaseModel):
+    name: str
+    pov: str = ""
+    diction: str = ""
+    feedback: str = ""
+
+
+class CustomStylePatch(BaseModel):
+    name: str | None = None
+    pov: str | None = None
+    diction: str | None = None
+    feedback: str | None = None
 
 
 @router.get("/works/{key}/style")
@@ -190,7 +205,8 @@ def get_work_style(key: str, conn: sqlite3.Connection = Depends(get_conn),
     work = _work_or_404(conn, key, author["id"])
     return {"work_id": work["id"],
             **drafting.get_length_range(conn, work["id"]),
-            "presets": style_presets.preset_list()}
+            "presets": style_presets.preset_list(),
+            "custom_styles": custom_styles.list_custom(conn, author["id"])}
 
 
 @router.patch("/works/{key}/style")
@@ -200,7 +216,10 @@ def patch_work_style(key: str, body: StylePatch,
     work = _work_or_404(conn, key, author["id"])
     if (body.length_min is None) != (body.length_max is None):
         raise HTTPException(400, "length_min and length_max go together")
-    if body.length_min is None and body.preset is None:
+    if body.preset is not None and body.custom_style_id is not None:
+        raise HTTPException(400, "preset and custom_style_id are exclusive")
+    if (body.length_min is None and body.preset is None
+            and body.custom_style_id is None):
         raise HTTPException(400, "no valid style fields")
     try:
         if body.length_min is not None:
@@ -208,13 +227,66 @@ def patch_work_style(key: str, body: StylePatch,
                                        body.length_min, body.length_max)
         if body.preset is not None:
             drafting.set_style_preset(conn, work["id"], body.preset)
+        if body.custom_style_id is not None:
+            custom_styles.apply_custom(conn, work["id"], author["id"],
+                                       body.custom_style_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
     touch_work(conn, work["id"])
     conn.commit()
     out = drafting.get_length_range(conn, work["id"])
     return {"work_id": work["id"], **out,
-            "presets": style_presets.preset_list()}
+            "presets": style_presets.preset_list(),
+            "custom_styles": custom_styles.list_custom(conn, author["id"])}
+
+
+@router.get("/style-customs")
+def list_style_customs(conn: sqlite3.Connection = Depends(get_conn),
+                       author: dict = Depends(get_current_author)):
+    return {"custom_styles": custom_styles.list_custom(conn, author["id"])}
+
+
+@router.post("/style-customs")
+def create_style_custom(body: CustomStyleIn,
+                        conn: sqlite3.Connection = Depends(get_conn),
+                        author: dict = Depends(get_current_author)):
+    try:
+        row = custom_styles.create_custom(conn, author["id"], body.name,
+                                          body.pov, body.diction, body.feedback)
+    except custom_styles.DuplicateName as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return row
+
+
+@router.patch("/style-customs/{style_id}")
+def patch_style_custom(style_id: int, body: CustomStylePatch,
+                       conn: sqlite3.Connection = Depends(get_conn),
+                       author: dict = Depends(get_current_author)):
+    try:
+        return custom_styles.update_custom(conn, author["id"], style_id,
+                                           name=body.name, pov=body.pov,
+                                           diction=body.diction,
+                                           feedback=body.feedback)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except custom_styles.DuplicateName as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/style-customs/{style_id}")
+def delete_style_custom(style_id: int,
+                        conn: sqlite3.Connection = Depends(get_conn),
+                        author: dict = Depends(get_current_author)):
+    try:
+        return custom_styles.delete_custom(conn, author["id"], style_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.delete("/works/{key}")

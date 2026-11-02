@@ -78,7 +78,11 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `home.novel-delete.dialog` — 소설 삭제 다이얼로그
 - `home.novel-delete.title-input`, `home.novel-delete.cancel-btn`, `home.novel-delete.confirm-btn`
 - `home.novel-info.dialog` — 소설 정보 수정 다이얼로그
-- `home.novel-info.title-input`, `home.novel-info.length-min-input`, `home.novel-info.length-max-input`, `home.novel-info.preset-select`, `home.novel-info.cancel-btn`, `home.novel-info.save-btn`
+- `home.novel-info.title-input`, `home.novel-info.length-min-input`, `home.novel-info.length-max-input`,
+  `home.novel-info.tab-general`, `home.novel-info.tab-style`, `home.novel-info.style-current`, `home.novel-info.style-name-input`,
+  `home.novel-info.style-pov-input`, `home.novel-info.style-diction-input`, `home.novel-info.style-feedback-input`,
+  `home.novel-info.style-save-new-btn`, `home.novel-info.style-update-btn`, `home.novel-info.style-delete-btn`,
+  `home.novel-info.style-use-btn`, `home.novel-info.style-hint`, `home.novel-info.preset-select` (시스템/내 스타일 그룹, 값 `s:키`/`c:ID`), `home.novel-info.cancel-btn`, `home.novel-info.save-btn`
 
 ### ideas — 아이디어
 
@@ -161,7 +165,7 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `writing.episode.state-seg` — 파이프라인 상태 표시 세그먼트 (조작 불가)
 - 중앙 원고는 공유 모듈(`frontend/js/manuscript.js`)이 `#ms-mount`에 마운트한다.
   버전 선택·본문은 아래 role을 유지하고, 검색·편집·저장·복원·읽기·복구 버튼은
-  패널 내부 `data-ui` 계약(versions/query/search/edit/save/restore/reader/diff/body/editor/recovery/quote/clear/status)을 따른다.
+  패널 내부 `data-ui` 계약(versions/query/search/edit/save/restore/reader/copy/diff/body/editor/recovery/quote/clear/status)을 따른다.
 - `writing.chat.panel` — 수정 대화 카드
 - `writing.chat.collapse-btn`, `writing.chat.expand-btn` — 대화 열 접기/펼치기
 - `writing.chat.messages` — 수정 요청 내역

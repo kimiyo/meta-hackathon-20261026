@@ -50,8 +50,11 @@ def get_style(conn: sqlite3.Connection, work_id: int) -> dict:
         row = conn.execute("SELECT * FROM style_policies WHERE work_id=?",
                            (work_id,)).fetchone()
         return dict(row)
-    if not row["style_preset"] or row["style_preset"] not in style_presets.PRESETS:
+    if row["custom_style_id"] is None and (
+            not row["style_preset"]
+            or row["style_preset"] not in style_presets.PRESETS):
         # Legacy row (pre-preset): adopt the default, keep any custom voice.
+        # Rows pointing at a user style keep their snapshotted voice.
         key, preset = style_presets.resolve_preset(None)
         conn.execute(
             "UPDATE style_policies SET style_preset=?,"
@@ -69,23 +72,34 @@ def get_style(conn: sqlite3.Connection, work_id: int) -> dict:
 
 def get_length_range(conn: sqlite3.Connection, work_id: int) -> dict:
     """Effective style for display. Creates no row."""
-    row = conn.execute("SELECT length_target, style_preset FROM style_policies"
-                       " WHERE work_id=?", (work_id,)).fetchone()
+    row = conn.execute("SELECT length_target, style_preset, custom_style_id"
+                       " FROM style_policies WHERE work_id=?",
+                       (work_id,)).fetchone()
     if row is None:
         key, _ = style_presets.resolve_preset(None)
         return {"length_min": DEFAULT_MIN, "length_max": DEFAULT_MAX,
-                "is_default": True, "preset": key}
+                "is_default": True, "preset": key,
+                "custom_style_id": None, "custom_style_name": None}
     lo, hi = parse_length_target(row["length_target"])
+    if row["custom_style_id"] is not None:
+        custom = conn.execute("SELECT name FROM custom_styles WHERE id=?",
+                              (row["custom_style_id"],)).fetchone()
+        if custom is not None:
+            return {"length_min": lo, "length_max": hi, "is_default": False,
+                    "preset": None, "custom_style_id": row["custom_style_id"],
+                    "custom_style_name": custom["name"]}
+        # Orphaned pointer (style deleted out of band): fall through to the key.
     key, _ = style_presets.resolve_preset(row["style_preset"])
     return {"length_min": lo, "length_max": hi, "is_default": False,
-            "preset": key}
+            "preset": key, "custom_style_id": None, "custom_style_name": None}
 
 
 def set_style_preset(conn: sqlite3.Connection, work_id: int,
                      key: str) -> dict:
     """Switch the writing voice (preset values replace pov/diction/feedback).
 
-    Applies to drafts started after the save, like the length target."""
+    Applies to drafts started after the save, like the length target.
+    Clears any custom-style pointer."""
     if key not in style_presets.PRESETS:
         raise ValueError(f"unknown style preset: {key}")
     preset = style_presets.PRESETS[key]
@@ -100,14 +114,14 @@ def set_style_preset(conn: sqlite3.Connection, work_id: int,
         lo, hi = DEFAULT_MIN, DEFAULT_MAX
     else:
         conn.execute(
-            "UPDATE style_policies SET style_preset=?, pov=?, diction=?,"
-            " feedback=?, updated_at=? WHERE work_id=?",
+            "UPDATE style_policies SET style_preset=?, custom_style_id=NULL,"
+            " pov=?, diction=?, feedback=?, updated_at=? WHERE work_id=?",
             (key, preset["pov"], preset["diction"], preset["feedback"],
              now_iso(), work_id))
         lo, hi = parse_length_target(row["length_target"])
     conn.commit()
     return {"length_min": lo, "length_max": hi, "is_default": False,
-            "preset": key}
+            "preset": key, "custom_style_id": None, "custom_style_name": None}
 
 
 def set_length_target(conn: sqlite3.Connection, work_id: int,
@@ -339,9 +353,49 @@ def save_revision(conn, episode_no: int, text: str, label: str = "") -> dict:
             "episode_no": episode_no}
 
 
+DRAFT_MAX_RETRIES = 3  # manuscript_invalid retries inside one request
+
+
+def _retry_feedback(detail: str) -> str:
+    """Tell the next attempt what missed (length numbers when present)."""
+    m = re.search(r"length (\d+) outside .* of (\d+)-(\d+) \((\d+)-(\d+)\)",
+                  detail)
+    if m:
+        n, lo, hi, lo30, hi30 = (int(g) for g in m.groups())
+        direction = "미달" if n < lo30 else "초과"
+        return ("\n\n[분량 교정] 직전 원고는 " + str(n) + "자로 목표(" + str(lo)
+                + "-" + str(hi) + "자, 허용 " + str(lo30) + "-" + str(hi30)
+                + "자)에 " + direction + "했다. 분량을 맞춰 원고 전체를 다시 써라.")
+    return "\n\n[검증 교정] 직전 원고가 기각됐다: " + detail + " 문제를 고쳐 다시 써라."
+
+
 def draft_episode(meta, conn, *, design_id: int, work_id: int, episode_no: int,
                   manuscript_draft: str = "", author_instruction: str = "",
-                  max_tokens: int = 8000, revision_label: str = "AI 초안") -> dict:
+                  max_tokens: int = 8000, revision_label: str = "AI 초안",
+                  max_retries: int = DRAFT_MAX_RETRIES) -> dict:
+    """Run drafting, retrying manuscript_invalid up to max_retries.
+
+    Only validation failures retry (with the miss fed back); transport and
+    schema errors fail fast. Retries stay inside the request: the episode's
+    attempt budget is untouched (the caller counts the request once)."""
+    feedback = ""
+    for n in range(max_retries + 1):
+        try:
+            return _draft_once(
+                meta, conn, design_id=design_id, work_id=work_id,
+                episode_no=episode_no, manuscript_draft=manuscript_draft,
+                author_instruction=author_instruction + feedback,
+                max_tokens=max_tokens, revision_label=revision_label)
+        except LLMStepError as e:
+            if e.reason != "manuscript_invalid" or n >= max_retries:
+                raise
+            feedback = _retry_feedback(e.detail)
+    raise AssertionError("unreachable")
+
+
+def _draft_once(meta, conn, *, design_id: int, work_id: int, episode_no: int,
+                 manuscript_draft: str = "", author_instruction: str = "",
+                 max_tokens: int = 8000, revision_label: str = "AI 초안") -> dict:
     """Run drafting (with at most one lookup-injection round) and save revision."""
     outline = get_outline(conn, design_id, episode_no)
     style = get_style(conn, work_id)
