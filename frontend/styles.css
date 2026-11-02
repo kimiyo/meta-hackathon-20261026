@@ -679,6 +679,8 @@ header.topbar .logo { display: flex; align-items: center; gap: 8px; }
   --surface: #fffdf8; --muted: #7c8479; --green-light: #eaf0e8;
 }
 #ms-mount { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+#review-ms-mount { display: flex; min-height: 0; min-width: 0;
+  max-height: calc(100vh - 240px); max-height: calc(100dvh - 240px); }
 .ms-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; gap: 6px; overflow-y: auto; }
 .ms-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ms-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

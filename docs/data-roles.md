@@ -164,7 +164,7 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `writing.episode.panel` — 회차 상세 카드
 - `writing.episode.state-seg` — 파이프라인 상태 표시 세그먼트 (조작 불가)
 - 중앙 원고는 공유 모듈(`frontend/js/manuscript.js`)이 `#ms-mount`에 마운트한다.
-  버전 선택·본문은 아래 role을 유지하고, 검색·편집·저장·복원·읽기·복구 버튼은
+  버전 선택·비교 체크·본문은 아래 role을 유지하고, 검색·편집·저장·복원·읽기·복구 버튼은
   패널 내부 `data-ui` 계약(versions/query/search/edit/save/restore/reader/copy/diff/body/editor/recovery/quote/clear/status)을 따른다.
 - `writing.chat.panel` — 수정 대화 카드
 - `writing.chat.collapse-btn`, `writing.chat.expand-btn` — 대화 열 접기/펼치기
@@ -178,6 +178,9 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `review.screen.col-resizer` — 원고·검증 열 분할선 (드래그)
 - `review.loader.episode-input`, `review.loader.load-btn`
 - `review.manuscript.panel` — 원고 본문 카드
+- 집필과 동일한 공유 원고 패널을 읽기 전용(`readOnly`)으로 `#review-ms-mount`에 마운트한다.
+  버전 선택·비교·본문 role은 그대로 유지하고, 검색·전체화면+읽기설정·복사를 제공한다.
+  직접 수정·버전 저장·복원·인용·비우기 버튼과 초안 포함 체크는 숨긴다.
 - `review.manuscript.version-select`, `review.manuscript.diff-checkbox`
 - `review.manuscript.body`
 - `review.change.panel` — 수정 요청 카드

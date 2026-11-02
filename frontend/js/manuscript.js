@@ -409,10 +409,20 @@ function normDoc(doc) {
 }
 
 export function mountManuscriptPanel(root, options) {
-  const { episodeNo, initialDocument, persist, loadDocument } = options;
+  const { episodeNo, initialDocument } = options;
+  const persist = options.persist ?? null;
+  const loadDocument = options.loadDocument ?? null;
   const onQuoteToChat = options.onQuoteToChat ?? (() => {});
   const onHint = options.onHint ?? (() => {});
   const restore = options.restoreState ?? null;
+  // 읽기 전용(작가 검토): 조회·검색·비교·전체화면·복사만 제공하고 편집·저장 UI를 숨긴다.
+  const readOnly = options.readOnly === true;
+  const roles = {
+    versionSelect: "writing.episode.version-select",
+    diffCheckbox: "writing.episode.diff-checkbox",
+    body: "writing.episode.manuscript",
+    ...(options.roles ?? {}),
+  };
 
   let doc = normDoc(initialDocument);
   let editing = false, busy = false;
@@ -421,27 +431,28 @@ export function mountManuscriptPanel(root, options) {
   let pendingRequest = null, activeWrite = null, halted = false,
       failedOperation = null, retryForbidden = false;
 
+  const roHidden = readOnly ? " hidden" : "";
   root.innerHTML =
     `<section class="ms-panel" aria-label="원고">` +
     `<div class="ms-head"><b>원고</b> <span class="chip" data-ui="state"></span> ` +
-    `<label class="small"><input type="checkbox" data-ui="include" checked> AI 요청에 작업 초안 포함</label></div>` +
+    `<label class="small"${roHidden}><input type="checkbox" data-ui="include" checked> AI 요청에 작업 초안 포함</label></div>` +
     `<div class="ms-toolbar">` +
-    `<label class="small">버전 <select data-ui="versions" data-role="writing.episode.version-select"></select></label>` +
+    `<label class="small">버전 <select data-ui="versions" data-role="${roles.versionSelect}"></select></label>` +
     `<form data-ui="search" role="search" class="ms-search">` +
     `<input data-ui="query" type="search" aria-label="본문 검색" placeholder="본문 검색">` +
     `<button class="btn sm">검색</button> <output data-ui="count" aria-live="polite"></output> ` +
     `<button type="button" class="btn sm" data-ui="prev">이전 결과</button>` +
     `<button type="button" class="btn sm" data-ui="next">다음 결과</button></form>` +
-    `<button type="button" class="btn sm" data-ui="edit">직접 수정</button>` +
-    `<button type="button" class="btn sm" data-ui="save">버전 저장</button>` +
-    `<button type="button" class="btn sm" data-ui="restore">이 버전 복원</button>` +
+    `<button type="button" class="btn sm" data-ui="edit"${roHidden}>직접 수정</button>` +
+    `<button type="button" class="btn sm" data-ui="save"${roHidden}>버전 저장</button>` +
+    `<button type="button" class="btn sm" data-ui="restore"${roHidden}>이 버전 복원</button>` +
     `<button type="button" class="btn sm" data-ui="reader">전체화면</button>` +
     `<span class="ms-copywrap"><button type="button" class="btn sm" data-ui="copy" aria-label="본문 복사"></button>` +
     `<span class="ms-tip" data-ui="copy-tip" role="status" hidden></span></span></div>` +
-    `<div class="ms-sub"><label class="small"><input type="checkbox" data-ui="diff" checked> 직전 버전과 차이 강조</label> ` +
+    `<div class="ms-sub"><label class="small"><input type="checkbox" data-ui="diff" data-role="${roles.diffCheckbox}" checked> 직전 버전과 차이 강조</label> ` +
     `<output data-ui="summary" aria-live="polite" class="small muted"></output></div>` +
     `<p data-ui="meta" class="small muted"></p>` +
-    `<div data-ui="body" class="manuscript-body" data-role="writing.episode.manuscript" tabindex="0"></div>` +
+    `<div data-ui="body" class="manuscript-body" data-role="${roles.body}" tabindex="0"></div>` +
     `<textarea data-ui="editor" class="manuscript-editor" aria-label="원고 직접 수정" hidden></textarea>` +
     `<div data-ui="recovery" class="ms-recovery" hidden>` +
     `<p data-ui="rec-msg" class="small"></p>` +
@@ -459,15 +470,15 @@ export function mountManuscriptPanel(root, options) {
     `<button type="button" class="btn sm" data-ui="rec-use-server">서버 내용 사용</button></div>` +
     `</div></div>` +
     `<div class="ms-foot small"><span data-ui="lines" class="muted"></span> ` +
-    `<button type="button" class="btn sm" data-ui="quote">선택한 줄을 채팅에 포함</button> ` +
-    `<button type="button" class="btn sm" data-ui="clear">원고 비우기</button></div>` +
+    `<button type="button" class="btn sm" data-ui="quote"${roHidden}>선택한 줄을 채팅에 포함</button> ` +
+    `<button type="button" class="btn sm" data-ui="clear"${roHidden}>원고 비우기</button></div>` +
     `<p data-ui="status" role="status" class="small muted"></p></section>`;
 
   const ui = (name) => root.querySelector(`[data-ui="${name}"]`);
   const recovery = createDraftRecovery(episodeNo, (message) => { ui("status").textContent = message; });
   const recovered = recovery.read();
   if (recovered?.content === doc.draft) recovery.clearIfSame(doc.draft);
-  else if (recovered) halted = true;
+  else if (recovered && !readOnly) halted = true;
 
   const locked = () => LOCKED_STATES.includes(doc.state);
   const text = () => selectComparison(doc, selected, editing ? ui("editor").value : undefined).text;
@@ -514,8 +525,8 @@ export function mountManuscriptPanel(root, options) {
     ui("state").textContent = stateLabelKo(doc);
     ui("edit").textContent = editing ? "원고 보기" : "직접 수정";
     ui("edit").disabled = busy || halted || locked() || (selected !== "draft" && selected !== doc.currentVersionId);
-    ui("save").hidden = selected !== "draft";
-    ui("restore").hidden = selected === "draft" || selected === doc.currentVersionId;
+    ui("save").hidden = readOnly || selected !== "draft";
+    ui("restore").hidden = readOnly || selected === "draft" || selected === doc.currentVersionId;
     for (const name of ["save", "restore", "clear"]) ui(name).disabled = busy || halted || locked();
     ui("quote").disabled = busy || halted;
     ui("versions").disabled = busy || halted;
@@ -528,7 +539,7 @@ export function mountManuscriptPanel(root, options) {
   }
 
   function renderRecoveryBar() {
-    if (!halted) { showRecovery(false); return; }
+    if (readOnly || !halted) { showRecovery(false); return; }
     showRecovery(true);
     ui("rec-show").hidden = false;
     ui("rec-fetch").hidden = false;
@@ -543,6 +554,7 @@ export function mountManuscriptPanel(root, options) {
   }
 
   async function write(operation, payload) {
+    if (readOnly) throw new Error("읽기 전용입니다.");
     if (busy) throw new Error("저장 중입니다.");
     if (halted) throw new Error("최신 원고 확인 또는 보류 요청 재시도가 필요합니다.");
     const signature = JSON.stringify({ operation, expectedRevision: doc.revision, ...payload });

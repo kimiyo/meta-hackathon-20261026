@@ -1,48 +1,24 @@
 import { api } from "./api.js";
 import { $, esc, showError, stateKo, verdictKo } from "./util.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
+import { mountManuscriptPanel } from "./manuscript.js";
 
 const REVIEW_RESIZER = { resizerId: "review-resizer", varName: "--review-right-w",
   storageKey: "review-right-w", side: "right", min: 280, reserve: 420 };
 
 // 화면 4 · 작가 검토 (구 React판에서 이식)
 
-// 작은 단어 단위 diff (삽입/삭제만 표시)
-function diffWords(a, b) {
-  const aw = a.split(/(\s+)/);
-  const bw = b.split(/(\s+)/);
-  const m = aw.length;
-  const n = bw.length;
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = m - 1; i >= 0; i--)
-    for (let j = n - 1; j >= 0; j--)
-      dp[i][j] = aw[i] === bw[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-  const out = [];
-  let i = 0;
-  let j = 0;
-  while (i < m && j < n) {
-    if (aw[i] === bw[j]) {
-      out.push({ t: "same", s: aw[i] });
-      i++;
-      j++;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      out.push({ t: "del", s: aw[i++] });
-    } else {
-      out.push({ t: "add", s: bw[j++] });
-    }
-  }
-  while (i < m) out.push({ t: "del", s: aw[i++] });
-  while (j < n) out.push({ t: "add", s: bw[j++] });
-  return out;
-}
+// 원고 보기는 집필과 동일한 공용 패널(읽기 전용)으로 제공한다.
+const REVIEW_MS_ROLES = {
+  versionSelect: "review.manuscript.version-select",
+  diffCheckbox: "review.manuscript.diff-checkbox",
+  body: "review.manuscript.body",
+};
 
 const VCLASS = { ok: "v-ok", error: "v-error", change: "v-change", deferred: "v-deferred" };
 
 let job = null;
-let versions = [];
-let version = null;
-let text = "";
-let prevText = "";
+let msPanel = null;
 let items = [];
 let aliases = [];
 let busy = false;
@@ -75,27 +51,33 @@ function currentEp() {
   return Number($("review-ep").value);
 }
 
+function disposeMsPanel() {
+  if (!msPanel) return;
+  msPanel.dispose();
+  msPanel = null;
+}
+
+function mountMsPanel(epNo, document) {
+  disposeMsPanel();
+  msPanel = mountManuscriptPanel($("review-ms-mount"), {
+    episodeNo: epNo,
+    initialDocument: document,
+    readOnly: true,
+    roles: REVIEW_MS_ROLES,
+  });
+}
+
 async function load(epNo) {
   const j = await api.episode(epNo);
-  job = j;
-  versions = j.revisions ?? [];
-  if (versions.length) {
-    const latest = versions[versions.length - 1];
-    version = latest.version;
-    text = (await api.manuscript(epNo, latest.version)).text;
-    prevText = versions.length > 1
-      ? (await api.manuscript(epNo, versions[versions.length - 2].version)).text
-      : "";
-  } else {
-    version = null;
-    text = "";
-    prevText = "";
-  }
+  const { document } = await api.manuscriptDoc(epNo);
   const prop = await api.proposals(epNo);
+  const al = await api.aliases("candidate");
+  job = j;
+  mountMsPanel(epNo, document);
   items = (prop.items ?? []).filter(
     (it) => j.proposal_set_id == null || it.proposal_set_id === j.proposal_set_id
   );
-  aliases = ((await api.aliases("candidate")).aliases ?? []);
+  aliases = (al.aliases ?? []);
   renderAll();
 }
 
@@ -113,32 +95,6 @@ function renderNotice() {
     box.innerHTML = "";
   }
   $("review-state").innerHTML = `상태: <b>${esc(stateKo(job.state))}</b> · 시도 ${esc(job.attempt)}`;
-}
-
-function renderManuscript() {
-  const box = $("manuscript");
-  const sel = $("rev-select");
-  sel.innerHTML = versions
-    .map((r) => `<option value="${r.version}"${r.version === version ? " selected" : ""}>v${r.version} (${esc(r.approval_status)})</option>`)
-    .join("");
-  const compare = $("diff-toggle").checked;
-  if (compare && prevText) {
-    box.innerHTML = `<div style="white-space:pre-wrap;text-indent:0">` + diffWords(prevText, text)
-      .map((d) => {
-        if (d.t === "del") return `<span class="diff-old">${esc(d.s)}</span>`;
-        if (d.t === "add") return `<span class="diff-new">${esc(d.s)}</span>`;
-        return esc(d.s);
-      })
-      .join("") + `</div>`;
-  } else if (text) {
-    box.innerHTML = text
-      .split("\n")
-      .map((p) => `<p>${esc(p) || "&nbsp;"}</p>`)
-      .join("");
-  } else {
-    box.innerHTML = `<span class="muted">원고가 없습니다.</span>`;
-  }
-  $("manuscript-meta").textContent = text ? `${text.length}자 · v${version ?? "?"}` : "";
 }
 
 function renderVerdicts() {
@@ -201,7 +157,6 @@ function renderAliases() {
 
 function renderAll() {
   renderNotice();
-  renderManuscript();
   renderVerdicts();
   renderAliases();
   updateApproveState();
@@ -220,14 +175,6 @@ export function initReview() {
     $("review-ep").value = ep;
     run(() => load(Number(ep)));
   });
-  $("rev-select").addEventListener("change", (e) =>
-    run(async () => {
-      version = Number(e.target.value);
-      text = (await api.manuscript(currentEp(), version)).text;
-      renderManuscript();
-    })
-  );
-  $("diff-toggle").addEventListener("change", renderManuscript);
   $("btn-request-change").addEventListener("click", () =>
     run(async () => {
       const instruction = $("change-req").value.trim();
