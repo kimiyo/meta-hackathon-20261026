@@ -318,6 +318,9 @@ details.outline .body b { color: var(--ink); }
 .sev-minor { background: var(--gray-bg); color: var(--ink-soft); font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 5px; }
 .issue-status { font-size: 11px; color: var(--ink-soft); }
 .issue-detail { font-size: 12.5px; color: var(--ink-soft); margin: 4px 0; }
+.pev-head { display: flex; align-items: center; gap: 6px; }
+.pev-head .pev-del { margin-left: auto; padding: 2px 7px; flex: none; }
+.pev-head .pev-del svg { vertical-align: -2px; }
 .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
 .notice {

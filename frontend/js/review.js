@@ -45,7 +45,7 @@ function updateActionState() {
     const input = $(id);
     if (input) input.disabled = !ok;
   }
-  for (const b of document.querySelectorAll("#issue-list button")) {
+  for (const b of document.querySelectorAll("#issue-list button, #memory-pending button")) {
     b.disabled = !ok;
   }
 }
@@ -179,15 +179,18 @@ function displayValue(v) {
   }
 }
 
+const TRASH_SVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 4h12M6 4V2.5h4V4M4 4l.7 10h6.6L12 4M6.5 7v4M9.5 7v4"/></svg>`;
+
 function proposalItemsHtml(items) {
   if (!items.length) return `<li><span class="muted small">변경 항목 없음</span></li>`;
   return items.map((it) => `
-    <li><span class="chip mono">${esc(it.operation)}</span>
+    <li><div class="pev-head"><span><span class="chip mono">${esc(it.operation)}</span>
       <b>${esc(it.entity_id || it.candidate_name || "(미지정)")}</b>
       ${it.attribute_path ? `<span class="small muted">${esc(it.attribute_path)}</span>` : ""}
       ${it.story_time ? `<span class="chip">${esc(it.story_time)}</span>` : ""}
-      ${it.validation === "deferred" ? `<span class="small muted">(근거 미확인·제외)</span>` : ""}
-      <br><span class="small">${esc(displayValue(it.new_value).slice(0, 120))}</span>
+      ${it.validation === "deferred" ? `<span class="small muted">(근거 미확인·제외)</span>` : ""}</span>
+      <button class="btn sm ghost pev-del" data-del-item="${it.item_id}" data-role="review.memory.item-del-btn" title="이 항목 삭제">${TRASH_SVG}</button></div>
+      <span class="small">${esc(displayValue(it.new_value).slice(0, 120))}</span>
       <br><span class="small muted">인용: ${esc((it.evidence_quote || "").slice(0, 120))}</span></li>`
   ).join("");
 }
@@ -224,6 +227,16 @@ function renderPending() {
     }
   }
   box.innerHTML = html;
+  box.querySelectorAll("[data-del-item]").forEach((btn) => {
+    btn.addEventListener("click", () => run(async () => {
+      await api.deleteEntityItem(Number(btn.dataset.delItem));
+      pending = await api.entityProposals(currentEp());
+      renderPending();
+    }));
+  });
+  if (!inReview()) {
+    for (const b of box.querySelectorAll("button")) b.disabled = true;
+  }
 }
 
 function renderMemory(entities) {

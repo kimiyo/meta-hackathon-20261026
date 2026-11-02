@@ -206,6 +206,23 @@ def discard_proposal_set(conn, set_id: int) -> None:
     conn.commit()
 
 
+def delete_pending_item(conn, item_id: int) -> dict:
+    """임시 변경안의 항목 1건을 삭제한다. 확정분은 삭제 불가."""
+    row = conn.execute(
+        "SELECT i.item_id, s.episode_no, s.status"
+        " FROM change_proposal_items i"
+        " JOIN change_proposals s ON s.proposal_set_id=i.proposal_set_id"
+        " WHERE i.item_id=?", (item_id,)).fetchone()
+    if not row:
+        raise KeyError(f"item {item_id} not found")
+    if row["status"] != "pending":
+        raise ValueError("committed items cannot be deleted")
+    conn.execute("DELETE FROM change_proposal_items WHERE item_id=?",
+                 (item_id,))
+    conn.commit()
+    return {"episode_no": row["episode_no"], "deleted": item_id}
+
+
 def discard_pending_for_revision(conn, episode_no: int, revision_id: int) -> None:
     """Drop stale pending sets before a fresh extraction on the same text."""
     conn.execute("UPDATE change_proposals SET status='discarded'"

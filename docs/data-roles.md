@@ -189,6 +189,7 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `review.memory.extract-btn` — Entity 추출 실행 (프리셋 작업, 단일)
 - `review.memory.save-btn` — Entity 저장 (단일)
 - `review.memory.pending` — 임시 변경안·저장 상태 표시
+- `review.memory.item-del-btn` — 임시 변경안 항목 삭제 버튼
 - `review.memory.chat-input`, `review.memory.chat-btn` — 추출 수정 요청 입력·요청 (단일)
 - `review.memory.entities` — 확정 Entity 목록
 

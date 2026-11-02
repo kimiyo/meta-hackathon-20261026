@@ -127,6 +127,30 @@ def save_entities(episode_no: int,
             "proposal_set_id": pset["proposal_set_id"]}
 
 
+@router.delete("/entity-items/{item_id}")
+def delete_entity_item(item_id: int,
+                       conn: sqlite3.Connection = Depends(get_conn),
+                       author: dict = Depends(get_current_author)):
+    """임시 변경안 항목 삭제. 검토 단계의 pending 항목만 가능하다."""
+    row = conn.execute(
+        "SELECT s.episode_no FROM change_proposal_items i"
+        " JOIN change_proposals s ON s.proposal_set_id=i.proposal_set_id"
+        " WHERE i.item_id=?", (item_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, f"item {item_id} not found")
+    job = require_episode_job(conn, row["episode_no"], author["id"])
+    if not job:
+        raise HTTPException(404, f"item {item_id} not found")
+    if job["state"] != "IN_REVIEW":
+        raise HTTPException(400, "entity edit needs IN_REVIEW")
+    try:
+        return memory.delete_pending_item(conn, item_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 def _with_version(conn, pset):
     if not pset:
         return None

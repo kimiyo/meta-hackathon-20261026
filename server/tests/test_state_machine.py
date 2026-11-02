@@ -207,6 +207,39 @@ def test_story_time_flows_to_history(conn):
         "근로관계": "2026-12-31부로 종료"}
 
 
+def test_delete_pending_item(conn):
+    from app import memory
+    rev = drafting.save_revision(conn, 1, "서연은 서점주인이다")
+    set_id = _store_proposal(conn, 1, rev["revision_id"], [
+        {"operation": "create", "candidate_name": "서연",
+         "evidence_quote": "서연은 서점주인이다"},
+        {"operation": "create", "candidate_name": "민준",
+         "evidence_quote": "서연은 서점주인이다"}])
+    items = [i for i in memory.get_proposals(conn, 1)
+             if i["proposal_set_id"] == set_id]
+    out = memory.delete_pending_item(conn, items[0]["item_id"])
+    assert out["deleted"] == items[0]["item_id"]
+    rest = [i for i in memory.get_proposals(conn, 1)
+            if i["proposal_set_id"] == set_id]
+    assert len(rest) == 1
+    with pytest.raises(KeyError):
+        memory.delete_pending_item(conn, 999999)
+
+
+def test_delete_committed_item_rejected(conn):
+    from app import memory
+    rev = drafting.save_revision(conn, 1, "서연은 서점주인이다")
+    set_id = _store_proposal(conn, 1, rev["revision_id"], [{
+        "operation": "create", "candidate_name": "서연",
+        "evidence_quote": "서연은 서점주인이다"}])
+    memory.save_episode_memory(conn, episode_no=1,
+                               revision_id=rev["revision_id"],
+                               proposal_set_id=set_id)
+    item = memory.get_proposals(conn, 1)[0]
+    with pytest.raises(ValueError, match="cannot be deleted"):
+        memory.delete_pending_item(conn, item["item_id"])
+
+
 def test_extract_empty_result_raises(conn):
     from app import extraction
     from tests.test_consistency import IssueMeta
