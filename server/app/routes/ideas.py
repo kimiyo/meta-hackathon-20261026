@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import design_nodes, ideas
+from .. import design_nodes, ideas, refs as refsmod
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from ..schemas import ideas as sch
@@ -88,42 +88,11 @@ class MessageIn(BaseModel):
     include_structure: bool | None = None
 
 
-def _resolve_work_node(conn: sqlite3.Connection, work_id: int,
-                       ref: str) -> dict | None:
-    """Resolve a node code/id across the work's designs, latest first."""
-    designs = conn.execute(
-        "SELECT id FROM story_designs WHERE work_id=? ORDER BY id DESC",
-        (work_id,)).fetchall()
-    for d in designs:
-        nid = design_nodes.resolve_node_id(conn, d["id"], ref)
-        if nid is not None:
-            return design_nodes.get_node(conn, nid)
-    return None
-
-
 def _resolve_refs(conn: sqlite3.Connection, work_id: int, refs: list[str],
                   skip_setting_ids: set[int]) -> tuple[list[str], list[str],
                                                        list[str]]:
-    """Resolve @ tokens to full settings / design nodes. Unknown stay listed."""
-    setting_lines, node_lines, unknown = [], [], []
-    for ref in refs:
-        s = conn.execute(
-            "SELECT * FROM setting_entries WHERE work_id=? AND title=?",
-            (work_id, ref)).fetchone()
-        if s is not None:
-            if s["id"] not in skip_setting_ids:
-                setting_lines.append(
-                    f"- [{s['category']}] {s['title']}: {s['summary']}\n"
-                    f"  {s['detail']}")
-                skip_setting_ids.add(s["id"])
-            continue
-        n = _resolve_work_node(conn, work_id, ref)
-        if n is not None:
-            node_lines.append(
-                f"- {n['full_code']}({n['kind']}) {n['title']}: {n['logline']}")
-        else:
-            unknown.append(ref)
-    return setting_lines, node_lines, unknown
+    """Shared @ resolver (single implementation in app/refs.py)."""
+    return refsmod.resolve_refs(conn, work_id, refs, skip_setting_ids)
 
 
 def _normalize_setting_proposals(items: list | None,

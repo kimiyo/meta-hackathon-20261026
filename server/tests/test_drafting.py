@@ -39,10 +39,10 @@ class FakeMeta:
 
 
 def test_draft_saves_revision(conn):
-    meta = FakeMeta(["가" * 3000])
+    meta = FakeMeta(["가" * 5000])
     out = drafting.draft_episode(meta, conn, design_id=1, work_id=1, episode_no=1)
-    assert out["version"] == 1 and out["length"] == 3000
-    out2 = drafting.draft_episode(meta := FakeMeta(["나" * 3000]), conn,
+    assert out["version"] == 1 and out["length"] == 5000
+    out2 = drafting.draft_episode(meta := FakeMeta(["나" * 5000]), conn,
                                   design_id=1, work_id=1, episode_no=1)
     assert out2["version"] == 2
     rows = conn.execute("SELECT version, approval_status FROM manuscript_revisions"
@@ -79,9 +79,9 @@ def test_lookup_round_executes_and_injects(conn):
                  " VALUES(1,2,'T','G')")
     conn.commit()
     meta = FakeMeta([
-        ("초안 " + "가" * 3000,
+        ("초안 " + "가" * 5000,
          [{"kind": "entity_state", "entity_id": "ch_0001"}]),
-        ("확정 " + "나" * 3000, []),
+        ("확정 " + "나" * 5000, []),
     ])
     out = drafting.draft_episode(meta, conn, design_id=1, work_id=1, episode_no=2)
     assert out["lookups_executed"] == 1
@@ -105,3 +105,7 @@ def test_execute_lookups_kinds(conn):
     assert res[1]["mentions"] == []
     assert res[2]["error"] == "unsupported_lookup"
     assert res[3]["error"] == "not_found"
+
+def test_default_length_target_meets_platform_minimum(conn):
+    assert drafting.get_style(conn, 1)["length_target"] == "5000-7000"
+    assert drafting.parse_length_target("") == (5000, 7000)

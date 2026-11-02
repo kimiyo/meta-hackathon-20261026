@@ -113,6 +113,7 @@ _RESET_TABLES = (
     "entity_relations", "entity_snapshots", "entity_aliases",
     "change_proposal_items", "change_proposals", "manuscript_revisions",
     "episode_jobs", "episode_outlines", "story_designs", "works",
+    "draft_requests",
     "llm_calls", "style_policies",
 )
 

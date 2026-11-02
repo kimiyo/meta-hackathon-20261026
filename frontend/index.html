@@ -254,8 +254,10 @@
   <div id="monitor-error"></div>
   <div class="screen-lead"><b>다음 화 쓰기</b>이번 화에서 달라질 것은 무엇인가요? 회차를 전진시켜 원고를 쓰고 검증하세요.</div>
   <div class="grid-monitor">
-    <div class="card" data-role="writing.progress.panel">
-      <h3>회차별 진행 <span class="hint">준비/초안/검토/대기/승인/확정</span></h3>
+    <div class="card" id="pane-progress" data-role="writing.progress.panel">
+      <button class="pane-expand" id="btn-progress-expand" data-role="writing.progress.expand-btn" title="회차별 진행 펼치기"><span>▶</span><span class="vlabel">회차별 진행</span></button>
+      <div class="progress-main">
+      <h3 class="split"><span>회차별 진행</span><button class="btn sm" id="btn-progress-collapse" data-role="writing.progress.collapse-btn" title="회차별 진행 접기">◀</button></h3>
       <details class="small" style="margin-bottom:4px"><summary class="muted">설계 직접 지정</summary>
         <label class="f">설계 ID</label>
         <div style="display:flex;gap:8px">
@@ -266,13 +268,36 @@
       <div class="small muted" id="monitor-budget" style="margin-top:10px">토큰 —</div>
       <div class="progress-10" id="monitor-progress" style="display:none"><i style="width:0%"></i></div>
       <table class="tbl" style="margin-top:10px">
-        <thead><tr><th>회차</th><th>진행</th><th>상태</th><th></th></tr></thead>
-        <tbody id="ep-rows" data-role="writing.progress.episode-rows"><tr><td colspan="4"><span class="muted small">설계를 불러오세요.</span></td></tr></tbody>
+        <thead><tr><th>회차</th><th>상태</th><th></th></tr></thead>
+        <tbody id="ep-rows" data-role="writing.progress.episode-rows"><tr><td colspan="3"><span class="muted small">설계를 불러오세요.</span></td></tr></tbody>
       </table>
+      </div>
     </div>
     <div class="col-resizer" id="writing-resizer" data-role="writing.screen.col-resizer" title="드래그하여 너비 조절"></div>
-    <div>
+    <div class="center-col">
       <div class="card" id="ep-detail" data-role="writing.episode.panel"><h3>회차 상세</h3><span class="muted">회차를 선택하면 상세 정보가 표시됩니다.</span></div>
+    </div>
+    <div class="col-resizer" id="writing-resizer-right" data-role="writing.screen.col-resizer-right" title="드래그하여 너비 조절"></div>
+    <div class="card" id="pane-draftchat" data-role="writing.chat.panel">
+      <button class="pane-expand" id="btn-draftchat-expand" data-role="writing.chat.expand-btn" title="수정 대화 펼치기"><span>◀</span><span class="vlabel">수정 대화</span></button>
+      <div class="chat-main">
+      <h3 class="split"><span>수정 대화 <span class="hint">초안 다시 쓰기</span></span><button class="btn sm" id="btn-draftchat-collapse" data-role="writing.chat.collapse-btn" title="수정 대화 접기">▶</button></h3>
+      <div id="draftchat-messages" data-role="writing.chat.messages" class="chat-box"></div>
+      <label class="f">방식</label>
+      <div class="seg" id="draftchat-mode" data-role="writing.chat.mode-seg" style="margin-bottom:8px">
+        <button data-dmode="partial" data-role="writing.chat.mode-partial" class="active">부분 수정</button>
+        <button data-dmode="full" data-role="writing.chat.mode-full">전체 재생성</button>
+      </div>
+      <label class="f">메시지 (@설정제목·@노드코드·@L줄번호)</label>
+      <div style="position:relative">
+        <textarea id="draftchat-input" data-role="writing.episode.change-input" placeholder="수정 지시를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+        <div id="draftchat-suggest" data-role="writing.chat.suggest" class="suggest" style="display:none"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary sm" id="btn-draftchat-send" data-role="writing.episode.change-btn">요청</button>
+      </div>
+      <div class="small muted" id="draftchat-hint" style="margin-top:6px"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -383,6 +408,17 @@
     <div id="novel-info-dialog-error"></div>
     <label class="f">소설 제목 (최대 80자)</label>
     <input type="text" id="novel-info-title-input" data-role="home.novel-info.title-input" placeholder="소설 제목" maxlength="80">
+    <label class="f">회차 목표 분량 (자 · 최소 ~ 최대, 최대 10000)</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="number" id="novel-info-length-min" data-role="home.novel-info.length-min-input" min="1" max="10000" step="100" style="width:130px">
+      <span class="muted">~</span>
+      <input type="number" id="novel-info-length-max" data-role="home.novel-info.length-max-input" min="1" max="10000" step="100" style="width:130px">
+      <span class="small muted" id="novel-info-length-hint"></span>
+    </div>
+    <div class="small muted" style="margin-top:4px">저장 이후에 시작하는 집필부터 적용되며, 기존 원고에는 소급 적용되지 않습니다.</div>
+    <label class="f">글쓰기 스타일</label>
+    <select id="novel-info-preset-select" data-role="home.novel-info.preset-select"></select>
+    <div class="small muted" id="novel-info-preset-desc" style="margin:4px 0 8px"></div>
     <div class="btn-row" style="justify-content:flex-end">
       <button class="btn ghost" id="btn-novel-info-cancel" data-role="home.novel-info.cancel-btn">취소</button>
       <button class="btn primary" id="btn-novel-info-save" data-role="home.novel-info.save-btn">저장</button>

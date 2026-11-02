@@ -27,7 +27,7 @@ def conn(tmp_path):
     c.close()
 
 
-MS = "서연은 달빛 서점의 주인이 되었다. " + "가" * 3000
+MS = "서연은 달빛 서점의 주인이 되었다. " + "가" * 5000
 
 
 class ScriptedMeta:

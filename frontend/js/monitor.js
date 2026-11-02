@@ -6,22 +6,32 @@ import { initColResizer, restoreColResizer } from "./resizer.js";
 
 const WRITING_RESIZER = { resizerId: "writing-resizer", varName: "--writing-left-w",
   storageKey: "writing-left-w", side: "left", min: 260, reserve: 320 };
+const WRITING_RESIZER_RIGHT = { resizerId: "writing-resizer-right", varName: "--writing-right-w",
+  storageKey: "writing-right-w", side: "right", min: 260, reserve: 620 };
 
 // 화면 3 · 집필: 회차 작업실 (선택한 1개 회차 중심)
 const ORDER = ["PLAN", "DRAFT", "VERIFY", "READY_FOR_REVIEW", "AUTHOR_APPROVED", "COMMITTED"];
-const SHORT = { PLAN: "P", DRAFT: "D", VERIFY: "V", READY_FOR_REVIEW: "R", AUTHOR_APPROVED: "A", COMMITTED: "C" };
-const ONCLS = { PLAN: "on-p", DRAFT: "on-d", VERIFY: "on-v", READY_FOR_REVIEW: "on-r", AUTHOR_APPROVED: "on-a", COMMITTED: "on-c" };
 
 let rows = [];
 let designNodes = [];
 let detail = null;
 let selectedEp = null;
+let expandedEp = null;
 let busy = false;
+let chatMode = "partial"; // or "full"
+let chatHistory = [];
+let settingTitles = [];
+let settingsWorkKey = null;
+let sugItems = [];
+let sugActive = -1;
 
 function setBusy(v) {
   busy = v;
   for (const b of document.querySelectorAll("#s2 button")) b.disabled = v;
-  if (!v) applyStartGate();
+  if (!v) {
+    applyStartGate();
+    renderChatGate();
+  }
 }
 
 // 순차 집필: EP N의 첫 시작은 EP N-1이 확정(COMMITTED)된 뒤에만 가능.
@@ -65,36 +75,50 @@ async function run(fn) {
   }
 }
 
-function badges(state) {
-  if (!state) return `<span class="muted small">미시작</span>`;
-  if (state === "NEEDS_AUTHOR") return `<span class="st-NEEDS_AUTHOR state-label">${stateKo(state)}</span>`;
-  const idx = ORDER.indexOf(state);
-  return ORDER.map((s, i) =>
-    `<span class="badge${i <= idx ? " " + ONCLS[s] : ""}" title="${esc(stateKo(s))}">${SHORT[s]}</span>`
-  ).join("");
-}
-
 function stateLabel(state) {
   if (!state) return "-";
   return `<span class="st-${esc(state)} state-label">${esc(stateKo(state))}</span>`;
 }
 
+function stateSeg(state) {
+  const btns = ORDER.map((s) =>
+    `<button tabindex="-1"${s === state ? ' class="active"' : ""} title="${esc(stateKo(s))}">${esc(stateKo(s))}</button>`).join("");
+  const extra = state && !ORDER.includes(state) ? ` ${stateLabel(state)}` : "";
+  return `<span class="seg" data-role="writing.episode.state-seg" style="vertical-align:middle">${btns}</span>${extra}`;
+}
+
+function epSubHtml(ep) {
+  const { node, scenes } = designEp(ep);
+  const goal = node
+    ? `<div><span class="chip mono">${esc(node.code ?? "")}</span> <span class="small">${esc(node.logline || "(줄거리 없음)")}</span></div>`
+    : `<span class="muted small">연결된 설계 노드가 없습니다.</span>`;
+  const sc = scenes.length
+    ? `<ul class="ep-scenes">${scenes
+        .map((s) => `<li><span class="chip mono">${esc(s.code ?? "")}</span> <b>${esc(s.title)}</b>${s.logline ? ` <span class="small muted">${esc(s.logline)}</span>` : ""}</li>`)
+        .join("")}</ul>`
+    : "";
+  return `<div class="small"><b>설계 줄거리</b></div>${goal}`
+    + (scenes.length ? `<div class="small" style="margin-top:6px"><b>장면 (${scenes.length})</b></div>${sc}` : "");
+}
+
 function renderRows() {
   const tb = $("ep-rows");
   if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="4"><span class="muted small">회차가 없습니다.</span></td></tr>`;
+    tb.innerHTML = `<tr><td colspan="3"><span class="muted small">회차가 없습니다.</span></td></tr>`;
     return;
   }
   tb.innerHTML = rows
     .map(
       (r) => `<tr class="clickable${r.episode_no === selectedEp ? " selected" : ""}" data-ep="${r.episode_no}">
-        <td><b>EP ${esc(r.episode_no)}</b><br><span class="muted small">${esc(r.title)}</span></td>
-        <td>${badges(r.job?.state)}</td>
+        <td><span class="exp">${r.episode_no === expandedEp ? "▾" : "▸"}</span> <b>EP ${esc(r.episode_no)}</b><br><span class="muted small">${esc(r.title)}</span></td>
         <td>${stateLabel(r.job?.state)}</td>
         <td style="white-space:nowrap">
           ${r.job ? `<button class="btn sm" data-detail data-role="writing.progress.row-detail-btn">상세</button> ` : ""}
           <button class="btn sm" data-advance-row data-role="writing.progress.row-advance-btn"${!r.job && !canStart(r.episode_no) ? " disabled" : ""}${!r.job && !canStart(r.episode_no) ? ` title="${gateHint(r.episode_no)}"` : ""}>전진</button>
         </td>
+      </tr>
+      <tr class="ep-sub" data-sub="${r.episode_no}" data-role="writing.progress.expander"${r.episode_no === expandedEp ? "" : " hidden"}>
+        <td colspan="3">${epSubHtml(r.episode_no)}</td>
       </tr>`
     )
     .join("");
@@ -110,7 +134,15 @@ function renderRows() {
       e.stopPropagation();
       advanceRow(ep, !!row?.job, e.currentTarget);
     });
-    tr.addEventListener("click", () => openDetail(ep));
+    tr.addEventListener("click", () => {
+      if (selectedEp === ep && expandedEp === ep) {
+        expandedEp = null;
+        renderRows();
+        return;
+      }
+      expandedEp = ep;
+      openDetail(ep);
+    });
   });
   const done = rows.filter((r) => r.job?.state === "COMMITTED").length;
   const bar = $("monitor-progress");
@@ -127,22 +159,6 @@ function designEp(ep) {
   return { node, scenes };
 }
 
-function lastErrorHtml() {
-  if (!detail.last_error) return "";
-  return `<div class="notice err" style="margin-top:10px">사유: ${esc(detail.last_error)}</div>`;
-}
-
-function verificationHtml() {
-  if (!detail.verification) return "";
-  return `<p class="small">검증: <span class="mono">${esc(JSON.stringify(detail.verification.counts))}</span></p>`;
-}
-
-function qualityHtml() {
-  if (!detail.quality) return "";
-  const scores = detail.quality.scores ?? detail.quality;
-  return `<p class="small">품질: <span class="mono">${esc(JSON.stringify(scores))}</span></p>`;
-}
-
 function manuscriptHtml() {
   const d = detail;
   if (!d.versions.length) {
@@ -152,9 +168,10 @@ function manuscriptHtml() {
   const opts = d.versions
     .map((r) => `<option value="${r.version}"${r.version === d.msVersion ? " selected" : ""}>v${r.version} (${esc(r.approval_status)})</option>`)
     .join("");
+  // 줄번호는 서버와 같은 규칙: text.split("\n")의 1 기반 번호.
   const body = d.msText
     .split("\n")
-    .map((p) => `<p>${esc(p) || "&nbsp;"}</p>`)
+    .map((line, i) => `<div class="ms-line" data-ln="${i + 1}"><span class="ln">${i + 1}</span><span class="lt">${esc(line) || "&nbsp;"}</span></div>`)
     .join("");
   return `
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
@@ -171,41 +188,15 @@ function renderDetail() {
     return;
   }
   const d = detail;
-  const scenes = d.scenes.length
-    ? `<ul class="ep-scenes">${d.scenes
-        .map((s) => `<li><span class="chip mono">${esc(s.code ?? "")}</span> <b>${esc(s.title)}</b>${s.logline ? ` <span class="small muted">${esc(s.logline)}</span>` : ""}</li>`)
-        .join("")}</ul>`
-    : `<span class="muted small">장면 없음</span>`;
   box.innerHTML = `
-    <h3>EP ${esc(d.ep)} · ${esc(d.title || "")} ${d.hasJob ? stateLabel(d.state) : `<span class="muted small">미시작</span>`}</h3>
+    <h3>EP ${esc(d.ep)} · ${esc(d.title || "")} ${d.hasJob ? stateSeg(d.state) : `<span class="muted small">미시작</span>`}</h3>
     ${d.hasJob ? "" : `<div class="btn-row"><button class="btn primary" data-start data-role="writing.episode.start-btn"${canStart(d.ep) ? "" : " disabled"}${canStart(d.ep) ? "" : ` title="${gateHint(d.ep)}"`}>이 화 집필 시작</button>${canStart(d.ep) ? "" : `<span class="small muted">${gateHint(d.ep)}</span>`}</div>`}
-    <h4>설계 줄거리${d.designNode ? ` <span class="chip mono">${esc(d.designNode.code ?? "")}</span>` : ""}</h4>
-    <p class="small">${d.designNode ? esc(d.designNode.logline || "(줄거리 없음)") : `<span class="muted">연결된 설계 노드가 없습니다.</span>`}</p>
-    <h4>장면 (${d.scenes.length})</h4>
-    ${scenes}
-    <h4>원고</h4>
     ${manuscriptHtml()}
-    ${d.hasJob ? `
-    <h4>수정 요청</h4>
-    <div style="display:flex;gap:8px">
-      <input type="text" data-change-input data-role="writing.episode.change-input" placeholder="수정 지시를 입력하세요" style="flex:1">
-      <button class="btn sm" data-change-btn data-role="writing.episode.change-btn" style="white-space:nowrap">요청</button>
-    </div>` : ""}
     <div class="btn-row" style="margin-top:10px">
       ${d.hasJob ? `<button class="btn primary" data-advance data-role="writing.episode.advance-btn">다음 단계로 전진</button>` : ""}
       ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">작가 검토로 이동 →</button>` : ""}
     </div>
-    ${d.hasJob ? `<div class="small muted" style="margin-top:6px">※ 전진은 되돌릴 수 없습니다. 같은 상태에서 반복하면 재시도 횟수를 소모합니다.</div>` : ""}
-    ${d.hasJob ? `<details style="margin-top:10px"><summary class="small muted">파이프라인 정보</summary>
-      <dl class="kv">
-        <dt>시도</dt><dd class="mono">${esc(d.attempt)}</dd>
-        <dt>원고 rev</dt><dd class="mono">${esc(d.manuscript_revision_id ?? "-")}</dd>
-        <dt>제안 set</dt><dd class="mono">${esc(d.proposal_set_id ?? "-")}</dd>
-      </dl>
-      ${lastErrorHtml()}
-      ${verificationHtml()}
-      ${qualityHtml()}
-    </details>` : ""}`;
+    ${d.hasJob ? `<div class="small muted" style="margin-top:6px">※ 전진은 되돌릴 수 없습니다. 같은 상태에서 반복하면 재시도 횟수를 소모합니다.</div>` : ""}`;
   box.querySelector("[data-start]")?.addEventListener("click", (e) =>
     advanceCurrent(e.currentTarget));
   box.querySelector("[data-advance]")?.addEventListener("click", (e) =>
@@ -217,19 +208,255 @@ function renderDetail() {
       detail.msText = (await api.manuscript(detail.ep, detail.msVersion)).text ?? "";
       renderDetail();
     }));
-  const changeBtn = box.querySelector("[data-change-btn]");
-  if (changeBtn) changeBtn.addEventListener("click", () =>
-    run(async () => {
-      const input = box.querySelector("[data-change-input]");
-      const instruction = input.value.trim();
-      if (!instruction) {
-        showError("monitor-error", "수정 지시를 입력하세요.");
-        return;
-      }
-      await api.requestChange(detail.ep, instruction);
+  box.querySelector('[data-role="writing.episode.manuscript"]')?.addEventListener("mouseup", insertLinePin);
+}
+
+// ---- 줄 지정 (@L) ----
+
+function isLatestVersionShown() {
+  return !!detail?.versions?.length &&
+    detail.msVersion === detail.versions[detail.versions.length - 1].version;
+}
+
+function closestLt(node) {
+  if (!node) return null;
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  return el?.closest?.(".lt") ?? null;
+}
+
+function insertAtCaret(input, text) {
+  const s = input.selectionStart ?? input.value.length;
+  const e = input.selectionEnd ?? input.value.length;
+  input.value = input.value.slice(0, s) + text + input.value.slice(e);
+  const pos = s + text.length;
+  input.setSelectionRange(pos, pos);
+}
+
+function insertLinePin() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+  const a = closestLt(sel.anchorNode);
+  const b = closestLt(sel.focusNode);
+  const box = document.querySelector('#ep-detail [data-role="writing.episode.manuscript"]');
+  if (!a || !b || !box || !box.contains(a) || !box.contains(b)) return;
+  if (!isLatestVersionShown()) {
+    setChatHint("줄 지정은 최신 원고에서만 할 수 있습니다.");
+    return;
+  }
+  const la = Number(a.parentElement.dataset.ln);
+  const lb = Number(b.parentElement.dataset.ln);
+  const [s, e] = la <= lb ? [la, lb] : [lb, la];
+  const input = $("draftchat-input");
+  insertAtCaret(input, s === e ? `@L${s} ` : `@L${s}-${e} `);
+  input.focus();
+}
+
+// ---- 수정 대화 (우측 패널) ----
+
+function chatSendable() {
+  return !!detail?.hasJob && ["DRAFT", "READY_FOR_REVIEW"].includes(detail?.state);
+}
+
+function setChatHint(text) {
+  $("draftchat-hint").textContent = text ?? "";
+}
+
+function hintForState() {
+  if (!detail) return "";
+  if (!detail.hasJob) return "이 화 집필 시작 후 이용 가능합니다.";
+  if (chatSendable()) return chatMode === "full" ? "전체 재생성은 지시를 비워도 됩니다." : "";
+  if (detail.state === "VERIFY") return "검토 중에는 요청할 수 없습니다. 전진을 계속하세요.";
+  if (detail.state === "NEEDS_AUTHOR") return "작가 확인이 필요한 상태입니다.";
+  return "확정된 회차는 수정할 수 없습니다.";
+}
+
+function highlightMentions(text) {
+  return esc(text).replace(/@([^\s@,]+)/g, "<b>@$1</b>");
+}
+
+function chatRowHtml(r) {
+  const instr = r.instruction?.trim()
+    ? highlightMentions(r.instruction)
+    : `<span class="muted">(전체 재생성)</span>`;
+  const user = `<div class="msg user"><div class="bubble">${instr}</div></div>`;
+  let verdict;
+  if (r.error) {
+    verdict = `<div class="msg assistant"><div class="bubble">실패: ${esc(r.error)}</div></div>`;
+  } else {
+    const bits = [`→ v${r.result_version} 생성됨`];
+    if (r.full) bits.push("전체");
+    const tail = (r.refs ?? []).length ? ` · @${r.refs.map(esc).join(" @")}` : "";
+    const unk = (r.unknown ?? []).length ? ` <span class="muted">(못 찾음: @${r.unknown.map(esc).join(" @")})</span>` : "";
+    verdict = `<div class="msg assistant"><div class="bubble">${esc(bits.join(" · "))}${tail}${unk}</div></div>`;
+  }
+  return user + verdict;
+}
+
+function renderChatGate() {
+  const ok = chatSendable() && !busy;
+  $("btn-draftchat-send").disabled = !ok;
+  $("draftchat-input").disabled = !chatSendable();
+  setChatHint(hintForState());
+}
+
+function renderChat() {
+  const box = $("draftchat-messages");
+  if (!detail) {
+    box.innerHTML = `<span class="muted small">회차를 선택하세요.</span>`;
+  } else if (!detail.hasJob) {
+    box.innerHTML = `<span class="muted small">집필을 시작하면 수정 대화를 할 수 있습니다.</span>`;
+  } else if (!chatHistory.length) {
+    box.innerHTML = `<span class="muted small">초안에 대한 수정 요청을 보내보세요. @로 설정·노드·줄을 참조할 수 있습니다.</span>`;
+  } else {
+    box.innerHTML = chatHistory.map(chatRowHtml).join("");
+  }
+  box.scrollTop = box.scrollHeight;
+  document.querySelectorAll("#draftchat-mode [data-dmode]").forEach((b) =>
+    b.classList.toggle("active", b.dataset.dmode === chatMode));
+  renderChatGate();
+}
+
+function appendPendingChat(instruction, full) {
+  const box = $("draftchat-messages");
+  const instr = instruction
+    ? highlightMentions(instruction)
+    : `<span class="muted">(전체 재생성)</span>`;
+  box.insertAdjacentHTML("beforeend",
+    `<div data-pending><div class="msg user"><div class="bubble">${instr}</div></div>` +
+    `<div class="msg assistant"><div class="typing" aria-label="처리 중"><span></span><span></span><span></span></div></div></div>`);
+  box.scrollTop = box.scrollHeight;
+}
+
+function removePendingChat() {
+  document.querySelector('#draftchat-messages [data-pending]')?.remove();
+}
+
+async function sendChat() {
+  const input = $("draftchat-input");
+  const instruction = input.value.trim();
+  const full = chatMode === "full";
+  if (!instruction && !full) {
+    setChatHint("수정 지시를 입력하세요.");
+    input.focus();
+    return;
+  }
+  hideSuggest();
+  appendPendingChat(instruction, full);
+  const btn = $("btn-draftchat-send");
+  btn.textContent = "처리중…";
+  try {
+    await run(async () => {
+      const out = await api.requestChange(detail.ep, instruction, full);
+      input.value = "";
       await load(currentDesignId());
       await fetchDetail(detail.ep);
-    }));
+      await refreshBudgetChips();
+      if (out.unknown_refs?.length) setChatHint(`못 찾은 참조: @${out.unknown_refs.join(" @")}`);
+    });
+  } finally {
+    btn.textContent = "요청";
+    removePendingChat();
+  }
+}
+
+function mentionCandidates() {
+  const out = [];
+  for (const t of settingTitles) out.push({ token: t, label: t, kind: "설정" });
+  for (const n of designNodes) {
+    if (n.archived) continue;
+    const code = n.code ?? n.full_code ?? n.id;
+    if (!code) continue;
+    out.push({ token: String(code), label: `${code} ${n.title ?? ""}`.trim(), kind: "노드" });
+  }
+  return out;
+}
+
+function updateSuggest() {
+  const input = $("draftchat-input");
+  const caret = input.selectionStart ?? input.value.length;
+  const m = /@([^\s@,]*)$/.exec(input.value.slice(0, caret));
+  if (!m) {
+    hideSuggest();
+    return;
+  }
+  const q = m[1].toLowerCase();
+  sugItems = mentionCandidates().filter((c) =>
+    c.token.toLowerCase().includes(q) || c.label.toLowerCase().includes(q)).slice(0, 8);
+  if (!sugItems.length) {
+    hideSuggest();
+    return;
+  }
+  sugActive = 0;
+  renderSuggest();
+}
+
+function renderSuggest() {
+  const box = $("draftchat-suggest");
+  box.innerHTML = sugItems.map((c, i) =>
+    `<div class="sug-it${i === sugActive ? " active" : ""}" data-sug="${i}"><b>@${esc(c.token)}</b><span class="muted small">${esc(c.kind)} · ${esc(c.label)}</span></div>`).join("");
+  box.style.display = "";
+  box.querySelectorAll("[data-sug]").forEach((el) => {
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      acceptSuggest(Number(el.dataset.sug));
+    });
+  });
+}
+
+function acceptSuggest(i) {
+  const c = sugItems[i];
+  if (!c) return;
+  const input = $("draftchat-input");
+  const caret = input.selectionStart ?? input.value.length;
+  const before = input.value.slice(0, caret);
+  const m = /@([^\s@,]*)$/.exec(before);
+  if (!m) return;
+  const head = before.slice(0, before.length - m[0].length);
+  input.value = `${head}@${c.token} ${input.value.slice(caret)}`;
+  const pos = head.length + c.token.length + 2;
+  input.setSelectionRange(pos, pos);
+  hideSuggest();
+  input.focus();
+}
+
+function hideSuggest() {
+  sugItems = [];
+  sugActive = -1;
+  const box = $("draftchat-suggest");
+  if (box) {
+    box.innerHTML = "";
+    box.style.display = "none";
+  }
+}
+
+async function ensureSettingTitles() {
+  const w = getWork();
+  const key = w ? (w.uid || w.id) : null;
+  if (!key) {
+    settingTitles = [];
+    settingsWorkKey = null;
+    return;
+  }
+  if (key === settingsWorkKey) return;
+  try {
+    const s = await api.settings(key);
+    settingTitles = (s.settings ?? []).map((x) => x.title).filter(Boolean);
+  } catch {
+    settingTitles = [];
+  }
+  settingsWorkKey = key;
+}
+
+// ---- 접기 ----
+
+function setProgressCollapsed(collapsed) {
+  localStorage.setItem("writing-progress-collapsed", collapsed ? "1" : "0");
+  document.querySelector(".grid-monitor")?.classList.toggle("progress-collapsed", collapsed);
+}
+
+function setChatCollapsed(collapsed) {
+  localStorage.setItem("writing-chat-collapsed", collapsed ? "1" : "0");
+  document.querySelector(".grid-monitor")?.classList.toggle("chat-collapsed", collapsed);
 }
 
 function currentDesignId() {
@@ -252,10 +479,9 @@ async function fetchDetail(ep) {
   renderRows();
   const row = rows.find((r) => r.episode_no === selectedEp);
   const hasJob = !!row?.job;
-  const { node, scenes } = designEp(selectedEp);
   if (hasJob) {
     detail = { ep: selectedEp, hasJob: true, title: row.title,
-      ...(await api.episode(selectedEp)), designNode: node, scenes };
+      ...(await api.episode(selectedEp)) };
     detail.versions = detail.revisions ?? [];
     if (detail.versions.length) {
       detail.msVersion = detail.versions[detail.versions.length - 1].version;
@@ -265,11 +491,19 @@ async function fetchDetail(ep) {
       detail.msVersion = null;
       detail.msText = "";
     }
+    try {
+      chatHistory = (await api.draftRequests(selectedEp)).requests ?? [];
+    } catch {
+      chatHistory = [];
+    }
   } else {
     detail = { ep: selectedEp, hasJob: false, title: row?.title ?? "",
-      designNode: node, scenes, versions: [], msVersion: null, msText: "" };
+      versions: [], msVersion: null, msText: "" };
+    chatHistory = [];
   }
+  await ensureSettingTitles();
   renderDetail();
+  renderChat();
 }
 
 function openDetail(ep) {
@@ -333,12 +567,58 @@ export async function refreshBudgetChips() {
 
 export function initMonitor() {
   initColResizer(WRITING_RESIZER);
+  initColResizer(WRITING_RESIZER_RIGHT);
+  setProgressCollapsed(localStorage.getItem("writing-progress-collapsed") === "1");
+  setChatCollapsed(localStorage.getItem("writing-chat-collapsed") === "1");
+  $("btn-progress-collapse").addEventListener("click", () => setProgressCollapsed(true));
+  $("btn-progress-expand").addEventListener("click", () => setProgressCollapsed(false));
+  $("btn-draftchat-collapse").addEventListener("click", () => setChatCollapsed(true));
+  $("btn-draftchat-expand").addEventListener("click", () => setChatCollapsed(false));
   $("btn-monitor-load").addEventListener("click", () =>
     run(async () => {
       const did = currentDesignId();
       if (did) await load(did);
     })
   );
+  $("btn-draftchat-send").addEventListener("click", sendChat);
+  document.querySelectorAll("#draftchat-mode [data-dmode]").forEach((b) =>
+    b.addEventListener("click", () => {
+      chatMode = b.dataset.dmode;
+      renderChat();
+    }));
+  const chatInput = $("draftchat-input");
+  chatInput.addEventListener("input", updateSuggest);
+  chatInput.addEventListener("blur", () => setTimeout(hideSuggest, 150));
+  chatInput.addEventListener("keydown", (e) => {
+    if ($("draftchat-suggest").style.display !== "none" && sugItems.length) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        sugActive = (sugActive + 1) % sugItems.length;
+        renderSuggest();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        sugActive = (sugActive - 1 + sugItems.length) % sugItems.length;
+        renderSuggest();
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        acceptSuggest(sugActive);
+        return;
+      }
+      if (e.key === "Escape") {
+        hideSuggest();
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
+  renderChat();
   // 첫 작품의 최신 설계로 자동 초기화
   api
     .works()
@@ -367,6 +647,7 @@ export function initMonitor() {
   document.addEventListener("enter-screen", (e) => {
     if (e.detail?.section !== "s2") return;
     restoreColResizer(WRITING_RESIZER);
+    restoreColResizer(WRITING_RESIZER_RIGHT);
     const cur = getWork();
     if (!cur) return;
     run(async () => {

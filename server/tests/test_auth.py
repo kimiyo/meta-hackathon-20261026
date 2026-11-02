@@ -31,7 +31,7 @@ def client(tmp_path, monkeypatch):
 class DraftFake:
     def chat_json(self, *, bundle, episode, system, user, schema,
                   max_tokens, work_id=None):
-        return {"manuscript": "가" * 3000, "lookup_requests": []}
+        return {"manuscript": "가" * 5000, "lookup_requests": []}
 
 
 def _register(c, login_id="kimiyo", pen_name="김요", password="pw1234"):

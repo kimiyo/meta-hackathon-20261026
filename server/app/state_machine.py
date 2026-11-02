@@ -227,21 +227,69 @@ def _public(job: dict) -> dict:
             "last_error": job.get("last_error", "")}
 
 
-def request_change(conn, episode_no: int, instruction: str) -> dict:
-    """READY→DRAFT: author asks for changes (manuscript + input preserved)."""
+def request_change(conn, meta, episode_no: int, instruction: str, *,
+                   full: bool = False, max_tokens: int = 8000) -> dict:
+    """DRAFT/READY: author asks for changes → immediate redraft.
+
+    Lands in DRAFT either way; the new revision is verified by the next
+    advance. Every attempt is logged to draft_requests (failures too).
+    Validation failures (blank instruction, bad @L range) change nothing."""
     job = get_job(conn, episode_no)
     if not job:
         raise KeyError(f"episode {episode_no} has no job")
-    if job["state"] != "READY_FOR_REVIEW":
-        raise ValueError(f"request-change needs READY_FOR_REVIEW, got {job['state']}")
+    if job["state"] not in ("DRAFT", "READY_FOR_REVIEW"):
+        raise ValueError(
+            "request-change needs DRAFT or READY_FOR_REVIEW"
+            f" got {job['state']}")
+    rev_row = None
+    if job.get("manuscript_revision_id"):
+        rev_row = conn.execute(
+            "SELECT * FROM manuscript_revisions WHERE revision_id=?",
+            (job["manuscript_revision_id"],)).fetchone()
+    base_text = rev_row["text"] if rev_row else ""
+    base_version = rev_row["version"] if rev_row else None
+    design = conn.execute("SELECT * FROM story_designs WHERE id=?",
+                          (job["design_id"],)).fetchone()
+    try:
+        out = drafting.redraft_episode(
+            meta, conn, design_id=job["design_id"],
+            work_id=design["work_id"], episode_no=episode_no,
+            base_text=base_text, base_version=base_version,
+            instruction=instruction, full=full or not base_text,
+            max_tokens=max_tokens)
+    except BudgetExceeded as e:
+        job["state"] = "NEEDS_AUTHOR"
+        job["last_error"] = f"budget_exceeded: {e}"[:300]
+        _save_job(conn, job)
+        drafting.log_draft_request(
+            conn, episode_no, instruction=instruction or "",
+            resolved=[], unknown=[], full=full,
+            base_version=base_version, error=job["last_error"])
+        return {"episode_no": episode_no, **_public(job)}
+    except LLMStepError:
+        job["attempt"] += 1
+        job["last_error"] = "redraft failed: manuscript_invalid"
+        _save_job(conn, job)
+        drafting.log_draft_request(
+            conn, episode_no, instruction=instruction or "",
+            resolved=[], unknown=[], full=full,
+            base_version=base_version, error=job["last_error"])
+        raise
     if job["proposal_set_id"]:
         memory.discard_proposal_set(conn, job["proposal_set_id"])
     job["proposal_set_id"] = None
-    job["fix_instruction"] = instruction
     job["state"] = "DRAFT"
-    job["last_error"] = "author requested changes"
+    job["manuscript_revision_id"] = out["revision_id"]
+    job["last_error"] = ""
+    job["fix_instruction"] = ""
     _save_job(conn, job)
-    return {"episode_no": episode_no, **_public(job)}
+    drafting.log_draft_request(
+        conn, episode_no, instruction=instruction or "",
+        resolved=out["resolved_refs"], unknown=out["unknown_refs"],
+        full=full, base_version=base_version,
+        result_version=out["version"])
+    return {"episode_no": episode_no, **_public(job), "revision": out,
+            "unknown_refs": out["unknown_refs"]}
 
 
 def approve_episode(conn, episode_no: int) -> dict:

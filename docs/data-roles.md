@@ -78,7 +78,7 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `home.novel-delete.dialog` — 소설 삭제 다이얼로그
 - `home.novel-delete.title-input`, `home.novel-delete.cancel-btn`, `home.novel-delete.confirm-btn`
 - `home.novel-info.dialog` — 소설 정보 수정 다이얼로그
-- `home.novel-info.title-input`, `home.novel-info.cancel-btn`, `home.novel-info.save-btn`
+- `home.novel-info.title-input`, `home.novel-info.length-min-input`, `home.novel-info.length-max-input`, `home.novel-info.preset-select`, `home.novel-info.cancel-btn`, `home.novel-info.save-btn`
 
 ### ideas — 아이디어
 
@@ -151,10 +151,19 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 
 - `writing.screen`
 - `writing.screen.col-resizer` — 진행·상세 열 분할선 (드래그)
+- `writing.screen.col-resizer-right` — 상세·대화 열 분할선 (드래그)
 - `writing.progress.panel` — 회차별 진행 카드
+- `writing.progress.collapse-btn`, `writing.progress.expand-btn` — 진행 열 접기/펼치기
 - `writing.progress.design-id-input`, `writing.progress.load-btn`
 - `writing.progress.episode-rows`
+- `writing.progress.expander` — 회차 행 아래 설계 줄거리·장면 펼침
 - `writing.episode.panel` — 회차 상세 카드
+- `writing.episode.state-seg` — 파이프라인 상태 표시 세그먼트 (조작 불가)
+- `writing.chat.panel` — 수정 대화 카드
+- `writing.chat.collapse-btn`, `writing.chat.expand-btn` — 대화 열 접기/펼치기
+- `writing.chat.messages` — 수정 요청 내역
+- `writing.chat.mode-seg`, `writing.chat.mode-partial`, `writing.chat.mode-full` — 부분/전체 방식 전환
+- `writing.chat.suggest` — @ 자동완성 목록
 
 ### review — 작가 검토
 
@@ -228,7 +237,7 @@ AI와의 대화에서 화면 요소를 정확히 지칭하기 위한 식별자 �
 - `writing.episode.start-btn` — 이 화 집필 시작 버튼 (단일)
 - `writing.episode.version-select` — 원고 버전 선택 (단일)
 - `writing.episode.manuscript` — 원고 미리보기 (단일)
-- `writing.episode.change-input`, `writing.episode.change-btn` — 수정 요청 (단일)
+- `writing.episode.change-input`, `writing.episode.change-btn` — 수정 대화 입력·요청 (우측 패널, 단일)
 - `writing.episode.review-link` — 작가 검토로 이동 버튼 (단일)
 
 ### review.js

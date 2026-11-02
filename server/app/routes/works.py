@@ -7,7 +7,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import planning
+from .. import drafting, planning, style_presets
 from ..db import find_work, new_uid, now_iso, touch_work
 from ..errors import LLMStepError
 from ..ideas import check_total_episodes
@@ -176,6 +176,45 @@ def patch_work(key: str, body: WorkPatch,
 
 class WorkDeleteIn(BaseModel):
     title: str
+
+
+class StylePatch(BaseModel):
+    length_min: int | None = None
+    length_max: int | None = None
+    preset: str | None = None
+
+
+@router.get("/works/{key}/style")
+def get_work_style(key: str, conn: sqlite3.Connection = Depends(get_conn),
+                     author: dict = Depends(get_current_author)):
+    work = _work_or_404(conn, key, author["id"])
+    return {"work_id": work["id"],
+            **drafting.get_length_range(conn, work["id"]),
+            "presets": style_presets.preset_list()}
+
+
+@router.patch("/works/{key}/style")
+def patch_work_style(key: str, body: StylePatch,
+                     conn: sqlite3.Connection = Depends(get_conn),
+                     author: dict = Depends(get_current_author)):
+    work = _work_or_404(conn, key, author["id"])
+    if (body.length_min is None) != (body.length_max is None):
+        raise HTTPException(400, "length_min and length_max go together")
+    if body.length_min is None and body.preset is None:
+        raise HTTPException(400, "no valid style fields")
+    try:
+        if body.length_min is not None:
+            drafting.set_length_target(conn, work["id"],
+                                       body.length_min, body.length_max)
+        if body.preset is not None:
+            drafting.set_style_preset(conn, work["id"], body.preset)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    touch_work(conn, work["id"])
+    conn.commit()
+    out = drafting.get_length_range(conn, work["id"])
+    return {"work_id": work["id"], **out,
+            "presets": style_presets.preset_list()}
 
 
 @router.delete("/works/{key}")

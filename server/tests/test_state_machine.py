@@ -23,7 +23,7 @@ def conn(tmp_path):
 
 
 def test_plan_to_draft(conn):
-    out = state_machine.advance(conn, FakeMeta(["가" * 3000]), 1, design_id=1)
+    out = state_machine.advance(conn, FakeMeta(["가" * 5000]), 1, design_id=1)
     assert out["state"] == "DRAFT"
     assert out["revision"]["version"] == 1
     job = state_machine.get_job(conn, 1)
@@ -34,7 +34,7 @@ def test_draft_design_advances_without_approval(conn):
     conn.execute("INSERT INTO episode_outlines(design_id, episode_no, title, goal)"
                  " VALUES(2,1,'T','G')")
     conn.commit()
-    out = state_machine.advance(conn, FakeMeta(["가" * 3000]), 1, design_id=2)
+    out = state_machine.advance(conn, FakeMeta(["가" * 5000]), 1, design_id=2)
     assert out["state"] == "DRAFT"
 
 

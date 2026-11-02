@@ -43,6 +43,9 @@ export const api = {
     req("/works", { method: "POST", body: JSON.stringify({ title, logline }) }),
   patchWork: (key, body) =>
     req(`/works/${key}`, { method: "PATCH", body: JSON.stringify(body) }),
+  workStyle: (key) => req(`/works/${key}/style`),
+  patchWorkStyle: (key, body) =>
+    req(`/works/${key}/style`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteWork: (key, title) =>
     req(`/works/${key}`, {
       method: "DELETE",
@@ -66,11 +69,12 @@ export const api = {
     }),
   manuscript: (no, version) =>
     req(`/episodes/${no}/manuscript${version ? `?version=${version}` : ""}`),
-  requestChange: (no, instruction) =>
+  requestChange: (no, instruction, full) =>
     req(`/episodes/${no}/request-change`, {
       method: "POST",
-      body: JSON.stringify({ instruction }),
+      body: JSON.stringify({ instruction: instruction ?? "", full: !!full }),
     }),
+  draftRequests: (no) => req(`/episodes/${no}/draft-requests`),
   approveEpisode: (no) => req(`/episodes/${no}/approve`, { method: "POST" }),
   proposals: (no) => req(`/episodes/${no}/proposals`),
   entities: (q) => req(`/entities${q ? `?q=${encodeURIComponent(q)}` : ""}`),

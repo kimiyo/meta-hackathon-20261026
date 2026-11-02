@@ -2,7 +2,7 @@
 import pytest
 
 from app import db as dbmod
-from app import memory, quality, state_machine
+from app import drafting, memory, quality, state_machine
 from app.errors import BudgetExceeded
 from tests.test_verify_pipeline import MS, ScriptedMeta, _item
 
@@ -97,12 +97,16 @@ def test_request_change_returns_to_draft(conn):
     state_machine.advance(conn, meta, 1, design_id=1)
     state_machine.advance(conn, meta, 1)
     state_machine.advance(conn, meta, 1)
-    out = state_machine.request_change(conn, 1, "직업을 바꿔줘")
+    out = state_machine.request_change(conn, meta, 1, "직업을 바꿔줘")
     assert out["state"] == "DRAFT"
+    assert out["revision"]["version"] == 2  # immediate redraft
     job = state_machine.get_job(conn, 1)
-    assert job["fix_instruction"] == "직업을 바꿔줘"
+    assert job["fix_instruction"] == ""  # consumed immediately
+    assert job["proposal_set_id"] is None
     revs = conn.execute("SELECT COUNT(*) c FROM manuscript_revisions").fetchone()["c"]
-    assert revs == 1  # manuscript preserved
+    assert revs == 2
+    hist = drafting.list_draft_requests(conn, 1)
+    assert len(hist) == 1 and hist[0]["result_version"] == 2
 
 
 def test_budget_exceeded_escalates(conn):

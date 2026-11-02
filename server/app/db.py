@@ -180,6 +180,18 @@ CREATE TABLE IF NOT EXISTS entity_mentions (
   quote TEXT NOT NULL,
   start_offset INTEGER, end_offset INTEGER
 );
+CREATE TABLE IF NOT EXISTS draft_requests (
+  id INTEGER PRIMARY KEY,
+  episode_no INTEGER NOT NULL,
+  instruction TEXT NOT NULL DEFAULT '',
+  refs_json TEXT NOT NULL DEFAULT '[]',
+  unknown_json TEXT NOT NULL DEFAULT '[]',
+  full_regen INTEGER NOT NULL DEFAULT 0,
+  base_version INTEGER,
+  result_version INTEGER,
+  error TEXT DEFAULT '',
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS episode_jobs (
   episode_no INTEGER PRIMARY KEY,
   design_id INTEGER NOT NULL,
@@ -214,6 +226,7 @@ CREATE TABLE IF NOT EXISTS style_policies (
   pov TEXT DEFAULT '', diction TEXT DEFAULT '',
   length_target TEXT DEFAULT '',
   feedback TEXT DEFAULT '',
+  style_preset TEXT DEFAULT '',
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS idea_threads (
@@ -396,6 +409,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE episode_jobs ADD COLUMN quality_json TEXT DEFAULT '{}'",
         "ALTER TABLE change_proposal_items ADD COLUMN reason TEXT DEFAULT ''",
         "ALTER TABLE change_proposal_items ADD COLUMN counter_quote TEXT DEFAULT ''",
+        "ALTER TABLE style_policies ADD COLUMN style_preset TEXT DEFAULT ''",
     ):
         try:
             conn.execute(sql)

@@ -169,16 +169,16 @@ def test_episodes_api(api_client):
     app.dependency_overrides[get_meta] = lambda: PlanFake(2)
     did = api_client.post(f"/api/v1/works/{wid}/designs",
                           json={"keywords": "k", "total_episodes": 2}).json()["design_id"]
-    app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 3000])
+    app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 5000])
     try:
         r = api_client.post("/api/v1/episodes/1/advance",
                             json={"design_id": did})
         assert r.status_code == 200, r.text
         assert r.json()["state"] == "DRAFT"
         r = api_client.get("/api/v1/episodes/1")
-        assert r.json()["revisions"][0]["length"] == 3000
+        assert r.json()["revisions"][0]["length"] == 5000
         r = api_client.get("/api/v1/episodes/1/manuscript")
-        assert len(r.json()["text"]) == 3000
+        assert len(r.json()["text"]) == 5000
         r = api_client.get("/api/v1/episodes/9")
         assert r.status_code == 404
     finally:

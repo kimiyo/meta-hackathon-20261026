@@ -102,18 +102,36 @@ def get_episode(episode_no: int,
 
 
 class ChangeIn(BaseModel):
-    instruction: str
+    instruction: str = ""
+    full: bool = False
 
 
 @router.post("/episodes/{episode_no}/request-change")
 def request_change(episode_no: int, body: ChangeIn,
                    conn: sqlite3.Connection = Depends(get_conn),
+                   meta=Depends(get_meta),
                    author: dict = Depends(get_current_author)):
     require_episode_job(conn, episode_no, author["id"])
     try:
-        return state_machine.request_change(conn, episode_no, body.instruction)
+        return state_machine.request_change(conn, meta, episode_no,
+                                            body.instruction, full=body.full)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
+    except LLMStepError as e:
+        raise HTTPException(502, f"{e.reason}: {e.detail}")
+
+
+@router.get("/episodes/{episode_no}/draft-requests")
+def list_draft_requests(episode_no: int,
+                        conn: sqlite3.Connection = Depends(get_conn),
+                        author: dict = Depends(get_current_author)):
+    from .. import drafting
+
+    job = require_episode_job(conn, episode_no, author["id"])
+    if not job:
+        return {"episode_no": episode_no, "requests": []}
+    return {"episode_no": episode_no,
+            "requests": drafting.list_draft_requests(conn, episode_no)}
 
 
 @router.post("/episodes/{episode_no}/approve")
