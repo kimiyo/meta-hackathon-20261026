@@ -209,6 +209,10 @@ async function load(epNo) {
     showError("review-error", "작품을 먼저 선택하세요.");
     return;
   }
+  if (!Number.isInteger(epNo) || epNo < 1) {
+    showError("review-error", "유효한 회차 번호를 입력하세요.");
+    return;
+  }
   const j = await api.episode(epNo, wk);
   const { document } = await api.manuscriptDoc(epNo, wk);
   const [iss, msgs, ents, prop, ana] = await Promise.all([

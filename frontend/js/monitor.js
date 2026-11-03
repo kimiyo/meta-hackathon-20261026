@@ -232,7 +232,7 @@ function renderDetail() {
     startCurrent(e.currentTarget));
   box.querySelector("[data-submit]")?.addEventListener("click", (e) =>
     submitCurrent(e.currentTarget));
-  box.querySelector("[data-review]")?.addEventListener("click", goReview);
+  box.querySelector("[data-review]")?.addEventListener("click", () => goReview());
   mountPanel();
 }
 
@@ -336,8 +336,9 @@ async function rowAction(ep, row) {
 
 function goReview(ep) {
   const w = getWork();
-  const target = ep ?? detail?.ep;
-  if (!w || target == null) return;
+  const n = Number(ep);
+  const target = Number.isFinite(n) ? n : detail?.ep;
+  if (!w || target == null || !Number.isFinite(Number(target))) return;
   go(novelPath(w.uid || w.id, "review"));
   setTimeout(() => {
     document.dispatchEvent(new CustomEvent("review-episode", {
