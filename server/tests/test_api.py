@@ -116,7 +116,19 @@ def test_entities_api(api_client):
     assert r.json()["entities"][0]["entity_id"] == "ch_0001"
     r = api_client.get("/api/v1/entities?q=서연")
     assert len(r.json()["entities"]) == 1
+    # 기준 회차: 첫 등장(EP1) 이전으로는 시드 설정이 보이지 않는다.
+    r = api_client.get("/api/v1/entities?as_of_episode=0")
+    assert r.json()["entities"] == []
+    r = api_client.get("/api/v1/entities?as_of_episode=1")
+    assert [e["entity_id"] for e in r.json()["entities"]] == ["ch_0001"]
+    r = api_client.get("/api/v1/entities?content=서점")
+    assert r.json()["entities"] == []  # 시드에는 변경 이력이 없다
     r = api_client.get("/api/v1/entities/ch_0001/state?as_of_episode=1")
+    assert r.json()["attributes"] == {}
+    # 회차 미지정 시 최신 회차 기준(회차 없으면 0화).
+    r = api_client.get("/api/v1/entities/ch_0001/state")
+    assert r.status_code == 200
+    assert r.json()["as_of_episode"] == 0
     assert r.json()["attributes"] == {}
     r = api_client.get("/api/v1/entities/nope/state?as_of_episode=1")
     assert r.status_code == 404
@@ -234,10 +246,12 @@ def test_publish_and_ops_api(api_client):
         api_client.post(f"/api/v1/episodes/1/start?work={wid}", json={"design_id": did})
         api_client.post(f"/api/v1/episodes/1/submit-review?work={wid}")
         app.dependency_overrides[get_meta] = lambda: IssueMeta([{
+            "reply": "모순 발견",
             "issues": [{"severity": "major", "title": "모순",
                         "manuscript_quote": "가가가"}],
         }])
-        r = api_client.post(f"/api/v1/episodes/1/consistency/analyze?work={wid}")
+        r = api_client.post(f"/api/v1/episodes/1/consistency/chat?work={wid}",
+                            json={"message": "검사해줘"})
         assert r.status_code == 200, r.text
         assert len(r.json()["issues"]) == 1
         r = api_client.post(f"/api/v1/episodes/1/request-publish?work={wid}")
@@ -416,6 +430,229 @@ def test_extract_failure_keeps_pending_and_records_failed(api_client):
         del app.dependency_overrides[get_meta]
 
 
+def test_proposals_return_saved_items_and_events_after_save(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+
+    wid = _started_in_review(api_client)
+    payload = {"items": [{"entity_ref": "new:민준", "candidate_name": "민준",
+                          "operation": "create", "attribute_path": "직업",
+                          "old_value": "", "new_value": "서점주인",
+                          "story_time": "", "evidence_quote": "가" * 100}],
+               "mentions": [],
+               "events": [{"summary": "사건A", "story_time": "",
+                           "cause": "", "consequence": "",
+                           "evidence_quote": "가" * 100, "participants": []}]}
+    app.dependency_overrides[get_meta] = lambda: EntityVerifyMeta([payload])
+    try:
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/save?work={wid}").status_code == 200
+        prop = api_client.get(
+            f"/api/v1/episodes/1/entity-proposals?work={wid}").json()
+        # 저장 후에도 저장본 내용을 확인할 수 있어야 한다.
+        assert prop["proposal_set"] is None
+        assert prop["saved_set"] is not None
+        assert [i["candidate_name"] for i in prop["saved_items"]] == ["민준"]
+        assert [e["summary"] for e in prop["saved_events"]] == ["사건A"]
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
+def test_reset_episode_memory_wipes_episode_and_keeps_others(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_drafting import FakeMeta as DraftFake
+    from tests.test_planning import FakeMeta as PlanFake
+
+    wid = api_client.post("/api/v1/works", json={"title": "w"}).json()["id"]
+    plan_meta = PlanFake(2)
+    app.dependency_overrides[get_meta] = lambda: plan_meta
+    did = api_client.post(f"/api/v1/works/{wid}/designs",
+                          json={"keywords": "k", "total_episodes": 2}).json()["design_id"]
+    draft_meta = DraftFake(["가" * 5000, "나" * 5000])
+    app.dependency_overrides[get_meta] = lambda: draft_meta
+    api_client.post(f"/api/v1/episodes/1/start?work={wid}", json={"design_id": did})
+    # WRITING에서는 초기화 불가.
+    r = api_client.post(f"/api/v1/episodes/1/entities/reset?work={wid}")
+    assert r.status_code == 400
+    api_client.post(f"/api/v1/episodes/1/submit-review?work={wid}")
+    r = api_client.post(f"/api/v1/episodes/2/start?work={wid}",
+                        json={"design_id": did})
+    assert r.status_code == 200, r.text
+    r = api_client.post(f"/api/v1/episodes/2/submit-review?work={wid}")
+    assert r.status_code == 200, r.text
+
+    def _item(name, value, quote, kind="attribute", op="create", path="직업"):
+        return {"entity_ref": f"new:{name}", "candidate_name": name,
+                "operation": op, "kind": kind, "attribute_path": path,
+                "old_value": "", "new_value": value,
+                "story_time": "", "evidence_quote": quote}
+
+    def _ev(summary, quote):
+        return {"summary": summary, "story_time": "", "cause": "",
+                "consequence": "", "evidence_quote": quote, "participants": []}
+
+    p1 = {"items": [_item("민준", "서점주인", "가" * 100),
+                    {"entity_ref": "new:민준", "candidate_name": "민준",
+                     "operation": "create", "kind": "relation",
+                     "attribute_path": "상사", "old_value": "",
+                     "new_value": {"object": "인사팀장", "detail": ""},
+                     "story_time": "", "evidence_quote": "가" * 100}],
+          "mentions": [{"entity_ref": "new:장부지기", "quote": "가" * 100}],
+          "events": [_ev("사건A", "가" * 100)]}
+    p2 = {"items": [_item("지훈", "장부지기", "나" * 100)],
+          "mentions": [{"entity_ref": "new:오탐", "quote": "나" * 100}],
+          "events": []}
+    p3 = {"items": [_item("민준", "서점주인", "가" * 100)],
+          "mentions": [], "events": []}
+    meta = EntityVerifyMeta([p1, p1, p2, p3])
+    app.dependency_overrides[get_meta] = lambda: meta
+    try:
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        # reset은 pending 임시안까지 모두 지운다.
+        r = api_client.post(f"/api/v1/episodes/1/entities/reset?work={wid}")
+        assert r.status_code == 200, r.text
+        prop = api_client.get(
+            f"/api/v1/episodes/1/entity-proposals?work={wid}").json()
+        assert prop["proposal_set"] is None
+        # 이 화 출처 별명 후보는 지워진다.
+        assert api_client.get(
+            f"/api/v1/works/{wid}/aliases").json()["candidates"] == []
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        cands = api_client.get(
+            f"/api/v1/works/{wid}/aliases").json()["candidates"]
+        assert {c["alias"] for c in cands} == {"장부지기"}
+        r = api_client.post(
+            f"/api/v1/aliases/{cands[0]['alias_id']}/resolve",
+            json={"entity_id": None, "basis": "작가 신규 등록"})
+        assert r.json()["status"] == "confirmed"
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/save?work={wid}").status_code == 200
+
+        assert api_client.post(
+            f"/api/v1/episodes/2/entities/extract?work={wid}").status_code == 200
+        assert api_client.post(
+            f"/api/v1/episodes/2/entities/save?work={wid}").status_code == 200
+        assert len(api_client.get("/api/v1/entities?q=민준").json()["entities"]) == 1
+        assert len(api_client.get("/api/v1/entities?q=지훈").json()["entities"]) == 1
+        assert len(api_client.get(
+            "/api/v1/entities?q=인사팀장").json()["entities"]) == 1
+
+        r = api_client.post(f"/api/v1/episodes/1/entities/reset?work={wid}")
+        assert r.status_code == 200, r.text
+        assert r.json()["changes"] == 2  # attribute + relation
+        assert r.json()["events"] == 1
+        assert r.json()["aliases"] == 1  # 확정된 장부지기 연결
+        prop = api_client.get(
+            f"/api/v1/episodes/1/entity-proposals?work={wid}").json()
+        assert prop["proposal_set"] is None
+        assert prop["saved_set"] is None
+        assert prop["saved_items"] == []
+        assert prop["saved_events"] == []
+        assert prop["committed_summary"] == {"changes": 0, "events": 0,
+                                             "aliases": 0}
+        # 1화에서만 쓰던 설정은 사라지고 2화 설정은 남는다.
+        assert api_client.get("/api/v1/entities?q=민준").json()["entities"] == []
+        assert api_client.get(
+            "/api/v1/entities?q=인사팀장").json()["entities"] == []
+        assert api_client.get(
+            "/api/v1/entities?q=장부지기").json()["entities"] == []
+        assert len(api_client.get("/api/v1/entities?q=지훈").json()["entities"]) == 1
+        # 2화 출처 별명 후보는 남는다.
+        cands = api_client.get(f"/api/v1/works/{wid}/aliases").json()["candidates"]
+        assert {c["alias"] for c in cands} == {"오탐"}
+        # 초기화 후 새로 추출·저장이 된다.
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/save?work={wid}").status_code == 200
+        assert len(api_client.get("/api/v1/entities?q=민준").json()["entities"]) == 1
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
+def test_event_participant_remove_prevents_entity_creation(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+
+    wid = _started_in_review(api_client)
+    payload = {"items": [],
+               "mentions": [],
+               "events": [{"summary": "사건A", "story_time": "",
+                           "cause": "", "consequence": "",
+                           "evidence_quote": "가" * 100,
+                           "participants": [
+                               {"entity_ref": "new:민준", "role": "주체"},
+                               {"entity_ref": "new:지훈", "role": "방관"}]}]}
+    meta = EntityVerifyMeta([payload])
+    app.dependency_overrides[get_meta] = lambda: meta
+    try:
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        prop = api_client.get(
+            f"/api/v1/episodes/1/entity-proposals?work={wid}").json()
+        assert [p["candidate_name"]
+                for p in prop["events"][0]["participants"]] == ["민준", "지훈"]
+        r = api_client.delete(
+            f"/api/v1/episodes/1/entity-events/0/participants/1?work={wid}")
+        assert r.status_code == 200, r.text
+        prop = api_client.get(
+            f"/api/v1/episodes/1/entity-proposals?work={wid}").json()
+        assert [p["candidate_name"]
+                for p in prop["events"][0]["participants"]] == ["민준"]
+        r = api_client.delete(
+            f"/api/v1/episodes/1/entity-events/0/participants/9?work={wid}")
+        assert r.status_code == 400
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/save?work={wid}").status_code == 200
+        assert len(api_client.get(
+            "/api/v1/entities?q=민준").json()["entities"]) == 1
+        assert api_client.get(
+            "/api/v1/entities?q=지훈").json()["entities"] == []
+        r = api_client.delete(
+            f"/api/v1/episodes/1/entity-events/0/participants/0?work={wid}")
+        assert r.status_code == 404
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
+def test_save_auto_links_same_name_candidate(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+
+    wid = _started_in_review(api_client)
+    payload = {"items": [{"entity_ref": "new:민준", "candidate_name": "민준",
+                          "operation": "create", "attribute_path": "직업",
+                          "old_value": "", "new_value": "서점주인",
+                          "story_time": "", "evidence_quote": "가" * 100}],
+               "mentions": [{"entity_ref": "new:민준", "quote": "가" * 100}],
+               "events": []}
+    meta = EntityVerifyMeta([payload])
+    app.dependency_overrides[get_meta] = lambda: meta
+    try:
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        cands = api_client.get(
+            f"/api/v1/works/{wid}/aliases").json()["candidates"]
+        assert [c["alias"] for c in cands] == ["민준"]
+        r = api_client.post(f"/api/v1/episodes/1/entities/save?work={wid}")
+        assert r.status_code == 200, r.text
+        assert r.json()["commit"]["aliases_linked"] == 1
+        assert api_client.get(
+            f"/api/v1/works/{wid}/aliases").json()["candidates"] == []
+        eid = r.json()["commit"]["entities"][0]
+        hist = api_client.get(
+            f"/api/v1/entities/{eid}/history").json()["history"]
+        assert [(h["old_value"], h["new_value"]) for h in hist] == [
+            ("", "서점주인")]
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
 def test_alias_resolve_reject_flow(api_client):
     from app.routes.works import get_meta
     from app.main import app
@@ -452,18 +689,56 @@ def test_alias_resolve_reject_flow(api_client):
         del app.dependency_overrides[get_meta]
 
 
+def test_entities_any_search_returns_snippet(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+
+    wid = _started_in_review(api_client)
+    payload = {"items": [{"entity_ref": "new:민준", "candidate_name": "민준",
+                          "operation": "create", "attribute_path": "직업",
+                          "old_value": "", "new_value": "서점주인",
+                          "story_time": "", "evidence_quote": "가" * 100}],
+               "mentions": [], "events": []}
+    app.dependency_overrides[get_meta] = lambda: EntityVerifyMeta([payload])
+    try:
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/save?work={wid}").status_code == 200
+        r = api_client.get("/api/v1/entities?any=서점주인").json()["entities"]
+        assert len(r) == 1
+        assert "서점주인" in r[0]["match_snippet"]
+        r = api_client.get("/api/v1/entities?any=민준").json()["entities"]
+        assert len(r) == 1
+        assert r[0]["match_snippet"] == ""
+        assert api_client.get(
+            "/api/v1/entities?any=없는말").json()["entities"] == []
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
 def test_analyze_records_completed_analysis(api_client):
     from app.routes.works import get_meta
     from app.main import app
     from tests.test_consistency import IssueMeta
 
     wid = _started_in_review(api_client)
-    app.dependency_overrides[get_meta] = lambda: IssueMeta([{
-        "issues": [{"severity": "major", "title": "모순", "detail": "d",
-                    "verdict": "conflict", "manuscript_quote": "가가가",
-                    "evidence_episode": None, "evidence_quote": "",
-                    "entity_id": ""}]}])
+    app.dependency_overrides[get_meta] = lambda: EntityVerifyMeta([{
+        "items": [{"entity_ref": "new:민준", "candidate_name": "민준",
+                   "operation": "create", "attribute_path": "직업",
+                   "old_value": "", "new_value": "서점주인",
+                   "story_time": "", "evidence_quote": "가" * 100}],
+        "mentions": [], "events": []}])
     try:
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/save?work={wid}").status_code == 200
+        app.dependency_overrides[get_meta] = lambda: IssueMeta([{
+            "issues": [{"severity": "major", "title": "모순", "detail": "d",
+                        "verdict": "conflict", "manuscript_quote": "가가가",
+                        "evidence_episode": None, "evidence_quote": "",
+                        "entity_id": ""}]}])
         r = api_client.post(f"/api/v1/episodes/1/consistency/analyze?work={wid}")
         assert r.status_code == 200, r.text
         assert r.json()["issues"][0]["verdict"] == "conflict"
@@ -474,3 +749,61 @@ def test_analyze_records_completed_analysis(api_client):
         assert ana["manuscript_revision_id"] is not None
     finally:
         del app.dependency_overrides[get_meta]
+
+
+def test_consistency_reset_clears_open_issues(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_consistency import IssueMeta
+
+    wid = _started_in_review(api_client)
+    app.dependency_overrides[get_meta] = lambda: EntityVerifyMeta([{
+        "items": [{"entity_ref": "new:민준", "candidate_name": "민준",
+                   "operation": "create", "attribute_path": "직업",
+                   "old_value": "", "new_value": "서점주인",
+                   "story_time": "", "evidence_quote": "가" * 100}],
+        "mentions": [], "events": []}])
+    try:
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/save?work={wid}").status_code == 200
+        app.dependency_overrides[get_meta] = lambda: IssueMeta([
+            {"issues": [{"severity": "major", "title": "모순A",
+                         "detail": "d", "verdict": "conflict",
+                         "manuscript_quote": "가가가",
+                         "evidence_episode": None, "evidence_quote": "",
+                         "entity_id": ""}]},
+            {"issues": [{"severity": "major", "title": "모순B",
+                         "detail": "d", "verdict": "conflict",
+                         "manuscript_quote": "가가가",
+                         "evidence_episode": None, "evidence_quote": "",
+                         "entity_id": ""}]}])
+        assert api_client.post(
+            f"/api/v1/episodes/1/consistency/analyze?work={wid}").status_code == 200
+        assert api_client.post(
+            f"/api/v1/episodes/1/consistency/analyze?work={wid}").status_code == 200
+        got = api_client.get(
+            f"/api/v1/episodes/1/consistency/issues?work={wid}").json()["issues"]
+        open_before = sum(1 for i in got if i["status"] == "open")
+        assert open_before >= 1
+        fixed_id = next(i["issue_id"] for i in got if i["status"] == "open")
+        assert api_client.patch(
+            f"/api/v1/consistency/issues/{fixed_id}",
+            json={"status": "fixed"}).status_code == 200
+        r = api_client.post(
+            f"/api/v1/episodes/1/consistency/reset?work={wid}")
+        assert r.status_code == 200, r.text
+        assert r.json()["issues"] == open_before - 1
+        got = api_client.get(
+            f"/api/v1/episodes/1/consistency/issues?work={wid}").json()["issues"]
+        assert all(i["status"] != "open" for i in got)
+        assert fixed_id in {i["issue_id"] for i in got}
+        assert api_client.get(
+            f"/api/v1/episodes/1/consistency/analyses/latest?work={wid}"
+        ).json()["analysis"] is None
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
+

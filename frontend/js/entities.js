@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { $, esc, showError, kindKo } from "./util.js";
+import { $, esc, showError, historyTimelineHtml } from "./util.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
 import { getWork } from "./work.js";
 
@@ -9,18 +9,29 @@ const ENTITIES_RESIZER = { resizerId: "entities-resizer", varName: "--entities-l
 // 화면 5 · 설정 (구 React판에서 이식)
 let list = [];
 let sel = null;
+let asOfEp = null;
 
 function currentWorkId() {
   const w = getWork();
   return w?.id ?? null;
 }
 
-async function search(query) {
+function clearDetail() {
+  sel = null;
+  renderList();
+  $("ent-detail").innerHTML = `<h3>설정 상태</h3><span class="muted">설정을 선택하세요.</span>`;
+  $("ent-history-card").style.display = "none";
+  $("ent-history").innerHTML = "";
+}
+
+async function search(text) {
   showError("entities-error", "");
   try {
-    const r = await api.entities(query, currentWorkId());
+    const r = await api.entities(null, currentWorkId(), asOfEp, null, text || null);
     list = r.entities ?? [];
     renderList();
+    if (sel && list.some((e) => e.entity_id === sel)) open(sel);
+    else if (sel) clearDetail();
   } catch (e) {
     showError("entities-error", String(e));
   }
@@ -37,6 +48,7 @@ function renderList() {
       (e) => `<div class="work-item${e.entity_id === sel ? " selected" : ""}" data-ent="${esc(e.entity_id)}">
         <div class="t">${esc(e.canonical_name)} <span class="chip mono">${esc(e.entity_id)}</span></div>
         <div class="meta">${esc(e.type)} · 첫 등장 EP ${esc(e.first_episode)} · ${esc(e.lifecycle_status)}</div>
+        ${e.match_snippet ? `<div class="small muted">${esc(e.match_snippet)}</div>` : ""}
       </div>`
     )
     .join("");
@@ -45,22 +57,18 @@ function renderList() {
   });
 }
 
-function renderState(entId, asOf, state) {
+function renderState(entId, state) {
   const box = $("ent-detail");
   const attrs = state?.attributes ?? {};
+  const asOf = state?.as_of_episode ?? "?";
   const rows = Object.entries(attrs)
     .map(([k, v]) => `<dt>${esc(k)}</dt><dd class="mono">${esc(typeof v === "string" ? v : JSON.stringify(v))}</dd>`)
     .join("");
   box.innerHTML = `
     <h3>${esc(entId)}
-      <span class="hint">회차 지정 상태:
-        <input type="number" id="asof" data-role="entities.detail.asof-input" value="${esc(asOf)}" min="1" style="width:70px;display:inline-block;padding:3px 8px">
-        <button class="btn sm" id="btn-asof" data-role="entities.detail.asof-btn">조회</button>
-      </span>
+      <span class="hint">${esc(asOf)}화 기준</span>
     </h3>
-    <div class="notice warn small" style="margin-bottom:10px">조회는 <b>승인된 변경만</b> 사용합니다.</div>
     <dl class="kv">${rows || `<dt>속성</dt><dd class="mono">없음</dd>`}</dl>`;
-  $("btn-asof").addEventListener("click", () => open(entId, Number($("asof").value)));
 }
 
 function renderHistory(history) {
@@ -72,22 +80,18 @@ function renderHistory(history) {
     return;
   }
   card.style.display = "";
-  box.innerHTML = history
-    .map(
-      (h) => `<div class="tl-item">
-        <div class="ep">EP ${esc(h.episode_no)}${h.story_time ? ` · <span class="chip">${esc(h.story_time)}</span>` : ""} · <span class="chip">${esc(kindKo(h.kind))}</span> ${esc(h.operation)} ${esc(h.attribute_path ?? "")}</div>
-        <div class="what">${esc(h.old_value ?? "")} → ${esc(h.new_value ?? "")}</div>
-        ${h.evidence_quote ? `<div class="q">"${esc(h.evidence_quote)}"</div>` : ""}
-      </div>`
-    )
-    .join("");
+  box.innerHTML = historyTimelineHtml(history);
 }
 
-function renderRelations(relations, selfId) {
+function renderRelations(relations, selfId, asOf) {
   const card = $("ent-history-card");
-  if (!relations.length) return;
+  const vis = (asOf === null || asOf === undefined)
+    ? relations
+    : relations.filter((r) => r.valid_from_episode <= asOf &&
+        (r.valid_to_episode === null || r.valid_to_episode === undefined || asOf < r.valid_to_episode));
+  if (!vis.length) return;
   const box = $("ent-history");
-  const relHtml = relations.map((r) => {
+  const relHtml = vis.map((r) => {
     const outgoing = r.subject_id === selfId;
     const other = outgoing ? r.object_id : r.subject_id;
     const span = `EP ${esc(r.valid_from_episode)}${r.valid_to_episode ? `~${esc(r.valid_to_episode - 1)}` : "~"}`;
@@ -98,20 +102,19 @@ function renderRelations(relations, selfId) {
   card.style.display = "";
 }
 
-async function open(id, asOf) {
+async function open(id) {
   sel = id;
-  const ep = asOf ?? Number($("asof")?.value ?? 1) ?? 1;
   renderList();
   showError("entities-error", "");
   try {
     const [state, hist, rels] = await Promise.all([
-      api.entityState(id, ep),
-      api.entityHistory(id),
+      api.entityState(id, asOfEp),
+      api.entityHistory(id, asOfEp),
       api.entityRelations(id),
     ]);
-    renderState(id, ep, state);
+    renderState(id, state);
     renderHistory(hist.history ?? []);
-    renderRelations(rels.relations ?? [], id);
+    renderRelations(rels.relations ?? [], id, asOfEp);
   } catch (e) {
     showError("entities-error", String(e));
   }
@@ -123,9 +126,18 @@ export function initEntities() {
     if (e.detail?.section !== "s4") return;
     restoreColResizer(ENTITIES_RESIZER);
   });
-  $("btn-ent-search").addEventListener("click", () => search($("ent-search").value.trim()));
-  $("ent-search").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") search($("ent-search").value.trim());
-  });
-  search("");
+  const doSearch = () => {
+    const raw = $("ent-asof").value.trim();
+    const n = raw === "" ? null : Number(raw);
+    asOfEp = Number.isNaN(n) ? null : n;
+    search($("ent-search").value.trim());
+  };
+  $("btn-ent-search").addEventListener("click", doSearch);
+  $("btn-ent-asof").addEventListener("click", doSearch);
+  for (const id of ["ent-asof", "ent-search"]) {
+    $(id).addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doSearch();
+    });
+  }
+  doSearch();
 }

@@ -141,7 +141,7 @@ def request_publish(conn, work_id: int, episode_no: int) -> dict:
     """검토중 → 발간중: 원고를 확정하고 기억을 잠근다.
 
     열린(open) 일관성 이슈가 남아 있거나, 현재 원고 기준의 저장된
-    기억·신선한 추출이 없으면 차단된다. 저장은 검토 단계의 Entity
+    기억·신선한 추출이 없으면 차단된다. 저장은 검토 단계의 설정
     저장이 원칙이며, 미저장 신선 추출만 있으면 여기서 자동 확정한다.
     """
     from . import consistency, manuscripts
@@ -163,8 +163,8 @@ def request_publish(conn, work_id: int, episode_no: int) -> dict:
                                                    work_id)
         if pset is None:
             if memory.has_any_proposal(conn, episode_no, work_id):
-                raise ValueError("원고가 바뀌어 Entity 재추출이 필요합니다")
-            raise ValueError("Entity 추출을 먼저 실행하세요")
+                raise ValueError("원고가 바뀌어 설정 재추출이 필요합니다")
+            raise ValueError("설정 추출을 먼저 실행하세요")
     try:
         if saved is not None:
             memory.approve_manuscript_revision(conn, rev_id)

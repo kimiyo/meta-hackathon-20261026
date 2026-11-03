@@ -106,7 +106,7 @@ def test_publish_needs_extraction(conn):
                  " attempt, manuscript_revision_id, updated_at)"
                  " VALUES(1,1,1,'IN_REVIEW',0,?,'t')", (rev["revision_id"],))
     conn.commit()
-    with pytest.raises(ValueError, match="Entity 추출을 먼저 실행"):
+    with pytest.raises(ValueError, match="설정 추출을 먼저 실행"):
         state_machine.request_publish(conn, 1, 1)
 
 

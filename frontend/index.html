@@ -284,7 +284,7 @@
 <!-- ════════════ 화면 4 · 작가 검토 ════════════ -->
 <section class="screen" id="s3" data-role="review.screen">
   <div id="review-error"></div>
-  <div class="screen-lead"><b>작가 검토중</b>원고의 일관성을 분석하고, 다음 화에 필요한 기억을 정리하세요. 수정은 집필 화면에서 합니다.</div>
+  <div class="screen-lead"><b>작가 검토중</b>① 설정추출 → ② 일관성점검 순서로 진행하고, 이상이 없으면 설정을 저장하세요. 수정은 집필 화면에서 합니다.</div>
   <div id="review-notice"></div>
   <div style="margin-bottom:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <label class="f" style="margin:0">회차</label>
@@ -300,11 +300,43 @@
       <div class="card" data-role="review.manuscript.panel">
         <div id="review-ms-mount"><span class="muted">회차를 불러오세요.</span></div>
       </div>
-      <div class="card" data-role="review.consistency.panel">
-        <h3>일관성 분석 도우미 <span class="hint">확정 기억과 현재 원고 대조</span></h3>
+    </div>
+    <div class="col-resizer" id="review-resizer" data-role="review.screen.col-resizer" title="드래그하여 너비 조절"></div>
+    <div>
+      <div class="seg" role="tablist" aria-label="검토 작업 순서" data-role="review.tabs.bar" style="margin-bottom:10px">
+        <button class="active" id="tab-extract" data-role="review.tabs.extract-btn" role="tab" aria-selected="true">1 · 설정추출</button>
+        <button id="tab-consistency" data-role="review.tabs.consistency-btn" role="tab" aria-selected="false">2 · 일관성점검</button>
+      </div>
+      <div id="tabpane-extract" data-role="review.tabs.extract-pane" role="tabpanel">
+      <div class="card" data-role="review.memory.panel">
+        <h3>설정 기억 <span class="hint">추출·수정·저장</span></h3>
+        <div class="btn-row" style="margin-top:0">
+          <button class="btn sm" id="btn-entity-extract" data-role="review.memory.extract-btn">설정 추출 실행</button>
+          <button class="btn sm" id="btn-entity-save" data-role="review.memory.save-btn">설정 저장</button>
+          <button class="btn sm" id="btn-entity-reset" data-role="review.memory.reset-btn" title="이번 화의 설정 기억을 모두 지웁니다">설정 초기화</button>
+        </div>
+        <div id="memory-pending" data-role="review.memory.pending" style="margin-top:10px"><span class="muted small">회차를 불러오세요.</span></div>
+        <h3 style="margin-top:12px">별명·표기 후보 <span class="hint">모호할 때만 연결 확인</span></h3>
+        <div id="alias-list" data-role="review.memory.aliases"><span class="muted small">회차를 불러오세요.</span></div>
+        <label class="f">수정 요청</label>
+        <textarea id="entity-chat-input" data-role="review.memory.chat-input" placeholder="예: 서도윤의 직업을 보험설계사로 고쳐줘"></textarea>
+        <div class="btn-row">
+          <button class="btn sm" id="btn-entity-chat" data-role="review.memory.chat-btn">요청</button>
+        </div>
+      </div>
+      </div>
+      <div id="tabpane-consistency" data-role="review.tabs.consistency-pane" role="tabpanel" style="display:none">
+      <div class="card" data-role="review.issues.panel">
+        <h3>일관성 오류 목록 <span class="hint" id="issue-count"></span></h3>
         <div class="btn-row" style="margin-top:0">
           <button class="btn sm" id="btn-consistency-analyze" data-role="review.consistency.analyze-btn">전체 분석 실행</button>
+          <button class="btn sm" id="btn-consistency-reset" data-role="review.issues.reset-btn">일관성 점검 초기화</button>
         </div>
+        <div id="analysis-status" data-role="review.issues.analysis-status" style="margin-bottom:8px"><span class="muted small">분석 전입니다.</span></div>
+        <div id="issue-list" data-role="review.issues.list"><span class="muted small">회차를 불러오세요.</span></div>
+      </div>
+      <div class="card" data-role="review.consistency.panel">
+        <h3>일관성 분석 도우미 <span class="hint">확정 기억과 현재 원고 대조</span></h3>
         <div id="consistency-messages" data-role="review.consistency.messages" class="chat-box" style="margin-top:10px"></div>
         <label class="f">질문</label>
         <textarea id="consistency-input" data-role="review.consistency.input" placeholder="예: 3화에서 정한 주인공의 능력과 모순되는 곳이 있어?"></textarea>
@@ -312,29 +344,6 @@
           <button class="btn primary sm" id="btn-consistency-send" data-role="review.consistency.send-btn">전송</button>
         </div>
       </div>
-    </div>
-    <div class="col-resizer" id="review-resizer" data-role="review.screen.col-resizer" title="드래그하여 너비 조절"></div>
-    <div>
-      <div class="card" data-role="review.issues.panel">
-        <h3>일관성 오류 목록 <span class="hint" id="issue-count"></span></h3>
-        <div id="analysis-status" data-role="review.issues.analysis-status" style="margin-bottom:8px"><span class="muted small">분석 전입니다.</span></div>
-        <div id="issue-list" data-role="review.issues.list"><span class="muted small">회차를 불러오세요.</span></div>
-      </div>
-      <div class="card" data-role="review.memory.panel">
-        <h3>Entity 기억 <span class="hint">추출·수정·저장</span></h3>
-        <div class="btn-row" style="margin-top:0">
-          <button class="btn sm" id="btn-entity-extract" data-role="review.memory.extract-btn">Entity 추출 실행</button>
-          <button class="btn sm primary" id="btn-entity-save" data-role="review.memory.save-btn">Entity 저장</button>
-        </div>
-        <div id="memory-pending" data-role="review.memory.pending" style="margin-top:10px"><span class="muted small">회차를 불러오세요.</span></div>
-        <h3 style="margin-top:12px">별명·표기 후보 <span class="hint">작가 확정</span></h3>
-        <div id="alias-list" data-role="review.memory.aliases"><span class="muted small">회차를 불러오세요.</span></div>
-        <label class="f">수정 요청</label>
-        <textarea id="entity-chat-input" data-role="review.memory.chat-input" placeholder="예: 서도윤의 직업을 보험설계사로 고쳐줘"></textarea>
-        <div class="btn-row">
-          <button class="btn sm" id="btn-entity-chat" data-role="review.memory.chat-btn">요청</button>
-        </div>
-        <div id="memory-entities" data-role="review.memory.entities"><span class="muted small">회차를 불러오세요.</span></div>
       </div>
     </div>
   </div>
@@ -360,8 +369,13 @@
   <div class="grid-2">
     <div class="card" data-role="entities.search.panel">
       <h3>설정 검색 <span class="hint">인물 · 장소</span></h3>
+      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+        <label class="f" for="ent-asof" style="margin:0;white-space:nowrap">기준 회차</label>
+        <input type="number" id="ent-asof" data-role="entities.search.asof-input" placeholder="전체" min="1" style="width:90px">
+        <button class="btn sm" id="btn-ent-asof" data-role="entities.search.asof-btn" style="white-space:nowrap">조회</button>
+      </div>
       <div style="display:flex;gap:8px">
-        <input type="text" id="ent-search" data-role="entities.search.input" placeholder="이름·ID 검색">
+        <input type="text" id="ent-search" data-role="entities.search.input" placeholder="이름·ID·내용 검색" style="flex:1;min-width:0">
         <button class="btn sm" id="btn-ent-search" data-role="entities.search.btn" style="white-space:nowrap">검색</button>
       </div>
       <div style="margin-top:10px" id="ent-list" data-role="entities.search.results"><span class="muted small">불러오는 중…</span></div>
@@ -559,6 +573,38 @@
     <div class="btn-row" style="justify-content:flex-end">
       <button class="btn ghost" id="btn-delete-cancel" data-role="design.editor.delete-dialog-cancel-btn">취소</button>
       <button class="btn danger" id="btn-delete-confirm" data-role="design.editor.delete-dialog-confirm-btn">삭제</button>
+    </div>
+  </div>
+</div>
+
+<div id="reset-confirm-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reset-confirm-title" data-role="review.memory.reset-confirm-dialog">
+    <h3 id="reset-confirm-title">설정 초기화</h3>
+    <div id="reset-confirm-msg" data-role="review.memory.reset-confirm-msg"></div>
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-reset-cancel" data-role="review.memory.reset-cancel-btn">취소</button>
+      <button class="btn danger" id="btn-reset-confirm" data-role="review.memory.reset-confirm-btn">삭제</button>
+    </div>
+  </div>
+</div>
+
+<div id="consistency-reset-confirm-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="consistency-reset-confirm-title" data-role="review.issues.reset-confirm-dialog">
+    <h3 id="consistency-reset-confirm-title">일관성 점검 초기화</h3>
+    <div id="consistency-reset-confirm-msg" data-role="review.issues.reset-confirm-msg"></div>
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-consistency-reset-cancel" data-role="review.issues.reset-cancel-btn">취소</button>
+      <button class="btn danger" id="btn-consistency-reset-confirm" data-role="review.issues.reset-confirm-btn">삭제</button>
+    </div>
+  </div>
+</div>
+
+<div id="save-result-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="save-result-title" data-role="review.memory.save-result-dialog">
+    <h3 id="save-result-title">설정 저장</h3>
+    <div id="save-result-msg" data-role="review.memory.save-result-msg"></div>
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn primary" id="btn-save-result-ok" data-role="review.memory.save-result-ok-btn">확인</button>
     </div>
   </div>
 </div>

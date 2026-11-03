@@ -21,6 +21,26 @@ export function showError(boxId, message) {
     : "";
 }
 
+// 화면 하단 토스트로 잠시 보여주고 사라진다.
+export function showToast(message, ms = 2500) {
+  let wrap = $("toast-wrap");
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "toast-wrap";
+    wrap.className = "toast-wrap";
+    document.body.appendChild(wrap);
+  }
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.textContent = message;
+  wrap.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 300);
+  }, ms);
+}
+
 // 회차 상태 코드 → 화면 표시 한글. 코드 식별자(API·CSS 클래스)는 그대로 둔다.
 const STATE_KO = {
   WRITING: "집필중",
@@ -62,6 +82,24 @@ const KIND_KO = {
 
 export function kindKo(k) {
   return KIND_KO[k] ?? String(k ?? "-");
+}
+
+// 확정 변경 이력 → 타임라인 HTML. 설정 화면과 작가 검토가 공유한다.
+export function historyTimelineHtml(history) {
+  if (!history.length) return `<span class="muted small">확정된 이력이 없습니다.</span>`;
+  const fmtVal = (v) => {
+    if (v === null || v === undefined || v === "") return "—";
+    return typeof v === "string" ? v : JSON.stringify(v);
+  };
+  return history
+    .map(
+      (h) => `<div class="tl-item">
+        <div class="ep">EP ${esc(h.episode_no)}${h.story_time ? ` · <span class="chip">${esc(h.story_time)}</span>` : ""} · <span class="chip">${esc(kindKo(h.kind))}</span> ${esc(h.operation)} ${esc(h.attribute_path ?? "")}</div>
+        <div class="what">${esc(fmtVal(h.old_value))} → ${esc(fmtVal(h.new_value))}</div>
+        ${h.evidence_quote ? `<div class="q">"${esc(h.evidence_quote)}"</div>` : ""}
+      </div>`
+    )
+    .join("");
 }
 
 // 서술 방식(narrative_mode) → 화면 표시 한글.

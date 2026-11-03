@@ -42,26 +42,41 @@ def _model_version() -> str:
 @router.get("/entities")
 def list_entities(type: str | None = None, q: str | None = None,
                   work_id: int | None = None,
+                  as_of_episode: int | None = None,
+                  content: str | None = None,
+                  any: str | None = None,
                   conn: sqlite3.Connection = Depends(get_conn),
                   author: dict = Depends(get_current_author)):
     if work_id is not None:
         require_work(conn, work_id, author["id"])
-        return {"entities": memory.search_entities(conn, type, q, work_id)}
-    out = []
-    for wid in _author_work_ids(conn, author["id"]):
-        out.extend(memory.search_entities(conn, type, q, wid))
-    out.sort(key=lambda e: e["entity_id"])
-    return {"entities": out}
+        ents = memory.search_entities(conn, type, q, work_id,
+                                      as_of_episode, content, any)
+    else:
+        out = []
+        for wid in _author_work_ids(conn, author["id"]):
+            out.extend(memory.search_entities(conn, type, q, wid,
+                                              as_of_episode, content, any))
+        out.sort(key=lambda e: e["entity_id"])
+        ents = out
+    if any:
+        for e in ents:
+            e["match_snippet"] = memory.entity_match_snippet(
+                conn, e["entity_id"], any, as_of_episode)
+    return {"entities": ents}
 
 
 @router.get("/entities/{entity_id}/state")
-def entity_state(entity_id: str, as_of_episode: int,
+def entity_state(entity_id: str, as_of_episode: int | None = None,
                  conn: sqlite3.Connection = Depends(get_conn),
                  author: dict = Depends(get_current_author)):
     ent = memory.get_entity(conn, entity_id)
     if not ent:
         raise HTTPException(404, f"entity {entity_id} not found")
     require_work(conn, ent["work_id"], author["id"])
+    if as_of_episode is None:
+        row = conn.execute("SELECT MAX(episode_no) m FROM episode_jobs"
+                           " WHERE work_id=?", (ent["work_id"],)).fetchone()
+        as_of_episode = row["m"] if row["m"] is not None else 0
     return {"entity_id": entity_id, "as_of_episode": as_of_episode,
             "attributes": memory.reconstruct_state(conn, entity_id,
                                                    as_of_episode,
@@ -77,9 +92,14 @@ def entity_history(entity_id: str, from_episode: int | None = None,
     if not ent:
         raise HTTPException(404, f"entity {entity_id} not found")
     require_work(conn, ent["work_id"], author["id"])
-    return {"entity_id": entity_id,
-            "history": memory.entity_history(conn, entity_id, from_episode,
-                                             to_episode)}
+    hist = []
+    for h in memory.entity_history(conn, entity_id, from_episode, to_episode):
+        d = dict(h)
+        for k in ("old_value", "new_value"):
+            v = memory._u(d.get(k))
+            d[k] = "" if v is None else v
+        hist.append(d)
+    return {"entity_id": entity_id, "history": hist}
 
 
 @router.get("/entities/{entity_id}/relations")
@@ -132,7 +152,7 @@ def extract_entities(episode_no: int, work: str,
     """
     job = _job_or_404(conn, work, episode_no, author["id"])
     if job["state"] != "IN_REVIEW":
-        raise HTTPException(400, "entity extraction needs IN_REVIEW")
+        raise HTTPException(400, "설정 추출은 검토중 상태에서만 가능합니다")
     if not job.get("manuscript_revision_id"):
         raise HTTPException(400, "no manuscript to extract from")
     manuscript = _revision_text(conn, job["manuscript_revision_id"])
@@ -188,7 +208,7 @@ def save_entities(episode_no: int, work: str,
     """
     job = _job_or_404(conn, work, episode_no, author["id"])
     if job["state"] != "IN_REVIEW":
-        raise HTTPException(400, "entity save needs IN_REVIEW")
+        raise HTTPException(400, "설정 저장은 검토중 상태에서만 가능합니다")
     work_id = _work_of_job(conn, job)
     rev_id = job.get("manuscript_revision_id")
     pset = memory.get_pending_set_for_revision(conn, episode_no, rev_id,
@@ -201,8 +221,8 @@ def save_entities(episode_no: int, work: str,
                     "already": True,
                     "proposal_set_id": saved["proposal_set_id"]}
         if memory.has_any_proposal(conn, episode_no, work_id):
-            raise HTTPException(400, "원고가 바뀌어 Entity 재추출이 필요합니다")
-        raise HTTPException(400, "Entity 추출을 먼저 실행하세요")
+            raise HTTPException(400, "원고가 바뀌어 설정 재추출이 필요합니다")
+        raise HTTPException(400, "설정 추출을 먼저 실행하세요")
     try:
         result = memory.save_episode_memory(
             conn, episode_no=episode_no, revision_id=rev_id,
@@ -229,7 +249,7 @@ def delete_entity_item(item_id: int,
     if not job or _work_of_job(conn, job) != row["work_id"]:
         raise HTTPException(404, f"item {item_id} not found")
     if job["state"] != "IN_REVIEW":
-        raise HTTPException(400, "entity edit needs IN_REVIEW")
+        raise HTTPException(400, "설정 편집은 검토중 상태에서만 가능합니다")
     try:
         return memory.delete_pending_item(conn, item_id)
     except KeyError as e:
@@ -245,13 +265,35 @@ def delete_entity_event(episode_no: int, index: int, work: str,
     """임시 변경안의 사건 1건 삭제. 검토 단계의 pending 사건만 가능하다."""
     job = _job_or_404(conn, work, episode_no, author["id"])
     if job["state"] != "IN_REVIEW":
-        raise HTTPException(400, "entity edit needs IN_REVIEW")
+        raise HTTPException(400, "설정 편집은 검토중 상태에서만 가능합니다")
     work_id = _work_of_job(conn, job)
     pset = memory.latest_pending_set(conn, episode_no, work_id)
     if not pset:
         raise HTTPException(404, f"episode {episode_no} has no pending events")
     try:
         return memory.delete_pending_event(conn, pset["proposal_set_id"], index)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except (ValueError, IndexError) as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/episodes/{episode_no}/entity-events/{index}/participants/{pindex}")
+def delete_entity_event_participant(episode_no: int, index: int, pindex: int,
+                                    work: str,
+                                    conn: sqlite3.Connection = Depends(get_conn),
+                                    author: dict = Depends(get_current_author)):
+    """임시 변경안의 사건 참여자 1명 제외. 검토 단계의 pending만 가능하다."""
+    job = _job_or_404(conn, work, episode_no, author["id"])
+    if job["state"] != "IN_REVIEW":
+        raise HTTPException(400, "설정 편집은 검토중 상태에서만 가능합니다")
+    work_id = _work_of_job(conn, job)
+    pset = memory.latest_pending_set(conn, episode_no, work_id)
+    if not pset:
+        raise HTTPException(404, f"episode {episode_no} has no pending events")
+    try:
+        return memory.delete_pending_event_participant(
+            conn, pset["proposal_set_id"], index, pindex)
     except KeyError as e:
         raise HTTPException(404, str(e))
     except (ValueError, IndexError) as e:
@@ -265,6 +307,25 @@ def _with_version(conn, pset):
                        " WHERE revision_id=?",
                        (pset["manuscript_revision_id"],)).fetchone()
     return {**pset, "version": rev["version"] if rev else None}
+
+
+@router.post("/episodes/{episode_no}/entities/reset")
+def reset_entities(episode_no: int, work: str,
+                   conn: sqlite3.Connection = Depends(get_conn),
+                   author: dict = Depends(get_current_author)):
+    """이번 화의 설정 기억을 모두 지운다(설정 초기화).
+
+    확정 변경·사건·임시안·이 화 출처의 별명(확정·기각·후보)·열린 이슈를
+    지우고, 참조가 끊긴 설정은 함께 정리한다.
+    """
+    job = _job_or_404(conn, work, episode_no, author["id"])
+    if job["state"] != "IN_REVIEW":
+        raise HTTPException(400, "설정 초기화는 검토중 상태에서만 가능합니다")
+    work_id = _work_of_job(conn, job)
+    if work_id is None:
+        raise HTTPException(400, "episode has no owning work")
+    result = memory.reset_episode_memory(conn, episode_no, work_id)
+    return {"episode_no": episode_no, **result}
 
 
 @router.get("/episodes/{episode_no}/entity-proposals")
@@ -286,6 +347,8 @@ def entity_proposals(episode_no: int, work: str,
                    if saved else [])
     events = (memory.get_proposal_events(conn, pset["proposal_set_id"])
               if pset else [])
+    saved_events = (memory.get_proposal_events(conn, saved["proposal_set_id"])
+                    if saved else [])
     latest = memory.latest_set(conn, episode_no, work_id)
     return {"episode_no": episode_no,
             "proposal_set": _with_version(conn, pset),
@@ -294,6 +357,9 @@ def entity_proposals(episode_no: int, work: str,
             "fresh": bool(pset) and pset["manuscript_revision_id"] == rev_id,
             "saved_set": _with_version(conn, saved),
             "saved_items": saved_items,
+            "saved_events": saved_events,
+            "committed_summary": memory.committed_summary(
+                conn, episode_no, work_id or 0),
             "memory_version": memory.current_memory_version(conn, work_id or 0),
             "latest_run": (_with_version(conn, latest)
                            if latest and (not pset or latest["proposal_set_id"]
@@ -313,7 +379,7 @@ class AliasRejectIn(BaseModel):
 def alias_candidates(key: str,
                      conn: sqlite3.Connection = Depends(get_conn),
                      author: dict = Depends(get_current_author)):
-    """작가 판정 대기 중인 별명·표기 후보(§7 Entity 연결)."""
+    """작가 판정 대기 중인 별명·표기 후보(§7 설정 연결)."""
     w = require_work(conn, key, author["id"])
     return {"work_id": w["id"],
             "candidates": memory.list_alias_candidates(conn, w["id"])}

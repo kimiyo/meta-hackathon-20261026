@@ -81,6 +81,123 @@ def _approved_corpus(conn: sqlite3.Connection, episode_no: int,
     return "\n".join(r["text"] for r in rows)
 
 
+def prev_manuscript(conn: sqlite3.Connection, episode_no: int,
+                    work_id: int) -> dict | None:
+    """직전화 원문 (1단계 넓은 읽기용).
+
+    발간된(approved) 본이 있으면 그것을, 없으면 최신 본을 읽는다.
+    """
+    if episode_no <= 1:
+        return None
+    row = conn.execute(
+        "SELECT revision_id, version, text FROM manuscript_revisions"
+        " WHERE work_id=? AND episode_no=? AND approval_status='approved'"
+        " ORDER BY version DESC LIMIT 1",
+        (work_id, episode_no - 1)).fetchone()
+    approved = True
+    if not row:
+        row = conn.execute(
+            "SELECT revision_id, version, text FROM manuscript_revisions"
+            " WHERE work_id=? AND episode_no=? ORDER BY version DESC LIMIT 1",
+            (work_id, episode_no - 1)).fetchone()
+        approved = False
+    if not row or not (row["text"] or "").strip():
+        return None
+    return {"episode_no": episode_no - 1, "revision_id": row["revision_id"],
+            "version": row["version"], "text": row["text"],
+            "approved": approved}
+
+
+def homonym_candidates(conn: sqlite3.Connection, work_id: int,
+                       pending_items: list[dict]) -> list[dict]:
+    """미해결 후보명이 기존 이름·확정 별명과 겹치면 동명이인 의심 후보.
+
+    자동 합치지 않고 작가 판단을 묻는다.
+    """
+    out = []
+    seen: set[str] = set()
+    for it in pending_items or []:
+        if it.get("entity_id"):
+            continue
+        name = (it.get("candidate_name") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        matches = memory.find_entities_by_name_or_alias(conn, work_id, name)
+        if not matches:
+            continue
+        who = ", ".join(f"{m['canonical_name']}({m['entity_id']})"
+                        for m in matches[:3])
+        out.append({
+            "check": "homonym", "severity": "major",
+            "title": f"동명이인 의심: {name}",
+            "detail": f"'{name}'이(가) 기존 {who}와(과) 이름이 겹친다."
+                      " 같은 인물인지, 다른 인물인지, 별명인지 확정 필요",
+            "verdict": "uncertain", "entity_id": "",
+            "fact_refs": [],
+            "manuscript_quote": it.get("evidence_quote", "") or "",
+            "evidence_episode": None, "evidence_quote": "",
+        })
+    return out
+
+
+def entity_groups(conn: sqlite3.Connection, work_id: int, episode_no: int,
+                  pending_items: list[dict],
+                  pending_events: list[dict]) -> list[dict]:
+    """개체별 정밀 대조 묶음 (2단계): 현재 주장 + 검색된 확정 사실.
+
+    같은 개체(ID·확정 별명 기준)와 관련 개체(관계·공동 사건·공유 규칙)의
+    확정 이력을 현재 임시안과 짝지어 AI에 한 번에 준다.
+    """
+    by_entity: dict[str, dict] = {}
+
+    def _group(eid: str, name: str) -> dict:
+        g = by_entity.get(eid or f"name:{name}")
+        if g is None:
+            g = {"entity_id": eid or "", "name": name or "",
+                 "claims": [], "approved_facts": [], "related": {}}
+            by_entity[eid or f"name:{name}"] = g
+        return g
+
+    for it in pending_items or []:
+        g = _group(it.get("entity_id") or "", it.get("candidate_name") or "")
+        g["claims"].append({
+            "kind": it.get("kind", ""), "operation": it.get("operation", ""),
+            "attribute": it.get("attribute_path", ""),
+            "value": memory._u(it.get("new_value", "")),
+            "standard": memory._u(it.get("standard_value", "")),
+            "story_time": it.get("story_time", ""),
+            "mode": it.get("narrative_mode", "narration"),
+            "quote": (it.get("evidence_quote", "") or "")[:300]})
+    for ev in pending_events or []:
+        for p in ev.get("participants", []):
+            g = _group(p.get("entity_id") or "",
+                       p.get("candidate_name") or "")
+            g["claims"].append({
+                "kind": "event", "summary": (ev.get("summary", "") or "")[:200],
+                "story_time": ev.get("story_time", ""),
+                "mode": ev.get("narrative_mode", "narration"),
+                "role": p.get("role", "")})
+    groups = []
+    for g in by_entity.values():
+        eid = g["entity_id"]
+        if eid:
+            hist = [h for h in memory.entity_history(conn, eid)
+                    if h["episode_no"] < episode_no][-15:]
+            g["approved_facts"] = [{
+                "episode_no": h["episode_no"], "kind": h["kind"],
+                "attribute": h["attribute_path"],
+                "value": memory._u(h["new_value"]),
+                "standard": memory._u(h["standard_value"]),
+                "story_time": h["story_time"],
+                "quote": (h["evidence_quote"] or "")[:200]} for h in hist]
+            g["aliases"] = memory.confirmed_aliases(conn, eid)
+            g["related"] = memory.related_entities(conn, work_id, eid,
+                                                   episode_no)
+        groups.append(g)
+    return groups[:40]
+
+
 def add_issues(conn: sqlite3.Connection, episode_no: int, issues: list[dict],
                work_id: int, revision_id: int | None = None,
                manuscript: str = "", basis_version: int = 0) -> dict:
@@ -115,18 +232,22 @@ def add_issues(conn: sqlite3.Connection, episode_no: int, issues: list[dict],
                 refs = json.loads(refs)
             except ValueError:
                 refs = []
+        # 설명되는 정상 변화는 기록하되 발간을 막지 않는다.
+        status = "accepted" if verdict == "explained" else "open"
+        resolved = now_iso() if status == "accepted" else None
         cur = conn.execute(
             "INSERT INTO consistency_issues(work_id, episode_no, severity,"
             " title, detail, verdict, manuscript_revision_id, manuscript_quote,"
             " manuscript_start, manuscript_end, evidence_episode,"
             " evidence_quote, evidence_start, evidence_end, entity_id,"
-            " fact_refs_json, basis_memory_version, status, created_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " fact_refs_json, basis_memory_version, status, resolved_at,"
+            " created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (work_id, episode_no, sev, it.get("title", "")[:200],
              it.get("detail", "")[:2000], verdict, revision_id, mq[:1000],
              ms, me, it.get("evidence_episode"), eq[:1000], es, ee,
              it.get("entity_id", "")[:64], json.dumps(list(refs or [])),
-             basis_version, "open", now_iso()))
+             basis_version, status, resolved, now_iso()))
         row = conn.execute("SELECT * FROM consistency_issues WHERE issue_id=?",
                            (cur.lastrowid,)).fetchone()
         saved.append(dict(row))
@@ -227,12 +348,33 @@ def latest_analysis(conn, episode_no: int,
     return dict(row) if row else None
 
 
+def reset_episode_review(conn: sqlite3.Connection, episode_no: int,
+                         work_id: int) -> dict:
+    """일관성 점검 초기화: 열린 이슈와 분석 기록을 지운다.
+
+    처리된 이슈(fixed·accepted·dismissed)는 작가의 결정 이력이라 둔다.
+    """
+    cur = conn.execute("DELETE FROM consistency_issues"
+                       " WHERE episode_no=? AND work_id=? AND status='open'",
+                       (episode_no, work_id))
+    issues = cur.rowcount
+    cur = conn.execute("DELETE FROM consistency_analyses"
+                       " WHERE episode_no=? AND work_id=?",
+                       (episode_no, work_id))
+    analyses = cur.rowcount
+    conn.commit()
+    return {"issues": issues, "analyses": analyses}
+
+
 def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
                     revision_id: int | None, work_id: int,
                     max_tokens: int = 8000) -> dict:
-    """원고 전체를 확정 기억과 대조해 일관성 이슈 목록을 만든다.
+    """원고 전체를 이전 기억과 대조해 일관성 이슈 목록을 만든다.
 
-    확정 검사(규칙 기반)를 먼저 실행하고, AI 의미 비교를 병행한다.
+    1단계(넓은 읽기): 직전화 원문 + 그 이전 확정 기억을 현재 원고와 대조.
+    2단계(정밀 대조): 현재 임시안의 개체별로 같은·관련 개체의 확정 사실을
+    검색해 짝지어 대조. 확정 검사(규칙 기반)는 항상 먼저 실행한다.
+    비교 대상(직전화·확정 기억)이 없으면 분석을 건너뛴다.
     AI 호출이 실패해도 확정 검사 결과는 저장하고 분석을 partial로
     기록한다. 실패를 '이상 없음'으로 표시하지 않는다.
     """
@@ -240,33 +382,57 @@ def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
     if not manuscript.strip():
         raise ValueError("no manuscript to analyze")
     base = memory.current_memory_version(conn, work_id)
+    prev = prev_manuscript(conn, episode_no, work_id)
+    mem = _memory_context(conn, episode_no, work_id)
+    has_memory = bool(mem["entities"] or mem["rules"] or mem["recent_events"])
+    if prev is None and not has_memory:
+        analysis = record_analysis(
+            conn, work_id=work_id, episode_no=episode_no,
+            revision_id=revision_id, base_version=base, status="skipped",
+            coverage={"manuscript_chars": len(manuscript),
+                      "reason": "이전 기억 없음"},
+            counts={"saved": 0})
+        return {"episode_no": episode_no, "issues": [], "skipped": True,
+                "analysis": analysis}
     pset = memory.latest_pending_set(conn, episode_no, work_id)
     det = checks.run_deterministic_checks(
         conn, work_id, episode_no,
         pset["proposal_set_id"] if pset else None)
+    pend_items = [i for i in memory.get_proposals(conn, episode_no, work_id)
+                  if pset and i["proposal_set_id"] == pset["proposal_set_id"]]
+    pend_events = memory.get_proposal_events(
+        conn, pset["proposal_set_id"]) if pset else []
+    det_candidates = list(det["candidates"]) + homonym_candidates(
+        conn, work_id, pend_items)
+    groups = entity_groups(conn, episode_no, work_id, pend_items, pend_events) \
+        if pset else []
     coverage = {
         "manuscript_chars": len(manuscript),
+        "prev_manuscript": ({k: v for k, v in prev.items() if k != "text"}
+                            | {"chars": len(prev["text"])}) if prev else None,
         "pending_set": pset["proposal_set_id"] if pset else None,
         "rule_checks": det["ran"],
-        "memory_entities": len(memory.search_entities(conn, work_id=work_id)),
+        "memory_entities": len(mem["entities"]),
+        "entity_groups": len(groups),
     }
+    ai_payload = {"episode_no": episode_no, "manuscript": manuscript,
+                  "prev_manuscript": prev["text"] if prev else "",
+                  "prev_episode_no": prev["episode_no"] if prev else None,
+                  "memory": mem, "entity_groups": groups}
     try:
         out = meta.chat_json(
             bundle="consistency", episode=episode_no, system=PROMPT,
             work_id=work_id,
-            user="현재 원고를 확정 기억과 대조해 일관성 오류를 찾아라. 스켈레톤: "
+            user="현재 원고를 직전화·확정 기억과 대조해 일관성 오류를 찾아라. "
+                 "스켈레톤: "
                  '{"issues": [{"severity": str, "title": str, "detail": str, '
                  '"verdict": str, "manuscript_quote": str, '
                  '"evidence_episode": int|null, "evidence_quote": str, '
                  '"entity_id": str, "fact_refs": [int]}]}\n'
-                 + json.dumps({"episode_no": episode_no,
-                               "manuscript": manuscript,
-                               "memory": _memory_context(conn, episode_no,
-                                                         work_id)},
-                              ensure_ascii=False),
+                 + json.dumps(ai_payload, ensure_ascii=False),
             schema=sch.ConsistencyOutput, max_tokens=max_tokens)
     except LLMStepError as e:
-        kept = add_issues(conn, episode_no, det["candidates"], work_id,
+        kept = add_issues(conn, episode_no, det_candidates, work_id,
                           revision_id, manuscript, base)
         analysis = record_analysis(
             conn, work_id=work_id, episode_no=episode_no,
@@ -278,21 +444,27 @@ def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
         return {"episode_no": episode_no, "issues": kept["issues"],
                 "partial": True, "error": f"{e.reason}: {e.detail}",
                 "analysis": analysis}
-    merged = list(det["candidates"])
-    seen = {(c.get("entity_id"), c.get("title")) for c in merged}
+    seen = {(c.get("entity_id"), c.get("title")) for c in det_candidates}
+    seen_refs: set[int] = set()
+    for c in det_candidates:
+        seen_refs.update(c.get("fact_refs") or [])
     ai_issues = []
     for it in out.get("issues", []):
         if (it.get("entity_id"), it.get("title")) in seen:
             continue  # deterministic candidate already covers it
+        if set(it.get("fact_refs") or []) & seen_refs:
+            continue  # same approved facts already cited
         ai_issues.append(it)
-    kept = add_issues(conn, episode_no, merged + ai_issues, work_id,
+    kept = add_issues(conn, episode_no, det_candidates + ai_issues, work_id,
                       revision_id, manuscript, base)
+    accepted = sum(1 for i in kept["issues"] if i["status"] == "accepted")
     analysis = record_analysis(
         conn, work_id=work_id, episode_no=episode_no,
         revision_id=revision_id, base_version=base, status="completed",
         coverage={**coverage, "ai_pass": "completed"},
-        counts={"rule": len(det["candidates"]), "ai": len(ai_issues),
-                "saved": len(kept["issues"]), "dropped": kept["dropped"]})
+        counts={"rule": len(det_candidates), "ai": len(ai_issues),
+                "saved": len(kept["issues"]), "accepted_explained": accepted,
+                "dropped": kept["dropped"]})
     return {"episode_no": episode_no, "issues": kept["issues"],
             "analysis": analysis}
 

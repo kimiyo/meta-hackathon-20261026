@@ -142,6 +142,8 @@ export const api = {
   },
   consistencyAnalyze: (no, workKey) =>
     req(`/episodes/${no}/consistency/analyze?${epQuery(workKey)}`, { method: "POST" }),
+  consistencyReset: (no, workKey) =>
+    req(`/episodes/${no}/consistency/reset?${epQuery(workKey)}`, { method: "POST" }),
   consistencyMessages: (no, workKey) =>
     req(`/episodes/${no}/consistency/messages?${epQuery(workKey)}`),
   consistencyChat: (no, message, workKey) =>
@@ -174,15 +176,22 @@ export const api = {
     reqEx(`/episodes/${no}/manuscript-restore?${epQuery(workKey)}`, {
       method: "POST", body: JSON.stringify(body), timeoutMs: 15000,
     }),
-  entities: (q, workId) => {
+  entities: (q, workId, asOfEp, content, any) => {
     const p = new URLSearchParams();
     if (q) p.set("q", q);
     if (workId) p.set("work_id", workId);
+    if (asOfEp !== undefined && asOfEp !== null && asOfEp !== "") p.set("as_of_episode", asOfEp);
+    if (content) p.set("content", content);
+    if (any) p.set("any", any);
     const s = p.toString();
     return req(`/entities${s ? `?${s}` : ""}`);
   },
-  entityState: (id, ep) => req(`/entities/${id}/state?as_of_episode=${ep}`),
-  entityHistory: (id) => req(`/entities/${id}/history`),
+  entityState: (id, ep) => req(ep === undefined || ep === null || ep === ""
+    ? `/entities/${id}/state`
+    : `/entities/${id}/state?as_of_episode=${ep}`),
+  entityHistory: (id, toEp) => req(toEp === undefined || toEp === null || toEp === ""
+    ? `/entities/${id}/history`
+    : `/entities/${id}/history?to_episode=${toEp}`),
   entityRelations: (id) => req(`/entities/${id}/relations`),
   aliases: (workKey) => req(`/works/${workKey}/aliases`),
   resolveAlias: (id, body) =>
@@ -196,9 +205,13 @@ export const api = {
       ...(instruction ? { body: JSON.stringify({ instruction }) } : {}),
     }),
   entityProposals: (no, workKey) => req(`/episodes/${no}/entity-proposals?${epQuery(workKey)}`),
+  resetEntities: (no, workKey) =>
+    req(`/episodes/${no}/entities/reset?${epQuery(workKey)}`, { method: "POST" }),
   deleteEntityItem: (id) => req(`/entity-items/${id}`, { method: "DELETE" }),
   deleteEntityEvent: (no, index, workKey) =>
     req(`/episodes/${no}/entity-events/${index}?${epQuery(workKey)}`, { method: "DELETE" }),
+  deleteEntityParticipant: (no, index, pindex, workKey) =>
+    req(`/episodes/${no}/entity-events/${index}/participants/${pindex}?${epQuery(workKey)}`, { method: "DELETE" }),
   llmCalls: () => req("/ops/llm-calls?limit=20"),
   opsBudget: () => req("/ops/budget"),
   model: () => req("/ops/model"),

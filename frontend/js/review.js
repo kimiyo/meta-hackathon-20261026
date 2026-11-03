@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { $, esc, showError, stateKo, severityKo, issueStatusKo, verdictKo, kindKo, modeKo } from "./util.js";
+import { $, esc, showError, showToast, stateKo, severityKo, issueStatusKo, verdictKo, kindKo, modeKo, historyTimelineHtml } from "./util.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
 import { mountManuscriptPanel } from "./manuscript.js";
 import { getWork } from "./work.js";
@@ -31,16 +31,105 @@ function setBusy(v) {
   for (const b of document.querySelectorAll("#s3 button")) b.disabled = v;
   if (!v) {
     updateActionState();
-    updateExtractBtnLabel();
+    updateMemoryButtons();
   }
 }
 
-function updateExtractBtnLabel() {
-  const btn = $("btn-entity-extract");
-  if (!btn || busy) return;
-  const hasExisting = !!(pending?.proposal_set || pending?.saved_set);
-  btn.textContent = hasExisting ? "Entity 재 추출 실행" : "Entity 추출 실행";
-  btn.title = "기존 임시 추출은 버리고 새로 추출하여 대체합니다";
+function showSaveResultDialog(msg) {
+  $("save-result-msg").textContent = msg;
+  $("save-result-backdrop").style.display = "";
+}
+
+function selectReviewTab(which) {
+  const extract = which !== "consistency";
+  $("tabpane-extract").style.display = extract ? "" : "none";
+  $("tabpane-consistency").style.display = extract ? "none" : "";
+  $("tab-extract").classList.toggle("active", extract);
+  $("tab-consistency").classList.toggle("active", !extract);
+  $("tab-extract").setAttribute("aria-selected", String(extract));
+  $("tab-consistency").setAttribute("aria-selected", String(!extract));
+}
+
+function committedDoomed() {
+  const s = pending?.committed_summary;
+  return (s?.changes ?? 0) + (s?.events ?? 0) + (s?.aliases ?? 0);
+}
+
+function hasMemoryData() {
+  return !!(pending?.proposal_set || pending?.saved_set) || committedDoomed() > 0;
+}
+
+function updateMemoryButtons() {
+  const btn = $("btn-entity-reset");
+  if (!btn) return;
+  btn.disabled = !hasMemoryData();
+}
+
+function openResetConfirm() {
+  const s = pending?.committed_summary ?? {};
+  const bits = [];
+  if (s.changes) bits.push(`변경 ${s.changes}건`);
+  if (s.events) bits.push(`사건 ${s.events}건`);
+  if (s.aliases) bits.push(`별명 ${s.aliases}건`);
+  const open = issues.filter((i) => i.status === "open").length;
+  $("reset-confirm-msg").textContent = (bits.length
+    ? `이번 화의 저장된 설정 기억(${bits.join("·")})과 추출 이력을 모두 삭제합니다.`
+    : `임시 추출안을 삭제합니다.`)
+    + (open ? ` 열린 이슈 ${open}건도 함께 삭제됩니다.` : "")
+    + ` 되돌릴 수 없습니다.`;
+  $("reset-confirm-backdrop").style.display = "";
+}
+
+function hasReviewData() {
+  return issues.some((i) => i.status === "open") || !!analysis;
+}
+
+function updateConsistencyResetButton() {
+  const btn = $("btn-consistency-reset");
+  if (!btn) return;
+  btn.disabled = !hasReviewData();
+}
+
+function openReviewResetConfirm() {
+  const open = issues.filter((i) => i.status === "open").length;
+  const bits = [];
+  if (open) bits.push(`열린 이슈 ${open}건`);
+  if (analysis) bits.push("분석 기록");
+  $("consistency-reset-confirm-msg").textContent =
+    `이번 화의 ${bits.join("·")}를 삭제합니다. 처리된 이슈는 유지됩니다. 되돌릴 수 없습니다.`;
+  $("consistency-reset-confirm-backdrop").style.display = "";
+}
+
+async function reloadMemoryPanel() {
+  pending = await api.entityProposals(currentEp(), currentWorkKey());
+  await reloadAliases();
+  await refreshAnalysis();
+  entityOptions = (await api.entities("")).entities ?? [];
+  renderPending();
+  renderAliases();
+  renderNotice();
+}
+
+async function doReset() {
+  await api.resetEntities(currentEp(), currentWorkKey());
+  await reloadMemoryPanel();
+  await refreshIssues();
+}
+
+async function doReviewReset() {
+  await api.consistencyReset(currentEp(), currentWorkKey());
+  await refreshIssues();
+  await refreshAnalysis();
+}
+
+async function doExtract() {
+  $("btn-entity-extract").textContent = "추출 중…";
+  try {
+    await api.extractEntities(currentEp(), null, currentWorkKey());
+  } finally {
+    $("btn-entity-extract").textContent = "설정 추출 실행";
+    await reloadMemoryPanel();
+  }
 }
 
 function inReview() {
@@ -170,6 +259,8 @@ function renderNotice() {
       conds.push("분석 부분 완료(AI 실패)");
     } else if (analysis.status === "failed") {
       conds.push("분석 실패");
+    } else if (analysis.status === "skipped") {
+      conds.push("분석 건너뜀(비교 대상 없음)");
     } else if (analysis.manuscript_revision_id !== revId) {
       conds.push("분석이 낡음(원고 변경됨)");
     }
@@ -189,9 +280,11 @@ function renderNotice() {
 function renderMessages() {
   const box = $("consistency-messages");
   if (!messages.length) {
-    box.innerHTML = `<span class="muted small">전체 분석을 실행하거나 질문을 입력하세요. 발견된 오류는 오른쪽 목록에 등록됩니다.</span>`;
+    box.innerHTML = "";
+    box.style.display = "none";
     return;
   }
+  box.style.display = "";
   box.innerHTML = messages.map((m) =>
     `<div class="msg ${m.role === "user" ? "user" : "assistant"}"><div class="bubble">${esc(m.content)}</div></div>`
   ).join("");
@@ -206,11 +299,22 @@ function renderAnalysis() {
   }
   const counts = (() => { try { return JSON.parse(analysis.counts_json || "{}"); } catch { return {}; } })();
   const cov = (() => { try { return JSON.parse(analysis.coverage_json || "{}"); } catch { return {}; } })();
-  const statusKo = { completed: "분석 완료", partial: "부분 완료", failed: "분석 실패" }[analysis.status] ?? analysis.status;
-  const ruleChecks = (cov.rule_checks ?? []).map((r) => `${esc(r.check)}:${esc(r.status)}`).join(", ");
+  const statusKo = { completed: "분석 완료", partial: "부분 완료", failed: "분석 실패", skipped: "건너뜀" }[analysis.status] ?? analysis.status;
+  const CHECK_KO = { check_count_limits: "횟수 제한", check_death: "사망 후 행동", check_exclusive_location: "배타적 위치", check_state_clash: "상태 충돌" };
+  const ruleChecks = cov.rule_checks ?? [];
+  const failedChecks = ruleChecks.filter((r) => r.status !== "completed");
+  const ruleSummary = !ruleChecks.length ? ""
+    : failedChecks.length ? ` · 확정검사 ${ruleChecks.length}건 중 ${failedChecks.length}건 실패(${failedChecks.map((r) => esc(CHECK_KO[r.check] ?? r.check)).join(", ")})`
+    : ` · 확정검사 ${ruleChecks.length}건 완료`;
+  const prev = cov.prev_manuscript ? `EP ${esc(cov.prev_manuscript.episode_no)} 원문${cov.prev_manuscript.approved ? "(발간본)" : "(최신본)"} + ` : "";
   box.innerHTML = `<span class="chip">${esc(statusKo)}</span> ` +
-    `<span class="small muted">규칙 ${esc(counts.rule ?? 0)}건 · AI ${esc(counts.ai ?? 0)}건 · 저장 ${esc(counts.saved ?? issues.length)}건 · 제외 ${esc(counts.dropped ?? 0)}건` +
-    (ruleChecks ? ` · 확정검사(${ruleChecks})` : "") +
+    `<span class="small muted">${prev ? `비교 범위: ${prev}확정 기억` : "비교 범위: 확정 기억"}` +
+    (cov.entity_groups ? ` · 설정 묶음 ${esc(cov.entity_groups)}개` : "") +
+    ` · 규칙 ${esc(counts.rule ?? 0)}건 · AI ${esc(counts.ai ?? 0)}건 · 저장 ${esc(counts.saved ?? issues.length)}건` +
+    (counts.accepted_explained ? ` (설명됨 ${esc(counts.accepted_explained)}건 수용)` : "") +
+    ` · 제외 ${esc(counts.dropped ?? 0)}건` +
+    ruleSummary +
+    (cov.reason ? ` · ${esc(cov.reason)}` : "") +
     (analysis.error ? ` · ${esc(analysis.error.slice(0, 120))}` : "") + `</span>`;
 }
 
@@ -218,6 +322,7 @@ function renderIssues() {
   const box = $("issue-list");
   const open = issues.filter((i) => i.status === "open").length;
   $("issue-count").textContent = `열린 이슈 ${open}건 / 전체 ${issues.length}건`;
+  updateConsistencyResetButton();
   renderAnalysis();
   if (!issues.length) {
     box.innerHTML = `<span class="muted small">등록된 이슈가 없습니다.</span>`;
@@ -279,7 +384,7 @@ function displayValue(v) {
 
 const TRASH_SVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 4h12M6 4V2.5h4V4M4 4l.7 10h6.6L12 4M6.5 7v4M9.5 7v4"/></svg>`;
 
-function proposalItemsHtml(items) {
+function proposalItemsHtml(items, readonly = false) {
   if (!items.length) return `<li><span class="muted small">변경 항목 없음</span></li>`;
   return items.map((it) => `
     <li><div class="pev-head"><span>
@@ -290,22 +395,39 @@ function proposalItemsHtml(items) {
       ${(it.narrative_mode && it.narrative_mode !== "narration") ? `<span class="small muted">${esc(modeKo(it.narrative_mode))}</span>` : ""}
       ${it.validation === "deferred" ? `<span class="small muted">(근거 미확인·제외)</span>` : ""}
       ${it.validation === "stale" ? `<span class="small muted">(낡음·재추출 필요)</span>` : ""}</span>
-      <span><button class="btn sm ghost pev-del" data-jump data-role="review.memory.item-jump-btn" data-quote="${esc((it.evidence_quote || "").slice(0, 200))}" title="원고에서 근거 보기">이동</button>
-      <button class="btn sm ghost pev-del" data-del-item="${it.item_id}" data-role="review.memory.item-del-btn" title="이 항목 삭제">${TRASH_SVG}</button></span></div>
+      <span><button class="btn sm ghost pev-del" data-jump data-role="review.memory.item-jump-btn" data-quote="${esc((it.evidence_quote || "").slice(0, 200))}" title="원고에서 근거 보기">이동</button>${readonly ? "" : `
+      <button class="btn sm ghost pev-del" data-del-item="${it.item_id}" data-role="review.memory.item-del-btn" title="이 항목 삭제">${TRASH_SVG}</button>`}</span></div>
       <span class="small">${esc(displayValue(it.new_value).slice(0, 120))}</span>
       <br><span class="small muted">인용: ${esc((it.evidence_quote || "").slice(0, 120))}</span></li>`
   ).join("");
 }
 
-function proposalEventsHtml(events) {
+function partName(p) {
+  if (p.candidate_name) return p.candidate_name;
+  const opt = p.entity_id
+    ? entityOptions.find((e) => e.entity_id === p.entity_id) : null;
+  return opt?.canonical_name || p.entity_id || "?";
+}
+
+function eventPartsHtml(ev, idx, readonly = false) {
+  const parts = ev.participants ?? [];
+  if (!parts.length) return "";
+  return `<div class="small" style="margin-top:2px">` + parts.map((p, pidx) => {
+    const label = p.role ? `${p.role}: ${partName(p)}` : partName(p);
+    const del = readonly ? "" : ` <button class="btn sm ghost pev-del" data-del-part="${idx}:${pidx}" data-role="review.memory.part-remove-btn" title="이 참여자 제외">×</button>`;
+    return `<span class="chip">${esc(label)}</span>${del}`;
+  }).join(" ") + `</div>`;
+}
+
+function proposalEventsHtml(events, readonly = false) {
   if (!events.length) return "";
   return `<div class="small" style="margin-top:6px"><b>사건 (${events.length})</b></div>
     <ul class="ep-scenes">${events.map((ev, idx) => `
       <li><div class="pev-head"><span>${ev.story_time ? `<span class="chip">${esc(ev.story_time)}</span> ` : ""}<span class="small">${esc(ev.summary || "")}</span>
       ${(ev.narrative_mode && ev.narrative_mode !== "narration") ? ` <span class="small muted">${esc(modeKo(ev.narrative_mode))}</span>` : ""}
       ${ev.validation === "deferred" ? ` <span class="small muted">(근거 미확인·제외)</span>` : ""}</span>
-      <span>${ev.evidence_quote ? `<button class="btn sm ghost pev-del" data-jump data-role="review.memory.event-jump-btn" data-quote="${esc((ev.evidence_quote || "").slice(0, 200))}" title="원고에서 근거 보기">이동</button>` : ""}
-      <button class="btn sm ghost pev-del" data-del-event="${idx}" data-role="review.memory.event-del-btn" title="이 사건 삭제">${TRASH_SVG}</button></span></div></li>`
+      <span>${ev.evidence_quote ? `<button class="btn sm ghost pev-del" data-jump data-role="review.memory.event-jump-btn" data-quote="${esc((ev.evidence_quote || "").slice(0, 200))}" title="원고에서 근거 보기">이동</button>` : ""}${readonly ? "" : `
+      <button class="btn sm ghost pev-del" data-del-event="${idx}" data-role="review.memory.event-del-btn" title="이 사건 삭제">${TRASH_SVG}</button>`}</span></div>${eventPartsHtml(ev, idx, readonly)}</li>`
     ).join("")}</ul>`;
 }
 
@@ -324,6 +446,43 @@ function diffHtml(items, savedItems) {
     added.map((it) => `<li><span class="small">+ ${esc(it.entity_id || it.candidate_name || "")} ${esc(it.attribute_path || "")} ${esc(displayValue(it.new_value).slice(0, 60))}</span></li>`).join("") +
     removed.map((it) => `<li><span class="small muted">− ${esc(it.entity_id || it.candidate_name || "")} ${esc(it.attribute_path || "")} ${esc(displayValue(it.new_value).slice(0, 60))}</span></li>`).join("") +
     `</ul>`;
+}
+
+function groupItemsByEntity(items) {
+  const groups = new Map();
+  for (const it of items) {
+    const key = it.entity_id || `new:${it.candidate_name || ""}`;
+    if (!groups.has(key)) {
+      groups.set(key, { entity_id: it.entity_id || null,
+        candidate_name: it.candidate_name || "", items: [] });
+    }
+    groups.get(key).items.push(it);
+  }
+  return [...groups.values()];
+}
+
+function entityGroupLabel(g) {
+  if (g.candidate_name) return g.candidate_name;
+  const opt = g.entity_id
+    ? entityOptions.find((e) => e.entity_id === g.entity_id) : null;
+  return opt?.canonical_name || g.entity_id || "(미지정)";
+}
+
+function groupedItemsHtml(items, readonly = false) {
+  return groupItemsByEntity(items).map((g) => {
+    const idChip = g.entity_id
+      ? `<span class="chip mono">${esc(g.entity_id)}</span>`
+      : `<span class="chip">신규</span>`;
+    const histBtn = g.entity_id
+      ? `<button class="btn sm ghost" data-hist="${esc(g.entity_id)}" data-role="review.memory.history-btn">기존 이력 보기</button>`
+      : "";
+    return `<div style="margin-top:8px">
+      <div class="pev-head"><span><b>${esc(entityGroupLabel(g))}</b> ${idChip} <span class="small muted">이번 회차 ${g.items.length}건</span></span>
+      <span>${histBtn}</span></div>
+      <ul class="ep-scenes">${proposalItemsHtml(g.items, readonly)}</ul>
+      ${g.entity_id ? `<div data-hist-box="${esc(g.entity_id)}"></div>` : ""}
+    </div>`;
+  }).join("");
 }
 
 function basisBadgeHtml() {
@@ -346,7 +505,16 @@ function renderPending() {
     html += `<div class="notice err small" style="margin-top:6px">최근 추출 실패: ${esc((latest.error || "").slice(0, 200))} — 기존 임시안을 유지합니다.</div>`;
   }
   if (!pset) {
-    html += `<div class="small muted" style="margin-top:6px">임시 변경안이 없습니다. Entity 추출 실행을 눌러주세요.</div>`;
+    const savedSet = pending?.saved_set;
+    const savedItems = pending?.saved_items ?? [];
+    const savedEvents = pending?.saved_events ?? [];
+    if (savedSet && (savedItems.length || savedEvents.length)) {
+      html += `<div class="small muted" style="margin-top:6px">저장된 설정 (읽기 전용 · 다시 추출하려면 설정 추출 실행을 누르세요)</div>` +
+        groupedItemsHtml(savedItems, true) +
+        proposalEventsHtml(savedEvents, true);
+    } else {
+      html += `<div class="small muted" style="margin-top:6px">임시 변경안이 없습니다. 설정 추출 실행을 눌러주세요.</div>`;
+    }
   } else {
     const badge = pending.fresh
       ? `<span class="chip">원고 v${esc(pset.version ?? "?")} · 기준 기억 v${esc(pset.base_memory_version ?? "?")} · 저장 대기</span>`
@@ -355,7 +523,7 @@ function renderPending() {
     const events = pending.events ?? [];
     const savedItems = pending.saved_items ?? [];
     html += `<div style="margin-top:6px">${badge} <span class="small muted">현재 기억 v${esc(memVer)}</span></div>
-      <ul class="ep-scenes">${proposalItemsHtml(items)}</ul>
+      ${groupedItemsHtml(items)}
       ${proposalEventsHtml(events)}
       ${diffHtml(items, savedItems)}`;
     if (!items.length && !events.length) {
@@ -370,6 +538,7 @@ function renderPending() {
       await api.deleteEntityItem(Number(btn.dataset.delItem));
       pending = await api.entityProposals(currentEp(), currentWorkKey());
       renderPending();
+      renderAliases();
       renderNotice();
     }));
   });
@@ -381,38 +550,109 @@ function renderPending() {
       renderNotice();
     }));
   });
+  box.querySelectorAll("[data-del-part]").forEach((btn) => {
+    btn.addEventListener("click", () => run(async () => {
+      const [evIdx, pIdx] = btn.dataset.delPart.split(":").map(Number);
+      await api.deleteEntityParticipant(currentEp(), evIdx, pIdx, currentWorkKey());
+      pending = await api.entityProposals(currentEp(), currentWorkKey());
+      renderPending();
+      renderNotice();
+    }));
+  });
   box.querySelectorAll("[data-jump]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      jumpToEvidence(btn.dataset.quote, pending?.proposal_set?.manuscript_revision_id ?? null);
+      jumpToEvidence(btn.dataset.quote, pending?.proposal_set?.manuscript_revision_id ?? pending?.saved_set?.manuscript_revision_id ?? null);
     });
+  });
+  box.querySelectorAll("[data-hist]").forEach((btn) => {
+    btn.addEventListener("click", () => run(async () => {
+      const id = btn.dataset.hist;
+      const histBox = box.querySelector(`[data-hist-box="${id}"]`);
+      if (!histBox) return;
+      if (histBox.dataset.open === "1") {
+        histBox.dataset.open = "";
+        histBox.innerHTML = "";
+        btn.textContent = "기존 이력 보기";
+        return;
+      }
+      btn.textContent = "불러오는 중…";
+      try {
+        const hist = await api.entityHistory(id);
+        histBox.dataset.open = "1";
+        histBox.innerHTML = `<div class="timeline" style="margin-top:6px">${historyTimelineHtml(hist.history ?? [])}</div>`;
+        btn.textContent = "기존 이력 닫기";
+      } catch (e) {
+        btn.textContent = "기존 이력 보기";
+        throw e;
+      }
+    }));
   });
   if (!inReview()) {
     for (const b of box.querySelectorAll("button")) {
-      if (b.hasAttribute("data-jump")) continue;
+      if (b.hasAttribute("data-jump") || b.hasAttribute("data-hist")) continue;
       b.disabled = true;
     }
   }
-  updateExtractBtnLabel();
+  updateMemoryButtons();
+}
+
+function aliasDisplay() {
+  // 후보 표시 규칙: 이 이름의 사실(항목)이 있고 저장 시 귀결이 모호할
+  // 때만 묻는다. 사실이 없거나 귀결이 확실하면 숨긴다.
+  //   숨김: 사실 없음 / 기존 0건+전부 새 설정 / 기존 1건+전부 연결형
+  //   표시: 연결형인데 기존 없음(별명 의심) / 새 설정인데 기존 있음(분리 의심)
+  //         / 동명이인(2건 이상) / 혼합
+  const items = pending?.proposal_set
+    ? (pending.items ?? [])
+    : (pending?.saved_items ?? []);
+  const committable = items.filter((it) =>
+    ["pending", "ok", "change"].includes(it.validation));
+  const counts = {};
+  for (const e of entityOptions) {
+    const nm = e.canonical_name || "";
+    counts[nm] = (counts[nm] || 0) + 1;
+  }
+  const hidden = new Set();
+  const autoNames = [];
+  for (const a of aliases) {
+    const facts = committable.filter((it) =>
+      (it.candidate_name || "") === a.alias);
+    const pre = counts[a.alias] || 0;
+    const hide = !facts.length ||
+      (pre === 0 && facts.every((it) => it.explicit_new)) ||
+      (pre === 1 && facts.every((it) => !it.explicit_new));
+    if (hide) {
+      hidden.add(a.alias_id);
+      if (facts.length && !autoNames.includes(a.alias)) {
+        autoNames.push(a.alias);
+      }
+    }
+  }
+  return { hidden, autoNames };
 }
 
 function renderAliases() {
   const box = $("alias-list");
-  if (!aliases.length) {
-    box.innerHTML = `<span class="muted small">대기 중인 후보가 없습니다.</span>`;
+  const { hidden, autoNames } = aliasDisplay();
+  const vis = aliases.filter((a) => !hidden.has(a.alias_id));
+  const autoNote = autoNames.length
+    ? `<div class="small muted" style="margin-bottom:6px">${autoNames.map(esc).join("·")} — 저장 시 자동 처리됩니다.</div>`
+    : "";
+  if (!vis.length) {
+    box.innerHTML = autoNote + `<span class="muted small">대기 중인 후보가 없습니다.</span>`;
     return;
   }
-  box.innerHTML = `<ul class="ep-scenes">${aliases.map((a) => `
+  box.innerHTML = autoNote + `<ul class="ep-scenes">${vis.map((a) => `
     <li><div class="pev-head"><span><b>${esc(a.alias)}</b>
       <span class="small muted">${esc(a.basis || "")}</span></span></div>
       ${a.quote ? `<span class="small muted">인용: ${esc(a.quote.slice(0, 100))}</span><br>` : ""}
-      <span class="small">연결: </span>
+      <span class="small">어느 설정에 연결할까요? </span>
       <select data-alias-link="${a.alias_id}" data-role="review.memory.alias-link-select" style="max-width:60%">
-        <option value="">새 인물로 등록</option>
+        <option value="">연결할 설정 선택</option>
         ${entityOptions.map((e) => `<option value="${esc(e.entity_id)}">${esc(e.canonical_name)} (${esc(e.entity_id)})</option>`).join("")}
       </select>
       <div class="btn-row">
-        <button class="btn sm" data-alias-ok="${a.alias_id}" data-role="review.memory.alias-ok-btn">확정</button>
-        <button class="btn sm ghost" data-alias-no="${a.alias_id}" data-role="review.memory.alias-no-btn">기각</button>
+        <button class="btn sm" data-alias-ok="${a.alias_id}" data-role="review.memory.alias-ok-btn"${entityOptions.length ? "" : " disabled title=\"연결할 설정이 없습니다\""}>연결</button>
       </div></li>`
   ).join("")}</ul>`;
   box.querySelectorAll("[data-alias-ok]").forEach((btn) => {
@@ -420,17 +660,13 @@ function renderAliases() {
       const id = Number(btn.dataset.aliasOk);
       const sel = box.querySelector(`[data-alias-link="${id}"]`);
       const entityId = sel?.value || null;
-      await api.resolveAlias(id, { entity_id: entityId, basis: entityId ? "작가 연결 확정" : "작가 신규 등록" });
+      if (!entityId) {
+        showError("review-error", "연결할 설정을 선택하세요.");
+        return;
+      }
+      await api.resolveAlias(id, { entity_id: entityId, basis: "작가 연결 확정" });
       await reloadAliases();
       entityOptions = (await api.entities("")).entities ?? [];
-      renderAliases();
-      renderMemory();
-    }));
-  });
-  box.querySelectorAll("[data-alias-no]").forEach((btn) => {
-    btn.addEventListener("click", () => run(async () => {
-      await api.rejectAlias(Number(btn.dataset.aliasNo), { basis: "작가 기각" });
-      await reloadAliases();
       renderAliases();
     }));
   });
@@ -452,24 +688,12 @@ async function reloadAliases() {
   }
 }
 
-function renderMemory() {
-  const box = $("memory-entities");
-  if (!entityOptions.length) {
-    box.innerHTML = `<span class="muted small">확정된 Entity가 없습니다.</span>`;
-    return;
-  }
-  box.innerHTML = `<ul class="ep-scenes">${entityOptions.map((e) =>
-    `<li><span class="chip mono">${esc(e.entity_id)}</span> <b>${esc(e.canonical_name)}</b> <span class="small muted">${esc(e.type)}</span></li>`
-  ).join("")}</ul>`;
-}
-
 function renderAll() {
   renderNotice();
   renderMessages();
   renderIssues();
   renderPending();
   renderAliases();
-  renderMemory();
 }
 
 async function refreshIssues() {
@@ -495,6 +719,11 @@ export function initReview() {
     restoreColResizer(REVIEW_RESIZER);
     if (currentWorkKey()) run(() => load(currentEp()));
   });
+  $("tab-extract").addEventListener("click", () => selectReviewTab("extract"));
+  $("tab-consistency").addEventListener("click", () => selectReviewTab("consistency"));
+  $("btn-save-result-ok").addEventListener("click", () => {
+    $("save-result-backdrop").style.display = "none";
+  });
   $("btn-review-load").addEventListener("click", () => run(() => load(currentEp())));
   document.addEventListener("review-episode", (e) => {
     const ep = e.detail?.ep;
@@ -517,7 +746,7 @@ export function initReview() {
         return;
       }
       const r = await api.requestPublish(currentEp(), currentWorkKey());
-      alert(`발간요청 완료: EP ${r.episode_no}`);
+      showToast(`발간요청 완료: EP ${r.episode_no}`);
       await load(currentEp());
     })
   );
@@ -533,6 +762,8 @@ export function initReview() {
         renderMessages();
         if (out.partial) {
           showError("review-error", `AI 분석 실패로 부분 완료되었습니다: ${out.error ?? ""} (확정 검사 결과는 저장됨)`);
+        } else if (out.skipped) {
+          showError("review-error", "비교할 이전 기억이 없어 분석을 건너뛰었습니다.");
         }
       } finally {
         btn.textContent = "전체 분석 실행";
@@ -556,17 +787,29 @@ export function initReview() {
       sendChat();
     }
   });
-  $("btn-entity-extract").addEventListener("click", () =>
-    run(async () => {
-      $("btn-entity-extract").textContent = "추출 중…";
-      await api.extractEntities(currentEp(), null, currentWorkKey());
-      pending = await api.entityProposals(currentEp(), currentWorkKey());
-      await reloadAliases();
-      renderPending();
-      renderAliases();
-      renderNotice();
-    })
-  );
+  $("btn-entity-extract").addEventListener("click", () => run(doExtract));
+  $("btn-entity-reset").addEventListener("click", () => {
+    if (!hasMemoryData()) return;
+    openResetConfirm();
+  });
+  $("btn-reset-cancel").addEventListener("click", () => {
+    $("reset-confirm-backdrop").style.display = "none";
+  });
+  $("btn-reset-confirm").addEventListener("click", () => {
+    $("reset-confirm-backdrop").style.display = "none";
+    run(doReset);
+  });
+  $("btn-consistency-reset").addEventListener("click", () => {
+    if (!hasReviewData()) return;
+    openReviewResetConfirm();
+  });
+  $("btn-consistency-reset-cancel").addEventListener("click", () => {
+    $("consistency-reset-confirm-backdrop").style.display = "none";
+  });
+  $("btn-consistency-reset-confirm").addEventListener("click", () => {
+    $("consistency-reset-confirm-backdrop").style.display = "none";
+    run(doReviewReset);
+  });
   $("btn-entity-save").addEventListener("click", () =>
     run(async () => {
       const out = await api.saveEntities(currentEp(), currentWorkKey());
@@ -574,11 +817,14 @@ export function initReview() {
       renderPending();
       renderNotice();
       entityOptions = (await api.entities("")).entities ?? [];
+      await reloadAliases();
       renderAliases();
-      renderMemory();
-      alert(out.already
+      const linked = out.commit?.aliases_linked ?? 0;
+      showSaveResultDialog(out.already
         ? "이미 저장된 기억입니다."
-        : `Entity 기억을 저장했습니다: ${out.commit.applied}건 반영 (기억 v${out.commit.memory_version ?? "?"})`);
+        : `설정을 저장했습니다: ${out.commit.applied}건 반영`
+          + (linked ? ` · 별명 ${linked}건 자동 정리` : "")
+          + ` (기억 v${out.commit.memory_version ?? "?"})`);
     })
   );
   const sendEntityChat = () => run(async () => {

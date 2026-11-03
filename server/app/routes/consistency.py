@@ -40,6 +40,19 @@ def analyze(episode_no: int, work: str,
         raise HTTPException(502, f"{e.reason}: {e.detail}")
 
 
+@router.post("/episodes/{episode_no}/consistency/reset")
+def reset_review(episode_no: int, work: str,
+                 conn: sqlite3.Connection = Depends(get_conn),
+                 author: dict = Depends(get_current_author)):
+    """일관성 점검 초기화: 열린 이슈와 분석 기록을 지운다(기억은 유지)."""
+    job = _owned_job(conn, work, episode_no, author["id"])
+    if job["state"] != "IN_REVIEW":
+        raise HTTPException(400, "일관성 점검 초기화는 검토중 상태에서만 가능합니다")
+    return {"episode_no": episode_no,
+            **consistency.reset_episode_review(conn, episode_no,
+                                               job["work_id"])}
+
+
 class ChatIn(BaseModel):
     message: str = ""
 

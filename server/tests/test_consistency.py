@@ -43,6 +43,21 @@ def test_add_and_list_issues(conn):
     assert issues[1]["severity"] == "major"  # unknown severity normalized
 
 
+def test_reset_review_clears_open_issues_and_analyses(conn):
+    saved = consistency.add_issues(conn, 1, [
+        {"title": "열린 이슈"}, {"title": "처리된 이슈"}], 1)["issues"]
+    consistency.set_issue_status(conn, saved[1]["issue_id"], "fixed")
+    consistency.record_analysis(
+        conn, work_id=1, episode_no=1, revision_id=None,
+        base_version=0, status="completed", coverage={}, counts={})
+    out = consistency.reset_episode_review(conn, 1, 1)
+    assert out == {"issues": 1, "analyses": 1}
+    rows = conn.execute(
+        "SELECT title, status FROM consistency_issues").fetchall()
+    assert [(r["title"], r["status"]) for r in rows] == [("처리된 이슈", "fixed")]
+    assert consistency.latest_analysis(conn, 1, 1) is None
+
+
 def test_issue_status_flow(conn):
     [saved] = consistency.add_issues(conn, 1, [{"title": "x"}], 1)["issues"]
     out = consistency.set_issue_status(conn, saved["issue_id"], "fixed")
@@ -58,19 +73,42 @@ def test_issue_status_flow(conn):
         consistency.set_issue_status(conn, 999, "resolved")
 
 
-def test_analyze_registers_issues(conn):
+def test_analyze_skips_without_previous_memory(conn):
     rev = drafting.save_revision(conn, 1, 1, "그는 어제 죽었는데 오늘 웃었다")
+    meta = IssueMeta([{"issues": []}])
+    out = consistency.analyze_episode(meta, conn, episode_no=1,
+                                      revision_id=rev["revision_id"],
+                                      work_id=1)
+    assert out["skipped"] is True and out["issues"] == []
+    assert out["analysis"]["status"] == "skipped"
+    assert meta.calls == []  # AI 호출 없음
+
+
+def test_analyze_registers_issues(conn):
+    drafting.save_revision(conn, 1, 1, "그는 어제 죽었다")
+    rev = drafting.save_revision(conn, 1, 2, "그는 어제 죽었는데 오늘 웃었다")
     meta = IssueMeta([{
         "issues": [{"severity": "major", "title": "생사 모순",
                     "detail": "사망 후 등장", "manuscript_quote": "오늘 웃었다",
                     "evidence_episode": None, "evidence_quote": "",
                     "entity_id": ""}],
     }])
-    out = consistency.analyze_episode(meta, conn, episode_no=1,
+    out = consistency.analyze_episode(meta, conn, episode_no=2,
                                       revision_id=rev["revision_id"],
                                       work_id=1)
     assert len(out["issues"]) == 1
-    assert consistency.open_count(conn, 1) == 1
+    assert consistency.open_count(conn, 2, 1) == 1
+    assert "그는 어제 죽었다" in meta.calls[0]  # 직전화 원문 대조
+
+
+def test_explained_issues_are_accepted(conn):
+    [saved] = consistency.add_issues(conn, 1, [{
+        "title": "성장", "verdict": "explained",
+        "manuscript_quote": "이전보다 강해졌다"}], 1,
+        manuscript="이전보다 강해졌다")["issues"]
+    assert saved["status"] == "accepted"
+    assert saved["resolved_at"] is not None
+    assert consistency.open_count(conn, 1, 1) == 0
 
 
 def test_chat_saves_messages_and_issues(conn):

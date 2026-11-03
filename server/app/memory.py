@@ -77,20 +77,142 @@ def get_entity(conn, entity_id: str) -> dict | None:
 
 
 def search_entities(conn, type_: str | None = None, q: str | None = None,
-                    work_id: int | None = None) -> list[dict]:
+                    work_id: int | None = None,
+                    as_of_episode: int | None = None,
+                    content: str | None = None,
+                    any: str | None = None) -> list[dict]:
     sql = "SELECT * FROM entities WHERE 1=1"
     args: list = []
     if work_id is not None:
         sql += " AND work_id=?"
         args.append(work_id)
+    if as_of_episode is not None:
+        sql += " AND first_episode<=?"
+        args.append(as_of_episode)
     if type_:
         sql += " AND type=?"
         args.append(type_)
     if q:
         sql += " AND (canonical_name LIKE ? OR entity_id LIKE ? OR description LIKE ?)"
         args += [f"%{q}%", f"%{q}%", f"%{q}%"]
+    if content:
+        like = f"%{content}%"
+        conds = ["c.entity_id=entities.entity_id",
+                 "(c.attribute_path LIKE ? OR c.new_value LIKE ? OR c.old_value LIKE ?)"]
+        cargs: list = [like, like, like]
+        if as_of_episode is not None:
+            conds.append("c.episode_no<=?")
+            cargs.append(as_of_episode)
+        sql += " AND EXISTS (SELECT 1 FROM entity_changes c WHERE " + " AND ".join(conds) + ")"
+        args += cargs
+    if any:
+        like = f"%{any}%"
+        aconds = ["canonical_name LIKE ?", "entity_id LIKE ?",
+                  "description LIKE ?", "type LIKE ?",
+                  "lifecycle_status LIKE ?"]
+        aargs: list = [like] * 5
+        cconds = ["c.entity_id=entities.entity_id",
+                  "(c.attribute_path LIKE ? OR c.new_value LIKE ?"
+                  " OR c.old_value LIKE ? OR c.story_time LIKE ?"
+                  " OR c.evidence_quote LIKE ?)"]
+        cargs2: list = [like] * 5
+        if as_of_episode is not None:
+            cconds.append("c.episode_no<=?")
+            cargs2.append(as_of_episode)
+        aconds.append("EXISTS (SELECT 1 FROM entity_changes c WHERE "
+                      + " AND ".join(cconds) + ")")
+        args += aargs + cargs2
+        for side, other in (('subject_id', 'object_id'),
+                            ('object_id', 'subject_id')):
+            rconds = [f"r.{side}=entities.entity_id",
+                      "(r.predicate LIKE ? OR o.canonical_name LIKE ?)"]
+            rargs: list = [like, like]
+            if as_of_episode is not None:
+                rconds.append("r.valid_from_episode<=?")
+                rconds.append("(r.valid_to_episode IS NULL OR r.valid_to_episode>?)")
+                rargs += [as_of_episode, as_of_episode]
+            aconds.append("EXISTS (SELECT 1 FROM entity_relations r"
+                          f" JOIN entities o ON o.entity_id=r.{other} WHERE "
+                          + " AND ".join(rconds) + ")")
+            args += rargs
+        sql += " AND (" + " OR ".join(aconds) + ")"
     sql += " ORDER BY entity_id"
     return [dict(r) for r in conn.execute(sql, args)]
+
+
+def _snippet_window(text: str, query: str, window: int = 24) -> str:
+    """발췌: 매칭 위치 앞뒤 window자씩 잘라 …로 표시한다."""
+    i = text.lower().find(query.lower())
+    if i < 0:
+        return ""
+    start = max(0, i - window)
+    end = min(len(text), i + len(query) + window)
+    return ("…" if start > 0 else "") + text[start:end] + ("…" if end < len(text) else "")
+
+
+def _show_value(value) -> str:
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+def entity_match_snippet(conn, entity_id: str, query: str,
+                         as_of_episode: int | None = None) -> str:
+    """통합 검색 근거 발췌: 매칭된 변경·인용·설명·관계를 앞뒤 문맥과 함께 반환한다.
+
+    이름·ID로만 매칭되면 빈 문자열(이름 자체가 근거). 기준 회차가 있으면
+    그 회차까지의 변경·유효 관계에서만 찾는다.
+    """
+    q = (query or "").strip()
+    if not q:
+        return ""
+    sql = ("SELECT attribute_path, old_value, new_value, story_time,"
+           " evidence_quote FROM entity_changes"
+           " WHERE entity_id=? AND (attribute_path LIKE ?"
+           " OR new_value LIKE ? OR old_value LIKE ? OR story_time LIKE ?"
+           " OR evidence_quote LIKE ?)")
+    args: list = [entity_id] + [f"%{q}%"] * 5
+    if as_of_episode is not None:
+        sql += " AND episode_no<=?"
+        args.append(as_of_episode)
+    sql += " ORDER BY episode_no, change_id"
+    for r in conn.execute(sql, args):
+        old = _show_value(_u(r["old_value"]))
+        new = _show_value(_u(r["new_value"]))
+        texts = [f"{r['attribute_path']}: {new}" if not old else
+                 f"{r['attribute_path']}: {old} → {new}",
+                 r["evidence_quote"] or "", r["story_time"] or ""]
+        for t in texts:
+            snip = _snippet_window(t, q)
+            if snip:
+                return snip
+    row = conn.execute("SELECT description FROM entities WHERE entity_id=?",
+                       (entity_id,)).fetchone()
+    if row and row["description"]:
+        snip = _snippet_window(row["description"], q)
+        if snip:
+            return snip
+    rsql = ("SELECT r.predicate, r.subject_id, s.canonical_name AS subj,"
+            " o.canonical_name AS obj FROM entity_relations r"
+            " JOIN entities s ON s.entity_id=r.subject_id"
+            " JOIN entities o ON o.entity_id=r.object_id"
+            " WHERE (r.subject_id=? OR r.object_id=?)"
+            " AND (r.predicate LIKE ? OR s.canonical_name LIKE ?"
+            " OR o.canonical_name LIKE ?)")
+    rargs: list = [entity_id, entity_id] + [f"%{q}%"] * 3
+    if as_of_episode is not None:
+        rsql += " AND r.valid_from_episode<=? AND (r.valid_to_episode IS NULL OR r.valid_to_episode>?)"
+        rargs += [as_of_episode, as_of_episode]
+    rsql += " ORDER BY r.valid_from_episode, r.relation_id"
+    for r in conn.execute(rsql, rargs):
+        if r["subject_id"] == entity_id:
+            text = f"→ {r['obj']} · {r['predicate']}"
+        else:
+            text = f"← {r['subj']} · {r['predicate']}"
+        snip = _snippet_window(text, q)
+        if snip:
+            return snip
+    return ""
 
 
 # -- reconstruction ----------------------------------------------------
@@ -201,6 +323,76 @@ def active_relations(conn, work_id: int, episode_no: int) -> list[dict]:
         " OR valid_to_episode>?) ORDER BY relation_id",
         (work_id, episode_no, episode_no)).fetchall()
     return [dict(r) for r in rows]
+
+
+def confirmed_aliases(conn, entity_id: str) -> list[str]:
+    rows = conn.execute("SELECT alias FROM entity_aliases"
+                        " WHERE entity_id=? AND status='confirmed'"
+                        " ORDER BY alias_id", (entity_id,)).fetchall()
+    return [r["alias"] for r in rows]
+
+
+def find_entities_by_name_or_alias(conn, work_id: int,
+                                   name: str) -> list[dict]:
+    """같은 작품에서 이름·확정 별명이 일치하는 개체 (§6 관련 검색).
+
+    미확정 후보 별명은 합치지 않는다. 합치면 동명이인이 섞인다.
+    """
+    if not (name or "").strip():
+        return []
+    rows = conn.execute(
+        "SELECT * FROM entities WHERE work_id=? AND canonical_name=?",
+        (work_id, name)).fetchall()
+    out = [dict(r) for r in rows]
+    seen = {e["entity_id"] for e in out}
+    for r in conn.execute(
+            "SELECT e.* FROM entity_aliases a"
+            " JOIN entities e ON e.entity_id=a.entity_id"
+            " WHERE a.work_id=? AND a.alias=? AND a.status='confirmed'",
+            (work_id, name)):
+        if r["entity_id"] not in seen:
+            seen.add(r["entity_id"])
+            out.append(dict(r))
+    return out
+
+
+def related_entities(conn, work_id: int, entity_id: str,
+                     episode_no: int) -> dict:
+    """개체별 정밀 대조용 관련 개체 묶음 (§6 2단계).
+
+    - relations: 관계 엣지로 연결된 개체 (양방향, 유효 구간 내)
+    - co_participants: 같은 확정 사건에 함께 등장한 개체
+    - shared_rules: 같은 규칙 술어를 공유하는 개체
+    모두 확정된 것만 쓴다. 임시안끼리는 비교하지 않는다.
+    """
+    rels = [r for r in active_relations(conn, work_id, episode_no)
+            if r["subject_id"] == entity_id or r["object_id"] == entity_id]
+    rel_peers = [{"entity_id": r["object_id"] if r["subject_id"] == entity_id
+                  else r["subject_id"],
+                  "predicate": r["predicate"],
+                  "outgoing": r["subject_id"] == entity_id} for r in rels]
+    co_rows = conn.execute(
+        "SELECT DISTINCT p2.entity_id, e.summary, e.episode_no"
+        " FROM event_participants p1"
+        " JOIN event_participants p2 ON p2.event_id=p1.event_id"
+        " JOIN events e ON e.event_id=p1.event_id"
+        " WHERE p1.entity_id=? AND p2.entity_id!=?"
+        " AND e.work_id=? AND e.episode_no<?"
+        " ORDER BY e.episode_no DESC LIMIT 20",
+        (entity_id, entity_id, work_id, episode_no)).fetchall()
+    my_rules = {r["attribute_path"] for r in committed_rules(conn, work_id,
+                                                             episode_no)
+                if r["entity_id"] == entity_id}
+    shared = []
+    if my_rules:
+        for r in committed_rules(conn, work_id, episode_no):
+            if r["entity_id"] != entity_id and \
+                    r["attribute_path"] in my_rules:
+                shared.append({"entity_id": r["entity_id"],
+                               "predicate": r["attribute_path"]})
+    return {"relations": rel_peers,
+            "co_participants": [dict(r) for r in co_rows],
+            "shared_rules": shared}
 
 
 # -- narrative units ----------------------------------------------------
@@ -406,6 +598,29 @@ def delete_pending_event(conn, proposal_set_id: int, index: int) -> dict:
             "events": len(events)}
 
 
+def delete_pending_event_participant(conn, proposal_set_id: int, index: int,
+                                     pindex: int) -> dict:
+    """임시 변경안의 사건 참여자 1명을 제외한다. 확정분은 변경 불가."""
+    row = conn.execute("SELECT * FROM change_proposals WHERE proposal_set_id=?",
+                       (proposal_set_id,)).fetchone()
+    if not row:
+        raise KeyError(f"proposal set {proposal_set_id} not found")
+    if row["status"] != "pending":
+        raise ValueError("committed events cannot be changed")
+    events = json.loads(row["events_json"] or "[]")
+    if index < 0 or index >= len(events):
+        raise IndexError(f"event {index} not found")
+    parts = events[index].get("participants", [])
+    if pindex < 0 or pindex >= len(parts):
+        raise IndexError(f"participant {pindex} not found")
+    parts.pop(pindex)
+    conn.execute("UPDATE change_proposals SET events_json=? WHERE proposal_set_id=?",
+                 (_j(events), proposal_set_id))
+    conn.commit()
+    return {"proposal_set_id": proposal_set_id, "event": index,
+            "removed": pindex, "participants": len(parts)}
+
+
 def discard_pending_for_revision(conn, episode_no: int, revision_id: int) -> None:
     """Drop stale pending sets before a fresh extraction on the same text."""
     conn.execute("UPDATE change_proposals SET status='discarded'"
@@ -568,6 +783,171 @@ def save_episode_memory(conn, *, episode_no: int, revision_id: int,
     return {**result, "memory_version": version}
 
 
+def _entity_ref_count(conn, entity_id: str) -> int:
+    n = 0
+    n += conn.execute("SELECT COUNT(*) c FROM entity_changes"
+                      " WHERE entity_id=?", (entity_id,)).fetchone()["c"]
+    n += conn.execute("SELECT COUNT(*) c FROM event_participants"
+                      " WHERE entity_id=?", (entity_id,)).fetchone()["c"]
+    n += conn.execute("SELECT COUNT(*) c FROM entity_relations"
+                      " WHERE subject_id=? OR object_id=?",
+                      (entity_id, entity_id)).fetchone()["c"]
+    n += conn.execute("SELECT COUNT(*) c FROM entity_mentions"
+                      " WHERE entity_id=?", (entity_id,)).fetchone()["c"]
+    n += conn.execute("SELECT COUNT(*) c FROM entity_aliases"
+                      " WHERE entity_id=?", (entity_id,)).fetchone()["c"]
+    return n
+
+
+def committed_summary(conn, episode_no: int, work_id: int) -> dict:
+    """이번 화에 확정 저장된 설정 규모(초기화 확인용)."""
+    ch = conn.execute("SELECT COUNT(*) c FROM entity_changes"
+                      " WHERE episode_no=? AND work_id=?",
+                      (episode_no, work_id)).fetchone()["c"]
+    ev = conn.execute("SELECT COUNT(*) c FROM events"
+                      " WHERE episode_no=? AND work_id=?",
+                      (episode_no, work_id)).fetchone()["c"]
+    revs = [r["revision_id"] for r in conn.execute(
+        "SELECT revision_id FROM manuscript_revisions"
+        " WHERE episode_no=? AND work_id=?", (episode_no, work_id))]
+    ac = 0
+    if revs:
+        q = ",".join("?" for _ in revs)
+        ac = conn.execute(
+            f"SELECT COUNT(*) c FROM entity_aliases WHERE work_id=?"
+            f" AND manuscript_revision_id IN ({q})",
+            (work_id, *revs)).fetchone()["c"]
+    return {"changes": ch, "events": ev, "aliases": ac}
+
+
+def reset_episode_memory(conn, episode_no: int, work_id: int) -> dict:
+    """이번 화의 설정 기억을 모두 지운다(재추출의 전반전).
+
+    지우는 것: 이 화의 추출 실행 전체(pending 포함)와 그 항목,
+    확정 변경, 사건·참여자, 언급, 이 화에서 열린 관계, 이 화 출처의
+    별명(확정·기각·후보), 참조가 끊긴 고아 설정과 그 별명, 이 화의 분석
+    기록. 이 화에서 닫힌 관계는 다시 열고, 원고 승인 상태도 되돌린다.
+    스냅샷은 캐시라서 이 화 이후분(>=N)을 지우면 조회 시 재구축된다.
+    유지하는 것: 다른 화, 원고 본문, 일관성 이슈·대화.
+    """
+    counts = {"sets": 0, "changes": 0, "events": 0, "mentions": 0,
+              "relations": 0, "relations_reopened": 0, "aliases": 0,
+              "analyses": 0, "entities": 0}
+    with conn:
+        ref_ids: set[str] = set()
+        for table in ("entity_changes", "entity_mentions"):
+            ref_ids.update(
+                r["entity_id"] for r in conn.execute(
+                    f"SELECT DISTINCT entity_id FROM {table}"
+                    " WHERE episode_no=? AND work_id=?",
+                    (episode_no, work_id)))
+        ev_ids = [r["event_id"] for r in conn.execute(
+            "SELECT event_id FROM events WHERE episode_no=? AND work_id=?",
+            (episode_no, work_id))]
+        if ev_ids:
+            q = ",".join("?" for _ in ev_ids)
+            ref_ids.update(
+                r["entity_id"] for r in conn.execute(
+                    f"SELECT DISTINCT entity_id FROM event_participants"
+                    f" WHERE event_id IN ({q})", ev_ids))
+        ref_ids.update(
+            r["eid"] for r in conn.execute(
+                "SELECT subject_id AS eid FROM entity_relations"
+                " WHERE work_id=? AND valid_from_episode=?"
+                " UNION SELECT object_id FROM entity_relations"
+                " WHERE work_id=? AND valid_from_episode=?",
+                (work_id, episode_no, work_id, episode_no)))
+        alias_revs = [r["revision_id"] for r in conn.execute(
+            "SELECT revision_id FROM manuscript_revisions"
+            " WHERE episode_no=? AND work_id=?", (episode_no, work_id))]
+        if alias_revs:
+            aq = ",".join("?" for _ in alias_revs)
+            ref_ids.update(
+                r["entity_id"] for r in conn.execute(
+                    f"SELECT DISTINCT entity_id FROM entity_aliases"
+                    f" WHERE work_id=? AND entity_id IS NOT NULL"
+                    f" AND manuscript_revision_id IN ({aq})",
+                    (work_id, *alias_revs)))
+        ref_ids.discard(None)
+
+        set_ids = [r["proposal_set_id"] for r in conn.execute(
+            "SELECT proposal_set_id FROM change_proposals"
+            " WHERE episode_no=? AND work_id=?",
+            (episode_no, work_id))]
+        if set_ids:
+            q = ",".join("?" for _ in set_ids)
+            conn.execute(
+                f"DELETE FROM change_proposal_items WHERE proposal_set_id IN ({q})",
+                set_ids)
+            cur = conn.execute(
+                f"DELETE FROM change_proposals WHERE proposal_set_id IN ({q})",
+                set_ids)
+            counts["sets"] = cur.rowcount
+        cur = conn.execute("DELETE FROM entity_changes"
+                           " WHERE episode_no=? AND work_id=?",
+                           (episode_no, work_id))
+        counts["changes"] = cur.rowcount
+        if ev_ids:
+            q = ",".join("?" for _ in ev_ids)
+            conn.execute(f"DELETE FROM event_participants WHERE event_id IN ({q})",
+                         ev_ids)
+            cur = conn.execute(f"DELETE FROM events WHERE event_id IN ({q})",
+                               ev_ids)
+            counts["events"] = cur.rowcount
+        cur = conn.execute("DELETE FROM entity_mentions"
+                           " WHERE episode_no=? AND work_id=?",
+                           (episode_no, work_id))
+        counts["mentions"] = cur.rowcount
+        cur = conn.execute("DELETE FROM entity_relations"
+                           " WHERE work_id=? AND valid_from_episode=?",
+                           (work_id, episode_no))
+        counts["relations"] = cur.rowcount
+        cur = conn.execute("UPDATE entity_relations SET valid_to_episode=NULL"
+                           " WHERE work_id=? AND valid_to_episode=?",
+                           (work_id, episode_no))
+        counts["relations_reopened"] = cur.rowcount
+        revs = [r["revision_id"] for r in conn.execute(
+            "SELECT revision_id FROM manuscript_revisions"
+            " WHERE episode_no=? AND work_id=?", (episode_no, work_id))]
+        if revs:
+            q = ",".join("?" for _ in revs)
+            cur = conn.execute(
+                f"DELETE FROM entity_aliases WHERE work_id=?"
+                f" AND manuscript_revision_id IN ({q})",
+                (work_id, *revs))
+            counts["aliases"] = cur.rowcount
+        conn.execute("DELETE FROM entity_snapshots"
+                     " WHERE work_id=? AND episode_no>=?",
+                     (work_id, episode_no))
+        conn.execute("UPDATE manuscript_revisions SET approval_status='draft'"
+                     " WHERE episode_no=? AND work_id=?"
+                     " AND approval_status='approved'", (episode_no, work_id))
+        cur = conn.execute("DELETE FROM consistency_analyses"
+                           " WHERE episode_no=? AND work_id=?",
+                           (episode_no, work_id))
+        counts["analyses"] = cur.rowcount
+        # 판단 근거인 기억이 사라지므로 열린 이슈도 함께 지운다.
+        # 처리된 이슈는 작가의 결정 이력이라 둔다.
+        cur = conn.execute("DELETE FROM consistency_issues"
+                           " WHERE episode_no=? AND work_id=? AND status='open'",
+                           (episode_no, work_id))
+        counts["issues"] = cur.rowcount
+        for eid in sorted(ref_ids):
+            if _entity_ref_count(conn, eid) > 0:
+                continue
+            cur = conn.execute("DELETE FROM entity_aliases WHERE entity_id=?",
+                               (eid,))
+            counts["aliases"] += cur.rowcount
+            # 스냅샷은 캐시: 고아는 전 회차분(0화 포함)을 함께 지운다.
+            conn.execute("DELETE FROM entity_snapshots WHERE entity_id=?",
+                         (eid,))
+            cur = conn.execute(
+                "DELETE FROM entities WHERE entity_id=? AND work_id=?",
+                (eid, work_id))
+            counts["entities"] += cur.rowcount
+    return counts
+
+
 # -- commit (idempotent) ---------------------------------------------------
 def is_committed(conn, episode_no: int, revision_id: int) -> bool:
     row = conn.execute(
@@ -583,8 +963,10 @@ def _commit_resolve(conn, work_id: int, entity_id: str | None,
                     new_ids: dict[str, str], episode_no: int) -> str:
     """Stable identity (§5.5): reuse the resolved entity whenever possible.
 
-    A new entity is created only for explicit-new candidates (homonym
-    splits the model marked new:) or names unknown to this work.
+    A confirmed link is always an author decision, so it wins over both
+    the model's explicit-new mark and same-name matching. A new entity
+    is created only for explicit-new candidates without a link, or for
+    names unknown to this work.
     """
     if entity_id:
         ent = get_entity(conn, entity_id)
@@ -593,19 +975,20 @@ def _commit_resolve(conn, work_id: int, entity_id: str | None,
     name = candidate or "이름없음"
     if name in new_ids:
         return new_ids[name]
-    if not explicit_new and work_id is not None:
-        row = conn.execute("SELECT entity_id FROM entities"
-                           " WHERE work_id=? AND canonical_name=?",
-                           (work_id, name)).fetchone()
-        if row:
-            new_ids[name] = row["entity_id"]
-            return row["entity_id"]
+    if work_id is not None:
         row = conn.execute(
             "SELECT a.entity_id FROM entity_aliases a"
             " JOIN entities e ON e.entity_id=a.entity_id"
             " WHERE a.work_id=? AND a.alias=? AND a.status='confirmed'",
             (work_id, name)).fetchone()
         if row and row["entity_id"]:
+            new_ids[name] = row["entity_id"]
+            return row["entity_id"]
+    if not explicit_new and work_id is not None:
+        row = conn.execute("SELECT entity_id FROM entities"
+                           " WHERE work_id=? AND canonical_name=?",
+                           (work_id, name)).fetchone()
+        if row:
             new_ids[name] = row["entity_id"]
             return row["entity_id"]
     eid = next_entity_id(conn, "character")
@@ -623,6 +1006,33 @@ def _relation_object(value) -> tuple[str, str]:
     if isinstance(value, str):
         return value, ""
     return "", ""
+
+
+def _auto_link_aliases(conn, work_id: int) -> int:
+    """저장 후 정리: 같은 이름의 설정이 딱 1건이면 후보를 대기열에서 치운다.
+
+    확정 연결은 작가 판단 전용으로 남겨 둔다. 자동 정리가 확정 행을 만들면
+    이후 화의 진짜 새 인물(new:) 분리를 가려 버리기 때문이다.
+    동명이인(2건 이상)이나 설정 없는 이름은 작가 판단이 필요해서 남긴다.
+    """
+    if not work_id:
+        return 0
+    linked = 0
+    cands = conn.execute(
+        "SELECT alias_id, alias FROM entity_aliases"
+        " WHERE work_id=? AND status='candidate'", (work_id,)).fetchall()
+    for c in cands:
+        rows = conn.execute(
+            "SELECT entity_id FROM entities"
+            " WHERE work_id=? AND canonical_name=?",
+            (work_id, c["alias"])).fetchall()
+        if len(rows) != 1:
+            continue
+        conn.execute(
+            "DELETE FROM entity_aliases WHERE alias_id=?",
+            (c["alias_id"],))
+        linked += 1
+    return linked
 
 
 def commit_episode(conn, *, episode_no, revision_id, proposal_set_id,
@@ -716,13 +1126,14 @@ def commit_episode(conn, *, episode_no, revision_id, proposal_set_id,
             " WHERE revision_id=?",
             (revision_id,),
         )
-        return applied, touched, new_ids
+        linked = _auto_link_aliases(conn, wid)
+        return applied, touched, new_ids, linked
 
     if _commit:
         with conn:
-            applied, touched, _ = _apply()
+            applied, touched, _, linked = _apply()
     else:
-        applied, touched, _ = _apply()
+        applied, touched, _, linked = _apply()
     for eid in touched:
         conn.execute("DELETE FROM entity_snapshots WHERE entity_id=? AND episode_no>=?",
                      (eid, episode_no))
@@ -734,16 +1145,23 @@ def commit_episode(conn, *, episode_no, revision_id, proposal_set_id,
             ent = get_entity(conn, eid)
             wid = ent["work_id"] if ent else 0
         reconstruct_state(conn, eid, episode_no, wid)
-    return {"committed": True, "applied": applied, "entities": sorted(touched)}
+    return {"committed": True, "applied": applied, "entities": sorted(touched), "aliases_linked": linked}
 
 
 def _participant_resolve(conn, work_id: int, episode_no: int, name: str,
                          new_ids: dict[str, str]) -> str | None:
-    """Link an event participant name to this work (or a new entity)."""
+    """Link an event participant name (author link first, else a new entity)."""
     if not name:
         return None
     if name in new_ids:
         return new_ids[name]
+    row = conn.execute(
+        "SELECT a.entity_id FROM entity_aliases a"
+        " JOIN entities e ON e.entity_id=a.entity_id"
+        " WHERE a.work_id=? AND a.alias=? AND a.status='confirmed'",
+        (work_id, name)).fetchone()
+    if row and row["entity_id"]:
+        return row["entity_id"]
     row = conn.execute("SELECT entity_id FROM entities"
                        " WHERE work_id=? AND canonical_name=?",
                        (work_id, name)).fetchone()

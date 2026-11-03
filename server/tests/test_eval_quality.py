@@ -206,6 +206,68 @@ def test_save_blocks_stale_base(conn):
                                    proposal_set_id=sid2, work_id=1)
 
 
+def test_find_by_name_or_alias(conn):
+    from app import consistency, memory as mem
+
+    mem.create_entity(conn, entity_id="ch_0001", work_id=1,
+                      type_="character", name="서연", first_episode=1)
+    mem.add_alias_candidate(conn, work_id=1, entity_id="ch_0001",
+                            alias="장부지기", basis="t")
+    aid = mem.list_alias_candidates(conn, 1)[0]["alias_id"]
+    mem.resolve_alias(conn, aid, entity_id="ch_0001", basis="t")
+    mem.add_alias_candidate(conn, work_id=1, entity_id=None,
+                            alias="나그네", basis="t")
+    assert [e["entity_id"] for e in
+            mem.find_entities_by_name_or_alias(conn, 1, "서연")] == ["ch_0001"]
+    assert [e["entity_id"] for e in
+            mem.find_entities_by_name_or_alias(conn, 1, "장부지기")] == \
+        ["ch_0001"]
+    # 미확정 후보 별명은 합치지 않는다.
+    assert mem.find_entities_by_name_or_alias(conn, 1, "나그네") == []
+    assert mem.confirmed_aliases(conn, "ch_0001") == ["장부지기"]
+    # 겹치는 미해결 후보명은 동명이인 의심 후보가 된다.
+    cands = consistency.homonym_candidates(
+        conn, 1, [{"entity_id": None, "candidate_name": "서연",
+                   "evidence_quote": "q"}])
+    assert len(cands) == 1 and cands[0]["verdict"] == "uncertain"
+    assert "ch_0001" in cands[0]["detail"]
+    assert consistency.homonym_candidates(
+        conn, 1, [{"entity_id": None, "candidate_name": "낯선이름",
+                   "evidence_quote": "q"}]) == []
+
+
+def test_related_entities(conn):
+    from app import memory as mem
+
+    _commit_items(conn, 1, "서연이 민준을 의심한다", [
+        {"candidate_name": "서연", "kind": "relation", "operation": "set",
+         "attribute_path": "의심", "new_value": {"object": "민준"},
+         "evidence_quote": "서연이 민준을 의심한다"}])
+    seoyeon = mem.search_entities(conn, q="서연", work_id=1)[0]["entity_id"]
+    minjun = mem.search_entities(conn, q="민준", work_id=1)[0]["entity_id"]
+    rel = mem.related_entities(conn, 1, seoyeon, 2)
+    assert [p["entity_id"] for p in rel["relations"]] == [minjun]
+    assert rel["relations"][0]["predicate"] == "의심"
+    assert rel["relations"][0]["outgoing"] is True
+    back = mem.related_entities(conn, 1, minjun, 2)
+    assert [p["entity_id"] for p in back["relations"]] == [seoyeon]
+    assert back["relations"][0]["outgoing"] is False
+    # 같은 확정 사건 참여자는 함께 검색된다.
+    rev = _rev(conn, 1, "사건")
+    sid = mem.store_proposal(
+        conn, episode_no=1, revision_id=rev, items=[], work_id=1,
+        base_memory_version=mem.current_memory_version(conn, 1),
+        events=[{"summary": "둘이 만났다", "story_time": "",
+                 "evidence_quote": "사건",
+                 "participants": [{"entity_id": seoyeon, "role": ""},
+                                  {"entity_id": minjun, "role": ""}]}])
+    mem.save_episode_memory(conn, episode_no=1, revision_id=rev,
+                            proposal_set_id=sid, work_id=1)
+    co = [p["entity_id"]
+          for p in mem.related_entities(conn, 1, seoyeon, 2)["co_participants"]]
+    assert co == [minjun]
+
+
 def test_units_and_evidence_index(conn):
     text = "첫 문단이다.\n\n두 번째 문단이다."
     rev = _rev(conn, 1, text)

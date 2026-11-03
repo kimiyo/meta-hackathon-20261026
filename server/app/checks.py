@@ -221,6 +221,70 @@ def _place(item) -> str:
     return disp.strip() if isinstance(disp, str) else ""
 
 
+def _std(item) -> str:
+    v = _jval(item.get("standard_value", ""))
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    d = _jval(item.get("new_value", ""))
+    if isinstance(d, str):
+        return d.strip()
+    return json.dumps(d, ensure_ascii=False) if d != "" else ""
+
+
+def check_state_clash(conn, work_id: int, episode_no: int,
+                      proposal_set_id: int | None) -> list[dict]:
+    """같은 이야깃날의 상태 충돌: 확정 상태 vs 현재 임시안.
+
+    시점이 다르면 시간 흐름으로 설명되는 정상 변화로 보고 건너뛴다.
+    """
+    items, _events = _pending_rows(conn, proposal_set_id)
+    states = [i for i in items
+              if i["kind"] == "state" and i["entity_id"]
+              and i["operation"] in ("set", "create", "add")
+              and (i.get("narrative_mode") or "narration") == "narration"]
+    if not states:
+        return []
+    approved = conn.execute(
+        "SELECT c.* FROM entity_changes c"
+        " JOIN change_proposals s ON s.proposal_set_id=c.proposal_set_id"
+        " WHERE c.work_id=? AND c.episode_no<? AND c.kind='state'"
+        " AND s.status='committed'"
+        " AND c.narrative_mode NOT IN ('dream','conjecture','hypothesis',"
+        " 'lie','recollection')",
+        (work_id, episode_no)).fetchall()
+    by_key: dict[tuple, list] = {}
+    for r in approved:
+        by_key.setdefault((r["entity_id"], r["attribute_path"] or ""),
+                          []).append(dict(r))
+    out = []
+    for it in states:
+        day = (it.get("story_time") or "").strip()
+        if not day:
+            continue  # 시점 모름: AI 의미 패스에 맡긴다
+        val = _std(it)
+        if not val:
+            continue
+        for old in by_key.get((it["entity_id"],
+                               it["attribute_path"] or ""), []):
+            if (old["story_time"] or "").strip() != day:
+                continue
+            if _std(old) == val:
+                continue
+            out.append({
+                "check": "state_clash", "severity": "major",
+                "title": f"같은 시점의 상태 충돌: {it['attribute_path']}",
+                "detail": f"{day}에 '{_std(old)}'(EP{old['episode_no']} 확정)와"
+                          f" '{val}'(현재 원고)이 다름",
+                "verdict": "conflict",
+                "entity_id": it["entity_id"],
+                "fact_refs": [old["change_id"]],
+                "manuscript_quote": it.get("evidence_quote", "") or "",
+                "evidence_episode": old["episode_no"],
+                "evidence_quote": old["evidence_quote"] or "",
+            })
+    return out
+
+
 def _candidate(check: str, rule: dict, item: dict, verdict: str,
                detail: str) -> dict:
     return {
@@ -237,7 +301,8 @@ def _candidate(check: str, rule: dict, item: dict, verdict: str,
     }
 
 
-CHECKS = (check_count_limits, check_death, check_exclusive_location)
+CHECKS = (check_count_limits, check_death, check_exclusive_location,
+          check_state_clash)
 
 
 def run_deterministic_checks(conn: sqlite3.Connection, work_id: int,
