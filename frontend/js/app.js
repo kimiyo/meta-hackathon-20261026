@@ -318,6 +318,7 @@ document.addEventListener("locale-changed", () => {
   syncLocaleDocument();
   applyI18n();
   refreshTopbar();
+  refreshWorkPill();
 });
 async function boot() {
   initLocaleSelect();
