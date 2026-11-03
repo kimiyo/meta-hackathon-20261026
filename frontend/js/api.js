@@ -24,7 +24,19 @@ async function req(path, options = {}) {
   const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
   Object.assign(headers, options.headers ?? {});
-  const resp = await fetch(BASE + path, { ...options, headers });
+  const { timeoutMs, ...fetchOptions } = options;
+  let resp;
+  try {
+    resp = await fetch(BASE + path, {
+      ...fetchOptions, headers,
+      signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+    });
+  } catch (e) {
+    if (timeoutMs && (e?.name === "TimeoutError" || e?.name === "AbortError")) {
+      throw new Error("요청 시간이 초과되었습니다. 다시 시도하세요.");
+    }
+    throw e;
+  }
   if (resp.status === 401 && !path.startsWith("/auth/")) {
     document.dispatchEvent(new CustomEvent("auth-expired"));
   }
@@ -121,6 +133,13 @@ export const api = {
   publishingEpisodes: (designId) => req(`/designs/${designId}/publishing`),
   // Episode identity is (work, episode_no): every /episodes/ call carries ?work=.
   episode: (no, workKey) => req(`/episodes/${no}?${epQuery(workKey)}`),
+  redraft: (no, workKey) =>
+    req(`/episodes/${no}/redraft?${epQuery(workKey)}`, { method: "POST" }),
+  writingChat: (no, message, includeDraft, workKey) =>
+    req(`/episodes/${no}/manuscript-chat?${epQuery(workKey)}`, {
+      method: "POST",
+      body: JSON.stringify({ message, include_draft: includeDraft }),
+    }),
   startEpisode: (no, designId, workKey) =>
     req(`/episodes/${no}/start?${epQuery(workKey)}`, {
       method: "POST",
@@ -144,6 +163,11 @@ export const api = {
     req(`/episodes/${no}/consistency/analyze?${epQuery(workKey)}`, { method: "POST" }),
   consistencyReset: (no, workKey) =>
     req(`/episodes/${no}/consistency/reset?${epQuery(workKey)}`, { method: "POST" }),
+  manuscriptFix: (no, issueIds, workKey) =>
+    req(`/episodes/${no}/manuscript-fix?${epQuery(workKey)}`, {
+      method: "POST", body: JSON.stringify({ issue_ids: issueIds }),
+      timeoutMs: 300000,
+    }),
   consistencyMessages: (no, workKey) =>
     req(`/episodes/${no}/consistency/messages?${epQuery(workKey)}`),
   consistencyChat: (no, message, workKey) =>

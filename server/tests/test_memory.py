@@ -442,15 +442,14 @@ def test_entity_match_snippet_quote_and_null_old(conn):
     assert "오늘부로" in snip
 
 
-def test_reset_clears_open_consistency_issues(conn):
+def test_reset_clears_consistency_issues(conn):
     saved = consistency.add_issues(conn, 1, [
         {"title": "열린 이슈"}, {"title": "처리된 이슈"}], 1)["issues"]
     consistency.set_issue_status(conn, saved[1]["issue_id"], "fixed")
     counts = memory.reset_episode_memory(conn, 1, 1)
-    assert counts["issues"] == 1
-    rows = conn.execute(
-        "SELECT title, status FROM consistency_issues").fetchall()
-    assert [(r["title"], r["status"]) for r in rows] == [("처리된 이슈", "fixed")]
+    assert counts["issues"] == 2
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM consistency_issues").fetchone()["c"] == 0
 
 
 def test_commit_keeps_candidate_on_homonym(conn):

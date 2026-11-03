@@ -43,7 +43,7 @@ def test_add_and_list_issues(conn):
     assert issues[1]["severity"] == "major"  # unknown severity normalized
 
 
-def test_reset_review_clears_open_issues_and_analyses(conn):
+def test_reset_review_clears_issues_and_analyses(conn):
     saved = consistency.add_issues(conn, 1, [
         {"title": "열린 이슈"}, {"title": "처리된 이슈"}], 1)["issues"]
     consistency.set_issue_status(conn, saved[1]["issue_id"], "fixed")
@@ -51,11 +51,81 @@ def test_reset_review_clears_open_issues_and_analyses(conn):
         conn, work_id=1, episode_no=1, revision_id=None,
         base_version=0, status="completed", coverage={}, counts={})
     out = consistency.reset_episode_review(conn, 1, 1)
-    assert out == {"issues": 1, "analyses": 1}
-    rows = conn.execute(
-        "SELECT title, status FROM consistency_issues").fetchall()
-    assert [(r["title"], r["status"]) for r in rows] == [("처리된 이슈", "fixed")]
+    assert out == {"issues": 2, "analyses": 1}
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM consistency_issues").fetchone()["c"] == 0
     assert consistency.latest_analysis(conn, 1, 1) is None
+
+
+def _seed_manuscript(conn, text="첫 문장. 고칠 문장. 끝 문장."):
+    cur = conn.execute(
+        "INSERT INTO manuscript_revisions(work_id, episode_no, version, text,"
+        " created_at) VALUES(1,1,1,?,'t')", (text,))
+    conn.execute("UPDATE episode_jobs SET manuscript_revision_id=?"
+                 " WHERE work_id=1 AND episode_no=1", (cur.lastrowid,))
+    conn.commit()
+    return cur.lastrowid
+
+
+def test_fix_manuscript_issues_happy_path(conn):
+    text = "첫 문장. 고칠 문장. 끝 문장."
+    rev = _seed_manuscript(conn, text)
+    [saved] = consistency.add_issues(conn, 1, [
+        {"title": "모순", "manuscript_quote": "고칠 문장"}],
+        1, revision_id=rev, manuscript=text)["issues"]
+    meta = IssueMeta([{"manuscript": "첫 문장. 고친 문장. 끝 문장."}])
+    out = consistency.fix_manuscript_issues(
+        meta, conn, episode_no=1, work_id=1,
+        issue_ids=[saved["issue_id"]])
+    assert out["fixed_issue_ids"] == [saved["issue_id"]]
+    job = conn.execute("SELECT state, return_reason FROM episode_jobs"
+                       " WHERE work_id=1 AND episode_no=1").fetchone()
+    assert job["state"] == "WRITING"
+    assert "모순" in job["return_reason"]
+    row = conn.execute("SELECT text, label FROM manuscript_revisions"
+                       " WHERE work_id=1 AND episode_no=1"
+                       " ORDER BY version DESC LIMIT 1").fetchone()
+    assert row["text"] == "첫 문장. 고친 문장. 끝 문장."
+    assert "AI 수정" in row["label"]
+    assert conn.execute("SELECT status FROM consistency_issues"
+                        " WHERE issue_id=?",
+                        (saved["issue_id"],)).fetchone()["status"] == "fixed"
+
+
+def test_fix_manuscript_issues_guards(conn):
+    from app.errors import LLMStepError
+
+    text = "첫 문장. 고칠 문장. 끝 문장."
+    rev = _seed_manuscript(conn, text)
+    [saved] = consistency.add_issues(conn, 1, [
+        {"title": "모순", "manuscript_quote": "고칠 문장"}],
+        1, revision_id=rev, manuscript=text)["issues"]
+    # 리비전이 다르면 AI 호출 없이 거절한다.
+    [stale] = consistency.add_issues(conn, 1, [{"title": "낡음"}], 1,
+                                     revision_id=rev + 999)["issues"]
+    meta = IssueMeta([{"manuscript": "x"}])
+    with pytest.raises(ValueError, match="재분석"):
+        consistency.fix_manuscript_issues(
+            meta, conn, episode_no=1, work_id=1,
+            issue_ids=[stale["issue_id"]])
+    assert meta.calls == []
+    # 빈 수정본이면 실패하고 상태는 그대로 둔다.
+    meta = IssueMeta([{"manuscript": "   "}])
+    with pytest.raises(LLMStepError):
+        consistency.fix_manuscript_issues(
+            meta, conn, episode_no=1, work_id=1,
+            issue_ids=[saved["issue_id"]])
+    assert conn.execute("SELECT state FROM episode_jobs"
+                        " WHERE work_id=1 AND episode_no=1").fetchone()[
+        "state"] == "IN_REVIEW"
+    # 검토중이 아니면 거절한다.
+    conn.execute("UPDATE episode_jobs SET state='WRITING'"
+                 " WHERE work_id=1 AND episode_no=1")
+    conn.commit()
+    with pytest.raises(ValueError, match="검토중"):
+        consistency.fix_manuscript_issues(
+            IssueMeta([{"manuscript": "x"}]), conn, episode_no=1,
+            work_id=1, issue_ids=[saved["issue_id"]])
 
 
 def test_issue_status_flow(conn):

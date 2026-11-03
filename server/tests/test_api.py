@@ -751,7 +751,7 @@ def test_analyze_records_completed_analysis(api_client):
         del app.dependency_overrides[get_meta]
 
 
-def test_consistency_reset_clears_open_issues(api_client):
+def test_consistency_reset_clears_issues(api_client):
     from app.routes.works import get_meta
     from app.main import app
     from tests.test_consistency import IssueMeta
@@ -785,8 +785,7 @@ def test_consistency_reset_clears_open_issues(api_client):
             f"/api/v1/episodes/1/consistency/analyze?work={wid}").status_code == 200
         got = api_client.get(
             f"/api/v1/episodes/1/consistency/issues?work={wid}").json()["issues"]
-        open_before = sum(1 for i in got if i["status"] == "open")
-        assert open_before >= 1
+        assert sum(1 for i in got if i["status"] == "open") >= 1
         fixed_id = next(i["issue_id"] for i in got if i["status"] == "open")
         assert api_client.patch(
             f"/api/v1/consistency/issues/{fixed_id}",
@@ -794,14 +793,62 @@ def test_consistency_reset_clears_open_issues(api_client):
         r = api_client.post(
             f"/api/v1/episodes/1/consistency/reset?work={wid}")
         assert r.status_code == 200, r.text
-        assert r.json()["issues"] == open_before - 1
+        assert r.json()["issues"] == len(got)
         got = api_client.get(
             f"/api/v1/episodes/1/consistency/issues?work={wid}").json()["issues"]
-        assert all(i["status"] != "open" for i in got)
-        assert fixed_id in {i["issue_id"] for i in got}
+        assert got == []
         assert api_client.get(
             f"/api/v1/episodes/1/consistency/analyses/latest?work={wid}"
         ).json()["analysis"] is None
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
+def test_manuscript_fix_flow(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_consistency import IssueMeta
+
+    wid = _started_in_review(api_client)
+    app.dependency_overrides[get_meta] = lambda: EntityVerifyMeta([{
+        "items": [{"entity_ref": "new:민준", "candidate_name": "민준",
+                   "operation": "create", "attribute_path": "직업",
+                   "old_value": "", "new_value": "서점주인",
+                   "story_time": "", "evidence_quote": "가" * 100}],
+        "mentions": [], "events": []}])
+    try:
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/extract?work={wid}").status_code == 200
+        assert api_client.post(
+            f"/api/v1/episodes/1/entities/save?work={wid}").status_code == 200
+        app.dependency_overrides[get_meta] = lambda: IssueMeta([{
+            "issues": [{"severity": "major", "title": "모순",
+                        "detail": "d", "verdict": "conflict",
+                        "manuscript_quote": "가가가",
+                        "evidence_episode": None, "evidence_quote": "",
+                        "entity_id": ""}]}])
+        assert api_client.post(
+            f"/api/v1/episodes/1/consistency/analyze?work={wid}").status_code == 200
+        got = api_client.get(
+            f"/api/v1/episodes/1/consistency/issues?work={wid}").json()["issues"]
+        open_ids = [i["issue_id"] for i in got if i["status"] == "open"]
+        assert open_ids
+        doc = api_client.get(
+            f"/api/v1/episodes/1/manuscript-doc?work={wid}").json()["document"]
+        orig = doc["versions"][-1]["content"]
+        app.dependency_overrides[get_meta] = lambda: IssueMeta([
+            {"manuscript": orig + "\n추가 문장."}])
+        r = api_client.post(
+            f"/api/v1/episodes/1/manuscript-fix?work={wid}",
+            json={"issue_ids": open_ids})
+        assert r.status_code == 200, r.text
+        assert sorted(r.json()["fixed_issue_ids"]) == sorted(open_ids)
+        ep = api_client.get(
+            f"/api/v1/episodes/1?work={wid}").json()
+        assert ep["state"] == "WRITING"
+        got = api_client.get(
+            f"/api/v1/episodes/1/consistency/issues?work={wid}").json()["issues"]
+        assert all(i["status"] != "open" for i in got)
     finally:
         del app.dependency_overrides[get_meta]
 

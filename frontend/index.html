@@ -334,6 +334,9 @@
         </div>
         <div id="analysis-status" data-role="review.issues.analysis-status" style="margin-bottom:8px"><span class="muted small">분석 전입니다.</span></div>
         <div id="issue-list" data-role="review.issues.list"><span class="muted small">회차를 불러오세요.</span></div>
+        <div class="btn-row">
+          <button class="btn primary sm" id="btn-fix-selected" data-role="review.issues.fix-selected-btn" disabled>선택된 모순 AI 수정 및 집필로 이동</button>
+        </div>
       </div>
       <div class="card" data-role="review.consistency.panel">
         <h3>일관성 분석 도우미 <span class="hint">확정 기억과 현재 원고 대조</span></h3>
@@ -595,6 +598,17 @@
     <div class="btn-row" style="justify-content:flex-end">
       <button class="btn ghost" id="btn-consistency-reset-cancel" data-role="review.issues.reset-cancel-btn">취소</button>
       <button class="btn danger" id="btn-consistency-reset-confirm" data-role="review.issues.reset-confirm-btn">삭제</button>
+    </div>
+  </div>
+</div>
+
+<div id="fix-confirm-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fix-confirm-title" data-role="review.issues.fix-confirm-dialog">
+    <h3 id="fix-confirm-title">선택된 모순 AI 수정</h3>
+    <div id="fix-confirm-msg" data-role="review.issues.fix-confirm-msg"></div>
+    <div class="btn-row" style="justify-content:flex-end">
+      <button class="btn ghost" id="btn-fix-cancel" data-role="review.issues.fix-cancel-btn">취소</button>
+      <button class="btn primary" id="btn-fix-confirm" data-role="review.issues.fix-confirm-btn">수정 시작</button>
     </div>
   </div>
 </div>

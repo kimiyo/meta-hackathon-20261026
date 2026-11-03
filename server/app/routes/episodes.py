@@ -72,6 +72,42 @@ def start_episode(episode_no: int, body: StartIn, work: str,
     return out
 
 
+@router.post("/episodes/{episode_no}/redraft")
+def redraft_episode(episode_no: int, work: str,
+                    conn: sqlite3.Connection = Depends(get_conn),
+                    meta=Depends(get_meta),
+                    author: dict = Depends(get_current_author)):
+    job = _owned_job(conn, work, episode_no, author["id"])
+    try:
+        return state_machine.redraft_episode(conn, meta, job["work_id"],
+                                             episode_no)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(400, str(e))
+    except LLMStepError as e:
+        raise HTTPException(502, f"{e.reason}: {e.detail}")
+
+
+class ChatReviseIn(BaseModel):
+    message: str = ""
+    include_draft: bool = True
+
+
+@router.post("/episodes/{episode_no}/manuscript-chat")
+def manuscript_chat(episode_no: int, body: ChatReviseIn, work: str,
+                    conn: sqlite3.Connection = Depends(get_conn),
+                    meta=Depends(get_meta),
+                    author: dict = Depends(get_current_author)):
+    job = _owned_job(conn, work, episode_no, author["id"])
+    try:
+        return state_machine.chat_revise(
+            conn, meta, job["work_id"], episode_no,
+            message=body.message, include_draft=body.include_draft)
+    except (KeyError, ValueError) as e:
+        raise HTTPException(400, str(e))
+    except LLMStepError as e:
+        raise HTTPException(502, f"{e.reason}: {e.detail}")
+
+
 @router.post("/episodes/{episode_no}/submit-review")
 def submit_review(episode_no: int, work: str,
                   conn: sqlite3.Connection = Depends(get_conn),

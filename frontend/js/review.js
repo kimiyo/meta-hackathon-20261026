@@ -3,6 +3,7 @@ import { $, esc, showError, showToast, stateKo, severityKo, issueStatusKo, verdi
 import { initColResizer, restoreColResizer } from "./resizer.js";
 import { mountManuscriptPanel } from "./manuscript.js";
 import { getWork } from "./work.js";
+import { go, novelPath } from "./router.js";
 
 const REVIEW_RESIZER = { resizerId: "review-resizer", varName: "--review-right-w",
   storageKey: "review-right-w", side: "right", min: 280, reserve: 420 };
@@ -71,17 +72,16 @@ function openResetConfirm() {
   if (s.changes) bits.push(`변경 ${s.changes}건`);
   if (s.events) bits.push(`사건 ${s.events}건`);
   if (s.aliases) bits.push(`별명 ${s.aliases}건`);
-  const open = issues.filter((i) => i.status === "open").length;
   $("reset-confirm-msg").textContent = (bits.length
     ? `이번 화의 저장된 설정 기억(${bits.join("·")})과 추출 이력을 모두 삭제합니다.`
     : `임시 추출안을 삭제합니다.`)
-    + (open ? ` 열린 이슈 ${open}건도 함께 삭제됩니다.` : "")
+    + (issues.length ? ` 이슈 ${issues.length}건도 함께 삭제됩니다.` : "")
     + ` 되돌릴 수 없습니다.`;
   $("reset-confirm-backdrop").style.display = "";
 }
 
 function hasReviewData() {
-  return issues.some((i) => i.status === "open") || !!analysis;
+  return issues.length > 0 || !!analysis;
 }
 
 function updateConsistencyResetButton() {
@@ -91,12 +91,11 @@ function updateConsistencyResetButton() {
 }
 
 function openReviewResetConfirm() {
-  const open = issues.filter((i) => i.status === "open").length;
   const bits = [];
-  if (open) bits.push(`열린 이슈 ${open}건`);
+  if (issues.length) bits.push(`이슈 ${issues.length}건`);
   if (analysis) bits.push("분석 기록");
   $("consistency-reset-confirm-msg").textContent =
-    `이번 화의 ${bits.join("·")}를 삭제합니다. 처리된 이슈는 유지됩니다. 되돌릴 수 없습니다.`;
+    `이번 화의 ${bits.join("·")}를 삭제합니다. 되돌릴 수 없습니다.`;
   $("consistency-reset-confirm-backdrop").style.display = "";
 }
 
@@ -152,6 +151,46 @@ function updateActionState() {
   for (const b of document.querySelectorAll("#issue-list button, #memory-pending button, #alias-list button")) {
     if (b.hasAttribute("data-jump")) continue; // 근거 이동은 읽기 전용에서도 허용
     b.disabled = !ok;
+  }
+  updateFixSelectedButton();
+}
+
+function selectedFixIds() {
+  return [...document.querySelectorAll("[data-issue-sel]:checked")]
+    .map((c) => Number(c.dataset.issueSel)).filter((n) => Number.isFinite(n));
+}
+
+function updateFixSelectedButton() {
+  const btn = $("btn-fix-selected");
+  if (!btn) return;
+  const n = selectedFixIds().length;
+  const label = "선택된 모순 AI 수정 및 집필로 이동";
+  btn.textContent = busy ? "수정 중…" : (n ? `${label} (${n}건)` : label);
+  btn.disabled = busy || !inReview() || n === 0;
+}
+
+function openFixConfirm() {
+  const n = selectedFixIds().length;
+  $("fix-confirm-msg").textContent =
+    `선택된 ${n}건을 AI가 수정합니다. 집필중으로 전환되고 '일관성 ${n}건 AI 수정' 새 버전이 저장되며, 선택 이슈는 수정 완료로 마감됩니다.`;
+  $("fix-confirm-backdrop").style.display = "";
+}
+
+async function doFixSelected() {
+  const ids = selectedFixIds();
+  if (!ids.length) return;
+  const btn = $("btn-fix-selected");
+  if (btn) btn.textContent = "수정 중…";
+  try {
+    const out = await api.manuscriptFix(currentEp(), ids, currentWorkKey());
+    showToast(`일관성 ${out.fixed_issue_ids?.length ?? ids.length}건 수정 완료, 집필로 이동합니다`);
+    const w = getWork();
+    const ep = currentEp();
+    go(novelPath(w.uid || w.id, "monitor"));
+    setTimeout(() => document.dispatchEvent(
+      new CustomEvent("writing-episode", { detail: { ep } })), 50);
+  } finally {
+    updateFixSelectedButton();
   }
 }
 
@@ -338,6 +377,7 @@ function renderIssues() {
     return `
     <div class="issue-card" data-issue="${it.issue_id}" data-status="${esc(it.status)}">
       <div class="issue-head">
+        ${it.status === "open" ? `<input type="checkbox" data-issue-sel="${it.issue_id}" title="AI 수정 대상으로 선택"${inReview() ? "" : " disabled"}>` : ""}
         <span class="sev-${esc(it.severity)}">${esc(severityKo(it.severity))}</span>
         <span class="title">${esc(it.title || "(제목 없음)")}</span>
         <span class="issue-status">${esc(issueStatusKo(it.status))}</span>
@@ -374,6 +414,10 @@ function renderIssues() {
       jumpToEvidence(btn.dataset.quote, rev);
     });
   });
+  box.querySelectorAll("[data-issue-sel]").forEach((c) => {
+    c.addEventListener("change", updateFixSelectedButton);
+  });
+  updateFixSelectedButton();
 }
 
 function displayValue(v) {
@@ -737,9 +781,12 @@ export function initReview() {
   });
   $("btn-back-to-writing").addEventListener("click", () =>
     run(async () => {
-      const reason = window.prompt("집필중으로 돌아가는 이유를 입력하세요 (집필 화면에 표시됩니다).", "") ?? "";
-      await api.backToWriting(currentEp(), reason, currentWorkKey());
-      await load(currentEp());
+      const ep = currentEp();
+      await api.backToWriting(ep, "", currentWorkKey());
+      const w = getWork();
+      go(novelPath(w.uid || w.id, "monitor"));
+      setTimeout(() => document.dispatchEvent(
+        new CustomEvent("writing-episode", { detail: { ep } })), 50);
     })
   );
   $("btn-request-publish").addEventListener("click", () =>
@@ -813,6 +860,17 @@ export function initReview() {
   $("btn-consistency-reset-confirm").addEventListener("click", () => {
     $("consistency-reset-confirm-backdrop").style.display = "none";
     run(doReviewReset);
+  });
+  $("btn-fix-selected").addEventListener("click", () => {
+    if (!selectedFixIds().length) return;
+    openFixConfirm();
+  });
+  $("btn-fix-cancel").addEventListener("click", () => {
+    $("fix-confirm-backdrop").style.display = "none";
+  });
+  $("btn-fix-confirm").addEventListener("click", () => {
+    $("fix-confirm-backdrop").style.display = "none";
+    run(doFixSelected);
   });
   $("btn-entity-save").addEventListener("click", () =>
     run(async () => {

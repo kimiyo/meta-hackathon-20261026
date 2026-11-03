@@ -10,6 +10,8 @@ const WRITING_RESIZER = { resizerId: "writing-resizer", varName: "--writing-left
 
 // 화면 3 · 집필: 이 화면 자체가 '집필중'이다. 원고 수정은 여기서만 한다.
 let rows = [];
+let writingChat = [];
+let writingChatEp = null;
 let designNodes = [];
 let detail = null;
 let selectedEp = null;
@@ -184,6 +186,8 @@ function mountPanel() {
     loadDocument: manuscriptLoader(detail.ep),
     readOnly,
     restoreState: msPanelEp === detail.ep ? msPanelUiState : null,
+    onQuoteToChat: insertLinePin,
+    onHint: setWritingChatHint,
   });
   msPanelEp = detail.ep;
   msPanelUiState = null;
@@ -225,15 +229,77 @@ function renderDetail() {
     ${d.hasJob ? `<div id="ms-mount"></div>` : `<span class="muted small">집필을 시작하면 AI 초안이 생성됩니다.</span>`}
     <div class="btn-row" style="margin-top:10px">
       ${d.hasJob && d.state === "WRITING" ? `<button class="btn primary" data-submit data-role="writing.episode.submit-btn">검토 요청</button>` : ""}
+      ${d.hasJob && d.state === "WRITING" ? `<button class="btn" data-redraft data-role="writing.episode.redraft-btn">AI로 다시 쓰기</button>` : ""}
       ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">작가 검토로 이동 →</button>` : ""}
     </div>
-    ${d.hasJob && d.state !== "WRITING" ? `<div class="small muted" style="margin-top:6px">※ 이 회차는 ${esc(stateKo(d.state))} 상태라 여기서 수정할 수 없습니다.</div>` : ""}`;
+    ${d.hasJob && d.state !== "WRITING" ? `<div class="small muted" style="margin-top:6px">※ 이 회차는 ${esc(stateKo(d.state))} 상태라 여기서 수정할 수 없습니다.</div>` : ""}
+    ${d.hasJob && d.state === "WRITING" ? `
+    <div class="card" data-role="writing.chat.panel" style="margin-top:10px">
+      <h3>AI 채팅 수정 <span class="hint">지시대로 고쳐 새 버전 저장</span></h3>
+      <div id="writing-chat-messages" data-role="writing.chat.messages" class="chat-box"></div>
+      <div id="writing-chat-hint" data-role="writing.chat.hint" class="small muted" style="margin-bottom:6px"></div>
+      <textarea id="writing-chat-input" data-role="writing.chat.input" placeholder="예: @L12 대사를 더 짧게 고쳐줘 (Enter 전송)"></textarea>
+      <div class="btn-row"><button class="btn primary sm" id="btn-writing-chat-send" data-role="writing.chat.send-btn">전송</button></div>
+    </div>` : ""}`;
   box.querySelector("[data-start]")?.addEventListener("click", (e) =>
     startCurrent(e.currentTarget));
   box.querySelector("[data-submit]")?.addEventListener("click", (e) =>
     submitCurrent(e.currentTarget));
+  box.querySelector("[data-redraft]")?.addEventListener("click", (e) =>
+    redraftCurrent(e.currentTarget));
   box.querySelector("[data-review]")?.addEventListener("click", () => goReview());
+  box.querySelector("#btn-writing-chat-send")?.addEventListener("click", sendWritingChat);
+  box.querySelector("#writing-chat-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendWritingChat();
+    }
+  });
   mountPanel();
+  renderWritingChat();
+}
+
+function renderWritingChat() {
+  const box = $("writing-chat-messages");
+  if (!box) return;
+  box.innerHTML = writingChat.length
+    ? writingChat.map((m) =>
+        `<div class="msg ${m.role === "user" ? "user" : "assistant"}"><div class="bubble">${esc(m.content)}</div></div>`
+      ).join("")
+    : `<span class="muted small">고칠 내용을 지시하세요. 원고에서 줄을 선택한 뒤 '선택한 줄을 채팅에 포함'을 누르면 줄 번호가 들어갑니다.</span>`;
+  box.scrollTop = box.scrollHeight;
+}
+
+function setWritingChatHint(text) {
+  const el = $("writing-chat-hint");
+  if (el) el.textContent = text ?? "";
+}
+
+function insertLinePin({ startLine, endLine }) {
+  const input = $("writing-chat-input");
+  if (!input) return;
+  const s = input.selectionStart ?? input.value.length;
+  const e = input.selectionEnd ?? input.value.length;
+  const pin = startLine === endLine ? `@L${startLine} ` : `@L${startLine}-${endLine} `;
+  input.value = input.value.slice(0, s) + pin + input.value.slice(e);
+  const pos = s + pin.length;
+  input.setSelectionRange(pos, pos);
+  setWritingChatHint("");
+  input.focus();
+}
+
+async function sendWritingChat() {
+  const input = $("writing-chat-input");
+  const text = input?.value.trim() ?? "";
+  if (!text || !detail?.hasJob) return;
+  const include = msPanel?.getIncludeDraft?.() ?? true;
+  input.value = "";
+  await withPanelSaved($("btn-writing-chat-send"), async () => {
+    const out = await api.writingChat(detail.ep, text, include, currentWorkKey());
+    writingChat.push({ role: "user", content: text });
+    writingChat.push({ role: "assistant",
+      content: `새 버전으로 저장했습니다 (v${out.revision.version} · AI 채팅 수정)` });
+  });
 }
 
 // ---- 접기 ----
@@ -261,6 +327,10 @@ async function load(did) {
 async function fetchDetail(ep) {
   if (!(await disposePanelOrAbort())) return;
   selectedEp = Number(ep);
+  if (writingChatEp !== selectedEp) {
+    writingChat = [];
+    writingChatEp = selectedEp;
+  }
   renderRows();
   const row = rows.find((r) => r.episode_no === selectedEp);
   const hasJob = !!row?.job;
@@ -309,6 +379,12 @@ async function startCurrent(btn) {
 async function submitCurrent(btn) {
   await withPanelSaved(btn, async () => {
     await api.submitReview(detail.ep, currentWorkKey());
+  });
+}
+
+async function redraftCurrent(btn) {
+  await withPanelSaved(btn, async () => {
+    await api.redraft(detail.ep, currentWorkKey());
   });
 }
 
@@ -394,6 +470,17 @@ export function initMonitor() {
       await fetchDetail(Number(ep));
       document.querySelector(`#ep-rows tr[data-ep="${Number(ep)}"]`)
         ?.scrollIntoView({ block: "nearest" });
+    });
+  });
+  document.addEventListener("writing-episode", (e) => {
+    const ep = Number(e.detail?.ep);
+    if (!Number.isFinite(ep)) return;
+    run(async () => {
+      if (!rows.some((r) => r.episode_no === ep)) {
+        const did = currentDesignId();
+        if (did) await load(did);
+      }
+      await fetchDetail(ep);
     });
   });
   document.addEventListener("enter-screen", (e) => {

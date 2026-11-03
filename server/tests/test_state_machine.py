@@ -55,6 +55,84 @@ def test_failed_start_sets_attention(conn):
     assert "manuscript_invalid" in job["last_error"]
 
 
+def test_redraft_regenerates_manuscript(conn):
+    _started(conn)
+    out = state_machine.redraft_episode(conn, FakeMeta(["나" * 5000]), 1, 1)
+    assert out["state"] == "WRITING"
+    assert out["revision"]["version"] == 2
+    row = conn.execute("SELECT label FROM manuscript_revisions"
+                       " WHERE work_id=1 AND episode_no=1 AND version=2"
+                       ).fetchone()
+    assert row["label"] == "AI 재생성"
+    job = state_machine.get_job(conn, 1, 1)
+    assert job["manuscript_revision_id"] == out["revision"]["revision_id"]
+    doc = conn.execute("SELECT draft_content FROM manuscript_docs"
+                       " WHERE work_id=1 AND episode_no=1").fetchone()
+    assert doc["draft_content"] == "나" * 5000
+
+
+def test_redraft_keeps_unsaved_draft(conn):
+    _started(conn)
+    conn.execute("UPDATE manuscript_docs SET draft_content='사용자 초안'"
+                 " WHERE work_id=1 AND episode_no=1")
+    conn.commit()
+    state_machine.redraft_episode(conn, FakeMeta(["나" * 5000]), 1, 1)
+    labels = [r["label"] for r in conn.execute(
+        "SELECT label FROM manuscript_revisions"
+        " WHERE work_id=1 AND episode_no=1 ORDER BY version")]
+    assert labels == ["AI 초안", "AI 재생성 전 초안", "AI 재생성"]
+
+
+def test_redraft_rejected_unless_writing(conn):
+    with pytest.raises(KeyError):
+        state_machine.redraft_episode(conn, FakeMeta(["나" * 5000]), 1, 1)
+    _started(conn)
+    state_machine.submit_for_review(conn, 1, 1)
+    with pytest.raises(ValueError, match="WRITING"):
+        state_machine.redraft_episode(conn, FakeMeta(["나" * 5000]), 1, 1)
+
+
+def test_chat_revise_saves_new_version(conn):
+    _started(conn)
+    out = state_machine.chat_revise(conn, FakeMeta(["고친 원고"]), 1, 1,
+                                    message="첫 문장을 고쳐줘")
+    assert out["state"] == "WRITING"
+    assert out["revision"]["version"] == 2
+    row = conn.execute("SELECT text, label FROM manuscript_revisions"
+                       " WHERE work_id=1 AND episode_no=1 AND version=2"
+                       ).fetchone()
+    assert (row["text"], row["label"]) == ("고친 원고", "AI 채팅 수정")
+    job = state_machine.get_job(conn, 1, 1)
+    assert job["manuscript_revision_id"] == out["revision"]["revision_id"]
+    doc = conn.execute("SELECT draft_content FROM manuscript_docs"
+                       " WHERE work_id=1 AND episode_no=1").fetchone()
+    assert doc["draft_content"] == "고친 원고"
+
+
+def test_chat_revise_keeps_unsaved_draft(conn):
+    _started(conn)
+    conn.execute("UPDATE manuscript_docs SET draft_content='사용자 초안'"
+                 " WHERE work_id=1 AND episode_no=1")
+    conn.commit()
+    state_machine.chat_revise(conn, FakeMeta(["고친 원고"]), 1, 1,
+                              message="고쳐줘")
+    labels = [r["label"] for r in conn.execute(
+        "SELECT label FROM manuscript_revisions"
+        " WHERE work_id=1 AND episode_no=1 ORDER BY version")]
+    assert labels == ["AI 초안", "채팅 수정 전 초안", "AI 채팅 수정"]
+
+
+def test_chat_revise_guards(conn):
+    with pytest.raises(KeyError):
+        state_machine.chat_revise(conn, FakeMeta(["x"]), 1, 1, message="m")
+    _started(conn)
+    with pytest.raises(ValueError, match="지시"):
+        state_machine.chat_revise(conn, FakeMeta(["x"]), 1, 1, message="  ")
+    state_machine.submit_for_review(conn, 1, 1)
+    with pytest.raises(ValueError, match="WRITING"):
+        state_machine.chat_revise(conn, FakeMeta(["x"]), 1, 1, message="m")
+
+
 def test_submit_and_back(conn):
     _started(conn)
     out = state_machine.submit_for_review(conn, 1, 1)

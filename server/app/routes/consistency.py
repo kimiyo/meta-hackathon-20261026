@@ -44,13 +44,38 @@ def analyze(episode_no: int, work: str,
 def reset_review(episode_no: int, work: str,
                  conn: sqlite3.Connection = Depends(get_conn),
                  author: dict = Depends(get_current_author)):
-    """일관성 점검 초기화: 열린 이슈와 분석 기록을 지운다(기억은 유지)."""
+    """일관성 점검 초기화: 이슈 전체와 분석 기록을 지운다(기억은 유지)."""
     job = _owned_job(conn, work, episode_no, author["id"])
     if job["state"] != "IN_REVIEW":
         raise HTTPException(400, "일관성 점검 초기화는 검토중 상태에서만 가능합니다")
     return {"episode_no": episode_no,
             **consistency.reset_episode_review(conn, episode_no,
                                                job["work_id"])}
+
+
+class FixIn(BaseModel):
+    issue_ids: list[int] = []
+
+
+@router.post("/episodes/{episode_no}/manuscript-fix")
+def manuscript_fix(episode_no: int, body: FixIn, work: str,
+                   conn: sqlite3.Connection = Depends(get_conn),
+                   meta=Depends(get_meta),
+                   author: dict = Depends(get_current_author)):
+    """선택된 열린 이슈를 AI가 고친 새 원고 버전으로 저장하고 집필중으로 되돌린다."""
+    job = _owned_job(conn, work, episode_no, author["id"])
+    if job["state"] != "IN_REVIEW":
+        raise HTTPException(400, "원고 수정은 검토중 상태에서만 가능합니다")
+    try:
+        return consistency.fix_manuscript_issues(
+            meta, conn, episode_no=episode_no, work_id=job["work_id"],
+            issue_ids=body.issue_ids)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except LLMStepError as e:
+        raise HTTPException(502, f"{e.reason}: {e.detail}")
 
 
 class ChatIn(BaseModel):

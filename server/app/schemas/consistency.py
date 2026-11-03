@@ -25,3 +25,7 @@ class ConsistencyOutput(BaseModel):
 class ConsistencyChatOutput(BaseModel):
     reply: str = ""
     issues: list[IssueItem] = Field(default_factory=list)
+
+
+class ManuscriptFixOutput(BaseModel):
+    manuscript: str = ""

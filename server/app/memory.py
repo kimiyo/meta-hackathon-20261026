@@ -926,10 +926,9 @@ def reset_episode_memory(conn, episode_no: int, work_id: int) -> dict:
                            " WHERE episode_no=? AND work_id=?",
                            (episode_no, work_id))
         counts["analyses"] = cur.rowcount
-        # 판단 근거인 기억이 사라지므로 열린 이슈도 함께 지운다.
-        # 처리된 이슈는 작가의 결정 이력이라 둔다.
+        # 판단 근거인 기억이 사라지므로 이슈도 함께 지운다.
         cur = conn.execute("DELETE FROM consistency_issues"
-                           " WHERE episode_no=? AND work_id=? AND status='open'",
+                           " WHERE episode_no=? AND work_id=?",
                            (episode_no, work_id))
         counts["issues"] = cur.rowcount
         for eid in sorted(ref_ids):

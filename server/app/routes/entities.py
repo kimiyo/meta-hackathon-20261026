@@ -315,7 +315,7 @@ def reset_entities(episode_no: int, work: str,
                    author: dict = Depends(get_current_author)):
     """이번 화의 설정 기억을 모두 지운다(설정 초기화).
 
-    확정 변경·사건·임시안·이 화 출처의 별명(확정·기각·후보)·열린 이슈를
+    확정 변경·사건·임시안·이 화 출처의 별명(확정·기각·후보)·이슈를
     지우고, 참조가 끊긴 설정은 함께 정리한다.
     """
     job = _job_or_404(conn, work, episode_no, author["id"])

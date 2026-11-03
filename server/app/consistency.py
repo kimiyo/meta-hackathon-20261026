@@ -12,14 +12,16 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from pathlib import Path
 
-from . import checks, citation, memory
+from . import checks, citation, manuscripts, memory, state_machine
 from .db import now_iso
 from .errors import LLMStepError
 from .schemas import consistency as sch
 
 PROMPT = (Path(__file__).parent / "prompts" / "consistency.txt").read_text(encoding="utf-8")
+FIX_PROMPT = (Path(__file__).parent / "prompts" / "manuscript_fix.txt").read_text(encoding="utf-8")
 PROMPT_VERSION = "consistency-v2"
 
 SEVERITIES = ("critical", "major", "minor")
@@ -350,12 +352,9 @@ def latest_analysis(conn, episode_no: int,
 
 def reset_episode_review(conn: sqlite3.Connection, episode_no: int,
                          work_id: int) -> dict:
-    """일관성 점검 초기화: 열린 이슈와 분석 기록을 지운다.
-
-    처리된 이슈(fixed·accepted·dismissed)는 작가의 결정 이력이라 둔다.
-    """
+    """일관성 점검 초기화: 이슈 전체와 분석 기록을 지운다."""
     cur = conn.execute("DELETE FROM consistency_issues"
-                       " WHERE episode_no=? AND work_id=? AND status='open'",
+                       " WHERE episode_no=? AND work_id=?",
                        (episode_no, work_id))
     issues = cur.rowcount
     cur = conn.execute("DELETE FROM consistency_analyses"
@@ -364,6 +363,93 @@ def reset_episode_review(conn: sqlite3.Connection, episode_no: int,
     analyses = cur.rowcount
     conn.commit()
     return {"issues": issues, "analyses": analyses}
+
+
+def _line_span(text: str, start: int | None, end: int | None) -> str:
+    if start is None:
+        return ""
+    first = text.count("\n", 0, start) + 1
+    last = text.count("\n", 0, end) + 1 if end is not None else first
+    return f"{first}행" if first == last else f"{first}~{last}행"
+
+
+def fix_manuscript_issues(meta, conn: sqlite3.Connection, *, episode_no: int,
+                          work_id: int, issue_ids: list[int],
+                          max_tokens: int = 16000) -> dict:
+    """선택된 열린 이슈를 AI가 고친 새 원고 버전으로 저장한다.
+
+    AI 호출에 먼저 성공해야 상태 전환·버전 저장·마감을 하므로, AI가
+    실패하면 아무것도 바뀌지 않고 그대로 재시도할 수 있다.
+    """
+    job = state_machine.get_job(conn, work_id, episode_no)
+    if not job:
+        raise KeyError(f"episode {episode_no} has no job")
+    if job["state"] != "IN_REVIEW":
+        raise ValueError("원고 수정은 검토중 상태에서만 가능합니다")
+    ids = [int(i) for i in (issue_ids or [])]
+    if not ids:
+        raise ValueError("선택된 이슈가 없습니다")
+    rows = {r["issue_id"]: dict(r) for r in conn.execute(
+        f"SELECT * FROM consistency_issues WHERE work_id=? AND episode_no=?"
+        f" AND issue_id IN ({','.join('?' for _ in ids)})",
+        (work_id, episode_no, *ids))}
+    missing = [i for i in ids if i not in rows]
+    if missing:
+        raise KeyError(f"issue {missing[0]} not found")
+    targets = [rows[i] for i in ids if rows[i]["status"] == "open"]
+    if not targets:
+        raise ValueError("선택된 열린 이슈가 없습니다")
+    current_rev = job["manuscript_revision_id"]
+    manuscript = _current_manuscript(conn, episode_no, current_rev, work_id)
+    if not manuscript.strip():
+        raise ValueError("no manuscript to fix")
+    for t in targets:
+        rid = t["manuscript_revision_id"]
+        if rid is not None and rid != current_rev:
+            raise ValueError("원고가 바뀌어 재분석이 필요합니다")
+    items = [{
+        "title": t["title"], "detail": t["detail"],
+        "verdict": t["verdict"], "quote": t["manuscript_quote"],
+        "lines": _line_span(manuscript, t["manuscript_start"],
+                            t["manuscript_end"]),
+        "evidence_episode": t["evidence_episode"],
+        "evidence_quote": t["evidence_quote"],
+        "entity_id": t["entity_id"],
+    } for t in targets]
+    out = meta.chat_json(
+        bundle="manuscript-fix", episode=episode_no, system=FIX_PROMPT,
+        work_id=work_id,
+        user="현재 원고와 고칠 모순 목록이다. 스켈레톤: "
+             '{"manuscript": str}\n'
+             + json.dumps({"episode_no": episode_no, "manuscript": manuscript,
+                           "issues": items}, ensure_ascii=False),
+        schema=sch.ManuscriptFixOutput, max_tokens=max_tokens)
+    revised = out.get("manuscript") or ""
+    if not revised.strip():
+        raise LLMStepError("manuscript-fix", episode_no, "empty",
+                           "AI가 빈 원고를 반환했습니다")
+    if not len(manuscript) * 0.3 <= len(revised) <= len(manuscript) * 3:
+        raise LLMStepError("manuscript-fix", episode_no, "truncated",
+                           "AI 수정본 길이가 비정상적입니다")
+    label = f"일관성 {len(targets)}건 AI 수정"
+    reason = label + ": " + ", ".join(t["title"] for t in targets)
+    state_machine.back_to_writing(conn, work_id, episode_no, reason)
+    job = state_machine.get_job(conn, work_id, episode_no)
+    row = conn.execute(
+        "SELECT title FROM episode_outlines WHERE design_id=? AND episode_no=?",
+        (job["design_id"], episode_no)).fetchone()
+    doc_row = manuscripts.ensure_doc_row(conn, work_id, episode_no)
+    manuscripts.create_version(
+        conn, work_id, episode_no, job, row["title"] if row else "",
+        doc_row["revision"], f"fix-{episode_no}-{uuid.uuid4().hex}",
+        revised, label)
+    fixed = []
+    for t in targets:
+        set_issue_status(conn, t["issue_id"], "fixed")
+        fixed.append(t["issue_id"])
+    return {"episode_no": episode_no, "fixed_issue_ids": fixed,
+            "version_label": label,
+            "manuscript_revision_id": job["manuscript_revision_id"]}
 
 
 def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
