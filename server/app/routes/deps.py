@@ -86,11 +86,12 @@ def require_design_message(conn: sqlite3.Connection, message_id: int,
     return dict(m)
 
 
-def require_episode_job(conn: sqlite3.Connection, episode_no: int,
-                        author_id: int):
-    """The episode's job if owned; a foreign job reads as missing (404)."""
+def require_episode_job(conn: sqlite3.Connection, work_id: int,
+                        episode_no: int, author_id: int):
+    """This work's episode job if owned; a foreign job reads as missing."""
     from .. import state_machine
-    job = state_machine.get_job(conn, episode_no)
-    if job:
+    require_work(conn, work_id, author_id)
+    job = state_machine.get_job(conn, work_id, episode_no)
+    if job and job["design_id"]:
         require_design(conn, job["design_id"], author_id)
     return job

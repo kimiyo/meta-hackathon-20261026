@@ -1,6 +1,7 @@
 import { api } from "./api.js";
-import { $, esc, showError } from "./util.js";
+import { $, esc, showError, kindKo } from "./util.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
+import { getWork } from "./work.js";
 
 const ENTITIES_RESIZER = { resizerId: "entities-resizer", varName: "--entities-left-w",
   storageKey: "entities-left-w", side: "left", min: 260, reserve: 320 };
@@ -9,10 +10,15 @@ const ENTITIES_RESIZER = { resizerId: "entities-resizer", varName: "--entities-l
 let list = [];
 let sel = null;
 
+function currentWorkId() {
+  const w = getWork();
+  return w?.id ?? null;
+}
+
 async function search(query) {
   showError("entities-error", "");
   try {
-    const r = await api.entities(query);
+    const r = await api.entities(query, currentWorkId());
     list = r.entities ?? [];
     renderList();
   } catch (e) {
@@ -69,12 +75,27 @@ function renderHistory(history) {
   box.innerHTML = history
     .map(
       (h) => `<div class="tl-item">
-        <div class="ep">EP ${esc(h.episode_no)}${h.story_time ? ` · <span class="chip">${esc(h.story_time)}</span>` : ""} · ${esc(h.operation)} ${esc(h.attribute_path ?? "")}</div>
+        <div class="ep">EP ${esc(h.episode_no)}${h.story_time ? ` · <span class="chip">${esc(h.story_time)}</span>` : ""} · <span class="chip">${esc(kindKo(h.kind))}</span> ${esc(h.operation)} ${esc(h.attribute_path ?? "")}</div>
         <div class="what">${esc(h.old_value ?? "")} → ${esc(h.new_value ?? "")}</div>
         ${h.evidence_quote ? `<div class="q">"${esc(h.evidence_quote)}"</div>` : ""}
       </div>`
     )
     .join("");
+}
+
+function renderRelations(relations, selfId) {
+  const card = $("ent-history-card");
+  if (!relations.length) return;
+  const box = $("ent-history");
+  const relHtml = relations.map((r) => {
+    const outgoing = r.subject_id === selfId;
+    const other = outgoing ? r.object_id : r.subject_id;
+    const span = `EP ${esc(r.valid_from_episode)}${r.valid_to_episode ? `~${esc(r.valid_to_episode - 1)}` : "~"}`;
+    return `<div class="tl-item"><div class="ep">${outgoing ? "→" : "←"} ${esc(other)} · ${esc(r.predicate)} · ${span}</div></div>`;
+  }).join("");
+  box.innerHTML = `<div class="small" style="margin-bottom:6px"><b>관계</b></div>${relHtml}
+    <div class="small" style="margin:6px 0"><b>속성 이력</b></div>` + box.innerHTML;
+  card.style.display = "";
 }
 
 async function open(id, asOf) {
@@ -83,12 +104,14 @@ async function open(id, asOf) {
   renderList();
   showError("entities-error", "");
   try {
-    const [state, hist] = await Promise.all([
+    const [state, hist, rels] = await Promise.all([
       api.entityState(id, ep),
       api.entityHistory(id),
+      api.entityRelations(id),
     ]);
     renderState(id, ep, state);
     renderHistory(hist.history ?? []);
+    renderRelations(rels.relations ?? [], id);
   } catch (e) {
     showError("entities-error", String(e));
   }

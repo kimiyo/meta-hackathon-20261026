@@ -561,7 +561,8 @@ def test_start_marks_writing_stage(client, fakes):
                  "logline": "목표1"})
     app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 5000])
     try:
-        r = c.post("/api/v1/episodes/1/start", json={"design_id": did})
+        r = c.post(f"/api/v1/episodes/1/start?work={w['uid']}",
+                 json={"design_id": did})
         assert r.json()["state"] == "WRITING", r.text
     finally:
         del app.dependency_overrides[get_meta]

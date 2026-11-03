@@ -18,7 +18,7 @@ COHERENCE_MIN = 0.6
 
 
 def run_quality(meta, conn: sqlite3.Connection, *, episode_no: int,
-                revision_id: int, manuscript: str, outline: dict, work_id: int | None = None,
+                revision_id: int, manuscript: str, outline: dict, work_id: int,
                 max_tokens: int = 8000) -> dict:
     out = meta.chat_json(
         bundle="quality", episode=episode_no, system=PROMPT, work_id=work_id,
@@ -45,7 +45,7 @@ def run_quality(meta, conn: sqlite3.Connection, *, episode_no: int,
         applied += 1
     new_revision = None
     if applied:
-        new_revision = drafting.save_revision(conn, episode_no, text,
+        new_revision = drafting.save_revision(conn, work_id, episode_no, text,
                                              label="AI 교정")
     gate_pass = scores.get("coherence", 0) >= COHERENCE_MIN
     return {"scores": scores, "issues": issues, "edits_applied": applied,

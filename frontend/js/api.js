@@ -10,6 +10,15 @@ export function setToken(t) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+function mustWorkKey(workKey) {
+  if (!workKey) throw new Error("작품이 선택되지 않았습니다.");
+  return workKey;
+}
+
+function epQuery(workKey) {
+  return new URLSearchParams({ work: mustWorkKey(workKey) }).toString();
+}
+
 async function req(path, options = {}) {
   const headers = { "Content-Type": "application/json" };
   const token = getToken();
@@ -110,66 +119,86 @@ export const api = {
     }),
   designEpisodes: (designId) => req(`/designs/${designId}/episodes`),
   publishingEpisodes: (designId) => req(`/designs/${designId}/publishing`),
-  episode: (no) => req(`/episodes/${no}`),
-  startEpisode: (no, designId) =>
-    req(`/episodes/${no}/start`, {
+  // Episode identity is (work, episode_no): every /episodes/ call carries ?work=.
+  episode: (no, workKey) => req(`/episodes/${no}?${epQuery(workKey)}`),
+  startEpisode: (no, designId, workKey) =>
+    req(`/episodes/${no}/start?${epQuery(workKey)}`, {
       method: "POST",
       body: JSON.stringify({ design_id: designId }),
     }),
-  submitReview: (no) =>
-    req(`/episodes/${no}/submit-review`, { method: "POST" }),
-  backToWriting: (no, reason) =>
-    req(`/episodes/${no}/back-to-writing`, {
+  submitReview: (no, workKey) =>
+    req(`/episodes/${no}/submit-review?${epQuery(workKey)}`, { method: "POST" }),
+  backToWriting: (no, reason, workKey) =>
+    req(`/episodes/${no}/back-to-writing?${epQuery(workKey)}`, {
       method: "POST",
       body: JSON.stringify({ reason: reason ?? "" }),
     }),
-  requestPublish: (no) =>
-    req(`/episodes/${no}/request-publish`, { method: "POST" }),
-  manuscript: (no, version) =>
-    req(`/episodes/${no}/manuscript${version ? `?version=${version}` : ""}`),
-  consistencyAnalyze: (no) =>
-    req(`/episodes/${no}/consistency/analyze`, { method: "POST" }),
-  consistencyMessages: (no) =>
-    req(`/episodes/${no}/consistency/messages`),
-  consistencyChat: (no, message) =>
-    req(`/episodes/${no}/consistency/chat`, {
+  requestPublish: (no, workKey) =>
+    req(`/episodes/${no}/request-publish?${epQuery(workKey)}`, { method: "POST" }),
+  manuscript: (no, version, workKey) => {
+    const p = new URLSearchParams({ work: mustWorkKey(workKey) });
+    if (version) p.set("version", version);
+    return req(`/episodes/${no}/manuscript?${p.toString()}`);
+  },
+  consistencyAnalyze: (no, workKey) =>
+    req(`/episodes/${no}/consistency/analyze?${epQuery(workKey)}`, { method: "POST" }),
+  consistencyMessages: (no, workKey) =>
+    req(`/episodes/${no}/consistency/messages?${epQuery(workKey)}`),
+  consistencyChat: (no, message, workKey) =>
+    req(`/episodes/${no}/consistency/chat?${epQuery(workKey)}`, {
       method: "POST",
       body: JSON.stringify({ message }),
     }),
-  consistencyIssues: (no, status) =>
-    req(`/episodes/${no}/consistency/issues${status ? `?status=${status}` : ""}`),
+  consistencyIssues: (no, status, workKey) => {
+    const p = new URLSearchParams({ work: mustWorkKey(workKey) });
+    if (status) p.set("status", status);
+    return req(`/episodes/${no}/consistency/issues?${p.toString()}`);
+  },
   setIssueStatus: (id, status) =>
     req(`/consistency/issues/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
     }),
-  saveEntities: (no) =>
-    req(`/episodes/${no}/entities/save`, { method: "POST" }),
-  manuscriptDoc: (no) => req(`/episodes/${no}/manuscript-doc`),
-  saveManuscriptDraft: (no, body) =>
-    reqEx(`/episodes/${no}/manuscript-draft`, {
+  saveEntities: (no, workKey) =>
+    req(`/episodes/${no}/entities/save?${epQuery(workKey)}`, { method: "POST" }),
+  manuscriptDoc: (no, workKey) => req(`/episodes/${no}/manuscript-doc?${epQuery(workKey)}`),
+  saveManuscriptDraft: (no, body, workKey) =>
+    reqEx(`/episodes/${no}/manuscript-draft?${epQuery(workKey)}`, {
       method: "PATCH", body: JSON.stringify(body), timeoutMs: 15000,
     }),
-  createManuscriptVersion: (no, body) =>
-    reqEx(`/episodes/${no}/manuscript-versions`, {
+  createManuscriptVersion: (no, body, workKey) =>
+    reqEx(`/episodes/${no}/manuscript-versions?${epQuery(workKey)}`, {
       method: "POST", body: JSON.stringify(body), timeoutMs: 15000,
     }),
-  restoreManuscriptVersion: (no, body) =>
-    reqEx(`/episodes/${no}/manuscript-restore`, {
+  restoreManuscriptVersion: (no, body, workKey) =>
+    reqEx(`/episodes/${no}/manuscript-restore?${epQuery(workKey)}`, {
       method: "POST", body: JSON.stringify(body), timeoutMs: 15000,
     }),
-  entities: (q) => req(`/entities${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  entities: (q, workId) => {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    if (workId) p.set("work_id", workId);
+    const s = p.toString();
+    return req(`/entities${s ? `?${s}` : ""}`);
+  },
   entityState: (id, ep) => req(`/entities/${id}/state?as_of_episode=${ep}`),
   entityHistory: (id) => req(`/entities/${id}/history`),
-  extractEntities: (no, instruction) =>
-    req(`/episodes/${no}/entities/extract`, {
+  entityRelations: (id) => req(`/entities/${id}/relations`),
+  aliases: (workKey) => req(`/works/${workKey}/aliases`),
+  resolveAlias: (id, body) =>
+    req(`/aliases/${id}/resolve`, { method: "POST", body: JSON.stringify(body) }),
+  rejectAlias: (id, body) =>
+    req(`/aliases/${id}/reject`, { method: "POST", body: JSON.stringify(body ?? {}) }),
+  latestAnalysis: (no, workKey) => req(`/episodes/${no}/consistency/analyses/latest?${epQuery(workKey)}`),
+  extractEntities: (no, instruction, workKey) =>
+    req(`/episodes/${no}/entities/extract?${epQuery(workKey)}`, {
       method: "POST",
       ...(instruction ? { body: JSON.stringify({ instruction }) } : {}),
     }),
-  entityProposals: (no) => req(`/episodes/${no}/entity-proposals`),
+  entityProposals: (no, workKey) => req(`/episodes/${no}/entity-proposals?${epQuery(workKey)}`),
   deleteEntityItem: (id) => req(`/entity-items/${id}`, { method: "DELETE" }),
-  deleteEntityEvent: (no, index) =>
-    req(`/episodes/${no}/entity-events/${index}`, { method: "DELETE" }),
+  deleteEntityEvent: (no, index, workKey) =>
+    req(`/episodes/${no}/entity-events/${index}?${epQuery(workKey)}`, { method: "DELETE" }),
   llmCalls: () => req("/ops/llm-calls?limit=20"),
   opsBudget: () => req("/ops/budget"),
   model: () => req("/ops/model"),

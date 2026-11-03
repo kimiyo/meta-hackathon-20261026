@@ -111,9 +111,10 @@ def budget(conn: sqlite3.Connection = Depends(get_conn)):
 _RESET_TABLES = (
     "event_participants", "entity_mentions", "entity_changes", "events",
     "entity_relations", "entity_snapshots", "entity_aliases",
-    "change_proposal_items", "change_proposals", "manuscript_revisions",
+    "change_proposal_items", "change_proposals", "narrative_units",
+    "memory_versions", "consistency_issues", "consistency_analyses",
+    "manuscript_revisions",
     "episode_jobs", "episode_outlines", "story_designs", "works",
-    "draft_requests",
     "llm_calls", "style_policies",
 )
 

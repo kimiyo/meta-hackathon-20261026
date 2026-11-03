@@ -153,18 +153,24 @@ function designEp(ep) {
 
 // ---- 중앙 원고 패널 (공유 원고 모듈) ----
 
+function currentWorkKey() {
+  const w = getWork();
+  return w?.uid || w?.id || null;
+}
+
 function manuscriptPersist(ep) {
   return async (request) => {
     const { operation, ...body } = request;
-    if (operation === "draft") return (await api.saveManuscriptDraft(ep, body)).document;
-    if (operation === "version") return (await api.createManuscriptVersion(ep, body)).document;
-    if (operation === "restore") return (await api.restoreManuscriptVersion(ep, body)).document;
+    const wk = currentWorkKey();
+    if (operation === "draft") return (await api.saveManuscriptDraft(ep, body, wk)).document;
+    if (operation === "version") return (await api.createManuscriptVersion(ep, body, wk)).document;
+    if (operation === "restore") return (await api.restoreManuscriptVersion(ep, body, wk)).document;
     throw new Error("지원하지 않는 저장 동작입니다.");
   };
 }
 
 function manuscriptLoader(ep) {
-  return async () => (await api.manuscriptDoc(ep)).document;
+  return async () => (await api.manuscriptDoc(ep, currentWorkKey())).document;
 }
 
 function mountPanel() {
@@ -259,9 +265,10 @@ async function fetchDetail(ep) {
   const row = rows.find((r) => r.episode_no === selectedEp);
   const hasJob = !!row?.job;
   if (hasJob) {
+    const wk = currentWorkKey();
     detail = { ep: selectedEp, hasJob: true, title: row.title,
-      ...(await api.episode(selectedEp)) };
-    msDoc = (await api.manuscriptDoc(selectedEp)).document;
+      ...(await api.episode(selectedEp, wk)) };
+    msDoc = (await api.manuscriptDoc(selectedEp, wk)).document;
   } else {
     detail = { ep: selectedEp, hasJob: false, title: row?.title ?? "" };
     msDoc = null;
@@ -295,20 +302,20 @@ async function withPanelSaved(btn, fn) {
 
 async function startCurrent(btn) {
   await withPanelSaved(btn, async () => {
-    await api.startEpisode(detail.ep, Number(currentDesignId()));
+    await api.startEpisode(detail.ep, Number(currentDesignId()), currentWorkKey());
   });
 }
 
 async function submitCurrent(btn) {
   await withPanelSaved(btn, async () => {
-    await api.submitReview(detail.ep);
+    await api.submitReview(detail.ep, currentWorkKey());
   });
 }
 
 async function rowAction(ep, row) {
   if (!row?.job) {
     await run(async () => {
-      await api.startEpisode(ep, Number(currentDesignId()));
+      await api.startEpisode(ep, Number(currentDesignId()), currentWorkKey());
       await load(currentDesignId());
       await fetchDetail(ep);
       await refreshBudgetChips();
@@ -317,7 +324,7 @@ async function rowAction(ep, row) {
   }
   if (row.job.state === "WRITING") {
     await run(async () => {
-      await api.submitReview(ep);
+      await api.submitReview(ep, currentWorkKey());
       await load(currentDesignId());
       await fetchDetail(ep);
       await refreshBudgetChips();

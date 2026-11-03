@@ -317,6 +317,7 @@
     <div>
       <div class="card" data-role="review.issues.panel">
         <h3>일관성 오류 목록 <span class="hint" id="issue-count"></span></h3>
+        <div id="analysis-status" data-role="review.issues.analysis-status" style="margin-bottom:8px"><span class="muted small">분석 전입니다.</span></div>
         <div id="issue-list" data-role="review.issues.list"><span class="muted small">회차를 불러오세요.</span></div>
       </div>
       <div class="card" data-role="review.memory.panel">
@@ -326,6 +327,8 @@
           <button class="btn sm primary" id="btn-entity-save" data-role="review.memory.save-btn">Entity 저장</button>
         </div>
         <div id="memory-pending" data-role="review.memory.pending" style="margin-top:10px"><span class="muted small">회차를 불러오세요.</span></div>
+        <h3 style="margin-top:12px">별명·표기 후보 <span class="hint">작가 확정</span></h3>
+        <div id="alias-list" data-role="review.memory.aliases"><span class="muted small">회차를 불러오세요.</span></div>
         <label class="f">수정 요청</label>
         <textarea id="entity-chat-input" data-role="review.memory.chat-input" placeholder="예: 서도윤의 직업을 보험설계사로 고쳐줘"></textarea>
         <div class="btn-row">

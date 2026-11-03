@@ -1,4 +1,8 @@
-"""Episode execution routes: start → review → publish."""
+"""Episode execution routes: start → review → publish.
+
+Episode identity is (work, episode_no): every /episodes/ route takes the
+work as a ?work= query (uid or id).
+"""
 from __future__ import annotations
 
 import sqlite3
@@ -10,7 +14,7 @@ from .. import consistency, manuscripts, state_machine
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from .deps import (get_conn, get_current_author, require_design,
-                   require_episode_job)
+                   require_episode_job, require_work)
 from .works import get_meta
 
 router = APIRouter(prefix="/api/v1", tags=["episodes"])
@@ -20,12 +24,13 @@ class StartIn(BaseModel):
     design_id: int
 
 
+def _work_id(conn, work: str, author_id: int) -> int:
+    return require_work(conn, work, author_id)["id"]
+
+
 def _mark_writing(conn: sqlite3.Connection, episode_no: int,
                   design_id: int | None) -> None:
     """Flag the owning work as past design once writing starts."""
-    if design_id is None:
-        job = state_machine.get_job(conn, episode_no)
-        design_id = job.get("design_id") if job else None
     if design_id is None:
         return
     row = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
@@ -35,25 +40,29 @@ def _mark_writing(conn: sqlite3.Connection, episode_no: int,
         conn.commit()
 
 
-def _owned_job(conn, episode_no, author_id):
-    job = require_episode_job(conn, episode_no, author_id)
+def _owned_job(conn, work: str, episode_no, author_id):
+    wid = _work_id(conn, work, author_id)
+    job = require_episode_job(conn, wid, episode_no, author_id)
     if not job:
         raise HTTPException(404, f"episode {episode_no} has no job yet")
     return job
 
 
 @router.post("/episodes/{episode_no}/start")
-def start_episode(episode_no: int, body: StartIn,
+def start_episode(episode_no: int, body: StartIn, work: str,
                   conn: sqlite3.Connection = Depends(get_conn),
                   meta=Depends(get_meta),
                   author: dict = Depends(get_current_author)):
-    require_design(conn, body.design_id, author["id"])
-    job = state_machine.get_job(conn, episode_no)
+    wid = _work_id(conn, work, author["id"])
+    design = require_design(conn, body.design_id, author["id"])
+    if design["work_id"] != wid:
+        raise HTTPException(400, f"design {body.design_id} is not in this work")
+    job = state_machine.get_job(conn, wid, episode_no)
     if job is not None:
         raise HTTPException(409, f"episode {episode_no} is already being"
                                  f" written in design {job['design_id']}")
     try:
-        out = state_machine.start_writing(conn, meta, episode_no,
+        out = state_machine.start_writing(conn, meta, wid, episode_no,
                                           design_id=body.design_id)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
@@ -64,12 +73,13 @@ def start_episode(episode_no: int, body: StartIn,
 
 
 @router.post("/episodes/{episode_no}/submit-review")
-def submit_review(episode_no: int,
+def submit_review(episode_no: int, work: str,
                   conn: sqlite3.Connection = Depends(get_conn),
                   author: dict = Depends(get_current_author)):
-    _owned_job(conn, episode_no, author["id"])
+    job = _owned_job(conn, work, episode_no, author["id"])
     try:
-        return state_machine.submit_for_review(conn, episode_no)
+        return state_machine.submit_for_review(conn, job["work_id"],
+                                               episode_no)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
 
@@ -79,37 +89,40 @@ class BackIn(BaseModel):
 
 
 @router.post("/episodes/{episode_no}/back-to-writing")
-def back_to_writing(episode_no: int, body: BackIn,
+def back_to_writing(episode_no: int, body: BackIn, work: str,
                     conn: sqlite3.Connection = Depends(get_conn),
                     author: dict = Depends(get_current_author)):
-    _owned_job(conn, episode_no, author["id"])
+    job = _owned_job(conn, work, episode_no, author["id"])
     try:
-        return state_machine.back_to_writing(conn, episode_no, body.reason)
+        return state_machine.back_to_writing(conn, job["work_id"], episode_no,
+                                             body.reason)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
 
 
 @router.post("/episodes/{episode_no}/request-publish")
-def request_publish(episode_no: int,
+def request_publish(episode_no: int, work: str,
                     conn: sqlite3.Connection = Depends(get_conn),
                     author: dict = Depends(get_current_author)):
-    _owned_job(conn, episode_no, author["id"])
+    job = _owned_job(conn, work, episode_no, author["id"])
     try:
-        return state_machine.request_publish(conn, episode_no)
+        return state_machine.request_publish(conn, job["work_id"], episode_no)
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
 
 
 @router.get("/episodes/{episode_no}")
-def get_episode(episode_no: int,
+def get_episode(episode_no: int, work: str,
                 conn: sqlite3.Connection = Depends(get_conn),
                 author: dict = Depends(get_current_author)):
-    job = _owned_job(conn, episode_no, author["id"])
+    job = _owned_job(conn, work, episode_no, author["id"])
+    wid = job["work_id"]
     revs = conn.execute(
         "SELECT revision_id, version, approval_status, LENGTH(text) AS length"
-        " FROM manuscript_revisions WHERE episode_no=? ORDER BY version",
-        (episode_no,)).fetchall()
-    issues = consistency.list_issues(conn, episode_no)
+        " FROM manuscript_revisions WHERE work_id=? AND episode_no=?"
+        " ORDER BY version",
+        (wid, episode_no)).fetchall()
+    issues = consistency.list_issues(conn, episode_no, None, wid)
     open_issues = sum(1 for i in issues if i["status"] == "open")
     return {"episode_no": episode_no, **state_machine._public(job),
             "revisions": [dict(r) for r in revs],
@@ -143,11 +156,12 @@ def publishing_episodes(design_id: int,
                         conn: sqlite3.Connection = Depends(get_conn),
                         author: dict = Depends(get_current_author)):
     """Episodes in 발간중 (for the publishing tab)."""
-    require_design(conn, design_id, author["id"])
+    design = require_design(conn, design_id, author["id"])
     jobs = state_machine.jobs_by_state(conn, design_id, "PUBLISHING")
     out = []
     for j in jobs:
-        issues = consistency.list_issues(conn, j["episode_no"])
+        issues = consistency.list_issues(conn, j["episode_no"], None,
+                                         design["work_id"])
         out.append({"episode_no": j["episode_no"],
                     "title": j.get("title") or "",
                     "state": j["state"],
@@ -200,72 +214,65 @@ class ManuscriptRestoreIn(BaseModel):
 
 
 @router.get("/episodes/{episode_no}/manuscript-doc")
-def get_manuscript_doc(episode_no: int,
+def get_manuscript_doc(episode_no: int, work: str,
                        conn: sqlite3.Connection = Depends(get_conn),
                        author: dict = Depends(get_current_author)):
-    job = require_episode_job(conn, episode_no, author["id"])
-    if not job:
-        raise HTTPException(404, f"episode {episode_no} has no job yet")
-    job = dict(job)
+    job = _owned_job(conn, work, episode_no, author["id"])
     return {"document": manuscripts.get_doc(
-        conn, episode_no, job, _episode_title(conn, job))}
+        conn, job["work_id"], episode_no, job, _episode_title(conn, job))}
 
 
 @router.patch("/episodes/{episode_no}/manuscript-draft")
 def patch_manuscript_draft(episode_no: int, body: ManuscriptDraftIn,
+                           work: str,
                            conn: sqlite3.Connection = Depends(get_conn),
                            author: dict = Depends(get_current_author)):
-    job = require_episode_job(conn, episode_no, author["id"])
-    if not job:
-        raise HTTPException(404, f"episode {episode_no} has no job yet")
-    job = dict(job)
+    job = dict(_owned_job(conn, work, episode_no, author["id"]))
     doc = _manuscript_error(lambda: manuscripts.save_draft(
-        conn, episode_no, job, _episode_title(conn, job),
+        conn, job["work_id"], episode_no, job, _episode_title(conn, job),
         body.expectedRevision, body.content))
     return {"document": doc}
 
 
 @router.post("/episodes/{episode_no}/manuscript-versions")
 def post_manuscript_version(episode_no: int, body: ManuscriptVersionIn,
+                            work: str,
                             conn: sqlite3.Connection = Depends(get_conn),
                             author: dict = Depends(get_current_author)):
-    job = require_episode_job(conn, episode_no, author["id"])
-    if not job:
-        raise HTTPException(404, f"episode {episode_no} has no job yet")
-    job = dict(job)
+    job = dict(_owned_job(conn, work, episode_no, author["id"]))
     doc = _manuscript_error(lambda: manuscripts.create_version(
-        conn, episode_no, job, _episode_title(conn, job),
+        conn, job["work_id"], episode_no, job, _episode_title(conn, job),
         body.expectedRevision, body.requestId, body.content, body.label))
     return {"document": doc}
 
 
 @router.post("/episodes/{episode_no}/manuscript-restore")
 def post_manuscript_restore(episode_no: int, body: ManuscriptRestoreIn,
+                            work: str,
                             conn: sqlite3.Connection = Depends(get_conn),
                             author: dict = Depends(get_current_author)):
-    job = require_episode_job(conn, episode_no, author["id"])
-    if not job:
-        raise HTTPException(404, f"episode {episode_no} has no job yet")
-    job = dict(job)
+    job = dict(_owned_job(conn, work, episode_no, author["id"]))
     doc = _manuscript_error(lambda: manuscripts.restore_version(
-        conn, episode_no, job, _episode_title(conn, job),
+        conn, job["work_id"], episode_no, job, _episode_title(conn, job),
         body.expectedRevision, body.requestId, body.sourceVersionId))
     return {"document": doc}
 
 
 @router.get("/episodes/{episode_no}/manuscript")
-def get_manuscript(episode_no: int, version: int | None = None,
+def get_manuscript(episode_no: int, work: str, version: int | None = None,
                    conn: sqlite3.Connection = Depends(get_conn),
                    author: dict = Depends(get_current_author)):
-    require_episode_job(conn, episode_no, author["id"])
+    job = _owned_job(conn, work, episode_no, author["id"])
+    wid = job["work_id"]
     if version is None:
         row = conn.execute(
-            "SELECT * FROM manuscript_revisions WHERE episode_no=?"
-            " ORDER BY version DESC LIMIT 1", (episode_no,)).fetchone()
+            "SELECT * FROM manuscript_revisions WHERE work_id=? AND episode_no=?"
+            " ORDER BY version DESC LIMIT 1", (wid, episode_no)).fetchone()
     else:
         row = conn.execute(
-            "SELECT * FROM manuscript_revisions WHERE episode_no=? AND version=?",
-            (episode_no, version)).fetchone()
+            "SELECT * FROM manuscript_revisions"
+            " WHERE work_id=? AND episode_no=? AND version=?",
+            (wid, episode_no, version)).fetchone()
     if not row:
         raise HTTPException(404, f"manuscript EP{episode_no} v{version} not found")
     return dict(row)

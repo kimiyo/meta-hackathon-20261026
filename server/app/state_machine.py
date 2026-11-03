@@ -16,26 +16,28 @@ from .errors import BudgetExceeded, LLMStepError
 STATES = ("WRITING", "IN_REVIEW", "PUBLISHING")
 
 
-def get_job(conn: sqlite3.Connection, episode_no: int) -> dict | None:
-    row = conn.execute("SELECT * FROM episode_jobs WHERE episode_no=?",
-                       (episode_no,)).fetchone()
+def get_job(conn: sqlite3.Connection, work_id: int,
+            episode_no: int) -> dict | None:
+    row = conn.execute("SELECT * FROM episode_jobs WHERE work_id=? AND episode_no=?",
+                       (work_id, episode_no)).fetchone()
     return dict(row) if row else None
 
 
 def _save_job(conn, job: dict) -> None:
     conn.execute(
-        "INSERT INTO episode_jobs(episode_no, design_id, state, attempt,"
+        "INSERT INTO episode_jobs(work_id, episode_no, design_id, state, attempt,"
         " manuscript_revision_id, proposal_set_id, last_error, fix_instruction,"
         " quality_json, needs_attention, return_reason, updated_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"
-        " ON CONFLICT(episode_no) DO UPDATE SET state=excluded.state,"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        " ON CONFLICT(work_id, episode_no) DO UPDATE SET state=excluded.state,"
         " attempt=excluded.attempt, manuscript_revision_id=excluded.manuscript_revision_id,"
         " proposal_set_id=excluded.proposal_set_id, last_error=excluded.last_error,"
         " fix_instruction=excluded.fix_instruction,"
         " quality_json=excluded.quality_json,"
         " needs_attention=excluded.needs_attention,"
         " return_reason=excluded.return_reason, updated_at=excluded.updated_at",
-        (job["episode_no"], job["design_id"], job["state"], job["attempt"],
+        (job["work_id"], job["episode_no"], job["design_id"], job["state"],
+         job["attempt"],
          job.get("manuscript_revision_id"), job.get("proposal_set_id"),
          job.get("last_error", ""), job.get("fix_instruction", ""),
          job.get("quality_json", "{}"),
@@ -51,10 +53,10 @@ def _fail(conn, job: dict, message: str) -> dict:
     return {"episode_no": job["episode_no"], **_public(job)}
 
 
-def start_writing(conn, meta, episode_no: int, *, design_id: int,
-                max_tokens: int = 8000) -> dict:
+def start_writing(conn, meta, work_id: int, episode_no: int, *,
+                design_id: int, max_tokens: int = 8000) -> dict:
     """미시작 → 집필중: AI 초안을 생성하고 집필을 시작한다."""
-    job = get_job(conn, episode_no)
+    job = get_job(conn, work_id, episode_no)
     if job is not None:
         raise ValueError(f"episode {episode_no} already started"
                          f" ({job['state']})")
@@ -62,7 +64,9 @@ def start_writing(conn, meta, episode_no: int, *, design_id: int,
                           (design_id,)).fetchone()
     if not design:
         raise KeyError(f"design {design_id} not found")
-    job = {"episode_no": episode_no, "design_id": design_id,
+    if design["work_id"] != work_id:
+        raise ValueError(f"design {design_id} is not in work {work_id}")
+    job = {"work_id": work_id, "episode_no": episode_no, "design_id": design_id,
            "state": "WRITING", "attempt": 0, "manuscript_revision_id": None,
            "proposal_set_id": None, "last_error": "",
            "needs_attention": 0, "return_reason": ""}
@@ -86,7 +90,7 @@ def start_writing(conn, meta, episode_no: int, *, design_id: int,
     return {"episode_no": episode_no, **_public(job), "revision": rev}
 
 
-def submit_for_review(conn, episode_no: int) -> dict:
+def submit_for_review(conn, work_id: int, episode_no: int) -> dict:
     """집필중 → 검토중: 작가의 검토를 요청한다.
 
     작업 초안이 최신 버전과 다르면 제출 스냅샷을 먼저 남겨
@@ -94,7 +98,7 @@ def submit_for_review(conn, episode_no: int) -> dict:
     """
     from . import manuscripts
 
-    job = get_job(conn, episode_no)
+    job = get_job(conn, work_id, episode_no)
     if not job:
         raise KeyError(f"episode {episode_no} has no job")
     if job["state"] != "WRITING":
@@ -105,8 +109,8 @@ def submit_for_review(conn, episode_no: int) -> dict:
         "SELECT title FROM episode_outlines WHERE design_id=? AND episode_no=?",
         (job["design_id"], episode_no)).fetchone()
     snapshot = manuscripts.snapshot_draft_for_submit(
-        conn, episode_no, job, title_row["title"] if title_row else "")
-    job = get_job(conn, episode_no)
+        conn, work_id, episode_no, job, title_row["title"] if title_row else "")
+    job = get_job(conn, work_id, episode_no)
     job["state"] = "IN_REVIEW"
     job["return_reason"] = ""
     job["needs_attention"] = 0
@@ -118,9 +122,10 @@ def submit_for_review(conn, episode_no: int) -> dict:
     return out
 
 
-def back_to_writing(conn, episode_no: int, reason: str = "") -> dict:
+def back_to_writing(conn, work_id: int, episode_no: int,
+                    reason: str = "") -> dict:
     """검토중 → 집필중: 수정이 필요해 집필 화면으로 되돌린다."""
-    job = get_job(conn, episode_no)
+    job = get_job(conn, work_id, episode_no)
     if not job:
         raise KeyError(f"episode {episode_no} has no job")
     if job["state"] != "IN_REVIEW":
@@ -132,7 +137,7 @@ def back_to_writing(conn, episode_no: int, reason: str = "") -> dict:
     return {"episode_no": episode_no, **_public(job)}
 
 
-def request_publish(conn, episode_no: int) -> dict:
+def request_publish(conn, work_id: int, episode_no: int) -> dict:
     """검토중 → 발간중: 원고를 확정하고 기억을 잠근다.
 
     열린(open) 일관성 이슈가 남아 있거나, 현재 원고 기준의 저장된
@@ -141,21 +146,23 @@ def request_publish(conn, episode_no: int) -> dict:
     """
     from . import consistency, manuscripts
 
-    job = get_job(conn, episode_no)
+    job = get_job(conn, work_id, episode_no)
     if not job:
         raise KeyError(f"episode {episode_no} has no job")
     if job["state"] != "IN_REVIEW":
         raise ValueError(f"publish needs IN_REVIEW, got {job['state']}")
-    open_issues = consistency.open_count(conn, episode_no)
+    rev_id = job["manuscript_revision_id"]
+    open_issues = consistency.open_count(conn, episode_no, work_id)
     if open_issues:
         raise ValueError(f"{open_issues} open consistency issues remain")
-    rev_id = job["manuscript_revision_id"]
-    saved = memory.get_committed_set_for_revision(conn, episode_no, rev_id)
+    saved = memory.get_committed_set_for_revision(conn, episode_no, rev_id,
+                                                  work_id)
     pset = None
     if saved is None:
-        pset = memory.get_pending_set_for_revision(conn, episode_no, rev_id)
+        pset = memory.get_pending_set_for_revision(conn, episode_no, rev_id,
+                                                   work_id)
         if pset is None:
-            if memory.has_any_proposal(conn, episode_no):
+            if memory.has_any_proposal(conn, episode_no, work_id):
                 raise ValueError("원고가 바뀌어 Entity 재추출이 필요합니다")
             raise ValueError("Entity 추출을 먼저 실행하세요")
     try:
@@ -167,19 +174,19 @@ def request_publish(conn, episode_no: int) -> dict:
         else:
             result = memory.save_episode_memory(
                 conn, episode_no=episode_no, revision_id=rev_id,
-                proposal_set_id=pset["proposal_set_id"])
+                proposal_set_id=pset["proposal_set_id"], work_id=work_id)
             job["proposal_set_id"] = pset["proposal_set_id"]
     except Exception:
         job["needs_attention"] = 1
         job["last_error"] = "publish commit failed"
         _save_job(conn, job)
         raise
-    memory.mark_stale_from(conn, episode_no)
+    memory.mark_stale_from(conn, episode_no, work_id)
     job["state"] = "PUBLISHING"
     job["last_error"] = ""
     job["needs_attention"] = 0
     _save_job(conn, job)
-    manuscripts.snapshot_approval(conn, episode_no,
+    manuscripts.snapshot_approval(conn, work_id, episode_no,
                                 job["manuscript_revision_id"])
     return {"episode_no": episode_no, **_public(job), "commit": result}
 

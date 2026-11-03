@@ -10,10 +10,12 @@ class IssueItem(BaseModel):
     severity: Literal["critical", "major", "minor"] = "major"
     title: str = ""
     detail: str = ""
+    verdict: Literal["conflict", "explained", "uncertain"] = "uncertain"
     manuscript_quote: str = ""
     evidence_episode: int | None = None
     evidence_quote: str = ""
     entity_id: str = ""
+    fact_refs: list[int] = Field(default_factory=list)
 
 
 class ConsistencyOutput(BaseModel):

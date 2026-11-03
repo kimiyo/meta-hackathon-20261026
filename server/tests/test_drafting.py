@@ -99,10 +99,11 @@ def test_draft_no_retry_on_schema_error(conn):
 
 def test_lookup_round_executes_and_injects(conn):
     memory.create_entity(conn, entity_id="ch_0001", type_="character",
-                         name="서연", first_episode=1)
-    rev = conn.execute("INSERT INTO manuscript_revisions(episode_no, version, text,"
-                       " created_at) VALUES(1,1,'x','t')").lastrowid
-    sid = memory.store_proposal(conn, episode_no=1, revision_id=rev, items=[
+                         work_id=1, name="서연", first_episode=1)
+    rev = conn.execute("INSERT INTO manuscript_revisions(work_id, episode_no, version, text,"
+                       " created_at) VALUES(1,1,1,'x','t')").lastrowid
+    sid = memory.store_proposal(conn, episode_no=1, revision_id=rev, work_id=1,
+                                items=[
         {"entity_id": "ch_0001", "operation": "set", "attribute_path": "나이",
          "new_value": 26, "evidence_quote": "q", "validation": "ok"}])
     memory.commit_episode(conn, episode_no=1, revision_id=rev, proposal_set_id=sid)
@@ -124,7 +125,8 @@ def test_lookup_round_executes_and_injects(conn):
 
 
 def test_execute_lookups_kinds(conn):
-    conn.execute("INSERT INTO events(episode_no, summary) VALUES(1,'서점 화재')")
+    conn.execute("INSERT INTO events(work_id, episode_no, summary)"
+                 " VALUES(1,1,'서점 화재')")
     conn.commit()
     res = drafting.execute_lookups(conn, [
         {"kind": "event_search", "query": "화재"},

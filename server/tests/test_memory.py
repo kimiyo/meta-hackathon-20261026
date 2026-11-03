@@ -15,9 +15,9 @@ def conn(tmp_path):
 
 def _rev(conn, ep, ver=1, text="원문"):
     cur = conn.execute(
-        "INSERT INTO manuscript_revisions(episode_no, version, text, created_at)"
-        " VALUES(?,?,?,?)",
-        (ep, ver, text, dbmod.now_iso()),
+        "INSERT INTO manuscript_revisions(work_id, episode_no, version, text, created_at)"
+        " VALUES(?,?,?,?,?)",
+        (1, ep, ver, text, dbmod.now_iso()),
     )
     conn.commit()
     return cur.lastrowid
@@ -25,7 +25,7 @@ def _rev(conn, ep, ver=1, text="원문"):
 
 def _commit(conn, ep, items):
     rev = _rev(conn, ep)
-    sid = memory.store_proposal(conn, episode_no=ep, revision_id=rev, items=items)
+    sid = memory.store_proposal(conn, work_id=1, episode_no=ep, revision_id=rev, items=items)
     for it in memory.get_proposals(conn, ep):
         if it["proposal_set_id"] == sid and it["validation"] == "pending":
             memory.set_item_validation(conn, it["item_id"], "ok")
@@ -34,7 +34,7 @@ def _commit(conn, ep, items):
 
 
 def test_age_anchor_and_deterministic_rebuild(conn):
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
     r = _commit(conn, 3, [{"entity_id": "ch_0001", "operation": "set",
                            "attribute_path": "나이", "new_value": 26,
@@ -49,7 +49,7 @@ def test_age_anchor_and_deterministic_rebuild(conn):
 
 
 def test_unmentioned_attribute_has_no_change(conn):
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
     _commit(conn, 3, [{"entity_id": "ch_0001", "operation": "set",
                        "attribute_path": "나이", "new_value": 26,
@@ -62,14 +62,14 @@ def test_unmentioned_attribute_has_no_change(conn):
 
 
 def test_recollection_does_not_change_state(conn):
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
     _commit(conn, 1, [{"entity_id": "ch_0001", "operation": "set",
                        "attribute_path": "직업", "new_value": "서점주인",
                        "evidence_quote": "서점주인 서연"}])
     rev = _rev(conn, 5)
     sid = memory.store_proposal(
-        conn, episode_no=5, revision_id=rev,
+        conn, work_id=1, episode_no=5, revision_id=rev,
         items=[{"entity_id": "ch_0001", "operation": "no_change",
                 "attribute_path": "", "evidence_quote": "옛날을 회상했다"}],
         mentions=[{"entity_id": "ch_0001", "quote": "옛날을 회상했다"}])
@@ -83,10 +83,10 @@ def test_recollection_does_not_change_state(conn):
 
 
 def test_unapproved_items_never_commit(conn):
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
     rev = _rev(conn, 4)
-    sid = memory.store_proposal(conn, episode_no=4, revision_id=rev, items=[
+    sid = memory.store_proposal(conn, work_id=1, episode_no=4, revision_id=rev, items=[
         {"entity_id": "ch_0001", "operation": "set", "attribute_path": "나이",
          "new_value": 30, "evidence_quote": "서른", "validation": "error"},
         {"entity_id": "ch_0001", "operation": "set", "attribute_path": "직업",
@@ -101,27 +101,27 @@ def test_unapproved_items_never_commit(conn):
 
 
 def test_homonym_alias_flow(conn):
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
-    a1 = memory.add_alias_candidate(conn, entity_id="ch_0001", alias="장부지기",
+    a1 = memory.add_alias_candidate(conn, work_id=1, entity_id="ch_0001", alias="장부지기",
                                     basis="4화 호칭")
     r1 = memory.resolve_alias(conn, a1, entity_id="ch_0001", basis="작가 확정")
     assert r1["status"] == "confirmed" and r1["new_entity"] is False
-    a2 = memory.add_alias_candidate(conn, entity_id="ch_0001", alias="이서연",
+    a2 = memory.add_alias_candidate(conn, work_id=1, entity_id="ch_0001", alias="이서연",
                                     basis="동명이인 의심")
     r2 = memory.resolve_alias(conn, a2, entity_id=None, basis="별개 인물")
     assert r2["new_entity"] is True and r2["entity_id"] == "ch_0002"
     assert memory.get_entity(conn, "ch_0002")["canonical_name"] == "이서연"
-    a3 = memory.add_alias_candidate(conn, entity_id="ch_0001", alias="오인",
+    a3 = memory.add_alias_candidate(conn, work_id=1, entity_id="ch_0001", alias="오인",
                                     basis="오탐")
     assert memory.reject_alias(conn, a3)["status"] == "rejected"
 
 
 def test_commit_is_idempotent(conn):
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
     rev = _rev(conn, 2)
-    sid = memory.store_proposal(conn, episode_no=2, revision_id=rev, items=[
+    sid = memory.store_proposal(conn, work_id=1, episode_no=2, revision_id=rev, items=[
         {"entity_id": "ch_0001", "operation": "set", "attribute_path": "나이",
          "new_value": 26, "evidence_quote": "스물여섯"}])
     for it in memory.get_proposals(conn, 2):
@@ -142,11 +142,11 @@ def test_discard_all_pending_drops_every_revision(conn):
     item = {"entity_id": "ch_0001", "operation": "set",
             "attribute_path": "나이", "new_value": 26,
             "evidence_quote": "스물여섯"}
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
-    s1 = memory.store_proposal(conn, episode_no=1, revision_id=rev1,
+    s1 = memory.store_proposal(conn, work_id=1, episode_no=1, revision_id=rev1,
                                items=[dict(item)])
-    s2 = memory.store_proposal(conn, episode_no=1, revision_id=rev2,
+    s2 = memory.store_proposal(conn, work_id=1, episode_no=1, revision_id=rev2,
                                items=[dict(item)])
     assert memory.latest_pending_set(conn, 1)["proposal_set_id"] == s2
     assert memory.discard_all_pending(conn, 1) == 2
@@ -158,7 +158,7 @@ def test_discard_all_pending_drops_every_revision(conn):
 
 def test_delete_pending_event(conn):
     rev = _rev(conn, 1)
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
     events = [{"summary": "사건A", "story_time": "", "cause": "",
                "consequence": "", "participants": []},
@@ -167,7 +167,7 @@ def test_delete_pending_event(conn):
               {"summary": "사건C", "story_time": "", "cause": "",
                "consequence": "", "participants": []}]
     sid = memory.store_proposal(
-        conn, episode_no=1, revision_id=rev,
+        conn, work_id=1, episode_no=1, revision_id=rev,
         items=[{"entity_id": "ch_0001", "operation": "set",
                 "attribute_path": "나이", "new_value": 26,
                 "evidence_quote": "스물여섯"}],
@@ -188,7 +188,7 @@ def test_delete_pending_event(conn):
 
 
 def test_history_and_invalidation(conn):
-    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
                          name="서연", first_episode=1)
     _commit(conn, 1, [{"entity_id": "ch_0001", "operation": "set",
                        "attribute_path": "나이", "new_value": 25,
@@ -199,7 +199,7 @@ def test_history_and_invalidation(conn):
     hist = memory.entity_history(conn, "ch_0001")
     assert [h["episode_no"] for h in hist] == [1, 2]
     rev = _rev(conn, 3)
-    sid = memory.store_proposal(conn, episode_no=3, revision_id=rev, items=[
+    sid = memory.store_proposal(conn, work_id=1, episode_no=3, revision_id=rev, items=[
         {"entity_id": "ch_0001", "operation": "set", "attribute_path": "나이",
          "new_value": 26, "evidence_quote": "스물여섯", "validation": "ok"}])
     assert memory.mark_stale_from(conn, 2) == 1

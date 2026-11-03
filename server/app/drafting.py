@@ -170,17 +170,20 @@ def get_outline(conn: sqlite3.Connection, design_id: int, episode_no: int) -> di
     return o
 
 
-def collect_entity_states(conn, episode_no: int) -> list[dict]:
+def collect_entity_states(conn, episode_no: int,
+                          work_id: int | None = None) -> list[dict]:
     """Approved-state snapshots of all entities as of the previous episode."""
     states = []
-    for ent in memory.search_entities(conn):
-        attrs = memory.reconstruct_state(conn, ent["entity_id"], episode_no - 1)
+    for ent in memory.search_entities(conn, work_id=work_id):
+        attrs = memory.reconstruct_state(conn, ent["entity_id"], episode_no - 1,
+                                         work_id)
         states.append({"entity_id": ent["entity_id"], "name": ent["canonical_name"],
                        "type": ent["type"], "attributes": attrs})
     return states
 
 
-def execute_lookups(conn, requests: list[dict], episode_no: int) -> list[dict]:
+def execute_lookups(conn, requests: list[dict], episode_no: int,
+                    work_id: int | None = None) -> list[dict]:
     """Run lookup_requests against committed data only."""
     results = []
     for r in requests:
@@ -188,24 +191,34 @@ def execute_lookups(conn, requests: list[dict], episode_no: int) -> list[dict]:
         if kind == "entity_state" and r.get("entity_id"):
             eid = r["entity_id"]
             ep = r.get("episode") or (episode_no - 1)
-            if memory.get_entity(conn, eid):
+            ent = memory.get_entity(conn, eid)
+            if ent and (work_id is None or ent["work_id"] == work_id):
                 results.append({"kind": kind, "entity_id": eid, "episode": ep,
-                                "attributes": memory.reconstruct_state(conn, eid, ep)})
+                                "attributes": memory.reconstruct_state(
+                                    conn, eid, ep, work_id)})
             else:
                 results.append({"kind": kind, "entity_id": eid, "error": "not_found"})
         elif kind == "event_search":
             q = r.get("query", "")
-            rows = conn.execute(
-                "SELECT * FROM events WHERE summary LIKE ? OR cause LIKE ?"
-                " OR consequence LIKE ? ORDER BY episode_no LIMIT 5",
-                (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+            sql = ("SELECT * FROM events WHERE (summary LIKE ? OR cause LIKE ?"
+                   " OR consequence LIKE ?)")
+            args: list = [f"%{q}%", f"%{q}%", f"%{q}%"]
+            if work_id is not None:
+                sql += " AND work_id=?"
+                args.append(work_id)
+            rows = conn.execute(sql + " ORDER BY episode_no LIMIT 5",
+                                args).fetchall()
             results.append({"kind": kind, "query": q,
                             "events": [dict(x) for x in rows]})
         elif kind == "mention_search":
             q = r.get("query", "")
-            rows = conn.execute(
-                "SELECT * FROM entity_mentions WHERE quote LIKE ?"
-                " ORDER BY episode_no LIMIT 5", (f"%{q}%",)).fetchall()
+            sql = "SELECT * FROM entity_mentions WHERE quote LIKE ?"
+            args = [f"%{q}%"]
+            if work_id is not None:
+                sql += " AND work_id=?"
+                args.append(work_id)
+            rows = conn.execute(sql + " ORDER BY episode_no LIMIT 5",
+                                args).fetchall()
             results.append({"kind": kind, "query": q,
                             "mentions": [dict(x) for x in rows]})
         else:
@@ -234,18 +247,21 @@ def validate_manuscript(text: str, constraints: list[str],
     return problems
 
 
-def save_revision(conn, episode_no: int, text: str, label: str = "") -> dict:
+def save_revision(conn, work_id: int, episode_no: int, text: str,
+                  label: str = "") -> dict:
     row = conn.execute("SELECT COALESCE(MAX(version),0) v FROM manuscript_revisions"
-                       " WHERE episode_no=?", (episode_no,)).fetchone()
+                       " WHERE work_id=? AND episode_no=?",
+                       (work_id, episode_no)).fetchone()
     version = row["v"] + 1
     conn.execute("UPDATE manuscript_revisions SET approval_status='superseded'"
-                 " WHERE episode_no=? AND approval_status='draft'", (episode_no,))
+                 " WHERE work_id=? AND episode_no=? AND approval_status='draft'",
+                 (work_id, episode_no))
     cur = conn.execute(
-        "INSERT INTO manuscript_revisions(episode_no, version, text, label, created_at)"
-        " VALUES(?,?,?,?,?)", (episode_no, version, text, label, now_iso()))
+        "INSERT INTO manuscript_revisions(work_id, episode_no, version, text, label, created_at)"
+        " VALUES(?,?,?,?,?,?)", (work_id, episode_no, version, text, label, now_iso()))
     conn.commit()
     from . import manuscripts  # lazy: manuscripts imports drafting lazily too
-    manuscripts.sync_doc_after_revision(conn, episode_no, cur.lastrowid)
+    manuscripts.sync_doc_after_revision(conn, work_id, episode_no, cur.lastrowid)
     return {"revision_id": cur.lastrowid, "version": version,
             "episode_no": episode_no}
 
@@ -298,7 +314,7 @@ def _draft_once(meta, conn, *, design_id: int, work_id: int, episode_no: int,
     style = get_style(conn, work_id)
     _, style_hi = parse_length_target(style["length_target"])
     out_budget = draft_output_budget(style_hi, floor=max_tokens)
-    states = collect_entity_states(conn, episode_no)
+    states = collect_entity_states(conn, episode_no, work_id)
     base_input = {
         "episode_outline": outline,
         "entity_states": states,
@@ -318,7 +334,7 @@ def _draft_once(meta, conn, *, design_id: int, work_id: int, episode_no: int,
 
     lookups = out.get("lookup_requests") or []
     if lookups:
-        results = execute_lookups(conn, lookups, episode_no)
+        results = execute_lookups(conn, lookups, episode_no, work_id)
         out = meta.chat_json(
             bundle="drafting", episode=episode_no, system=PROMPT, work_id=work_id,
             user="조회 결과를 반영해 원고를 확정하라. 스켈레톤: "
@@ -332,6 +348,7 @@ def _draft_once(meta, conn, *, design_id: int, work_id: int, episode_no: int,
     if problems:
         raise LLMStepError("drafting", episode_no, "manuscript_invalid",
                            "; ".join(problems))
-    rev = save_revision(conn, episode_no, out["manuscript"], label=revision_label)
+    rev = save_revision(conn, work_id, episode_no, out["manuscript"],
+                        label=revision_label)
     return {**rev, "length": len(out["manuscript"]),
             "lookups_executed": len(lookups)}

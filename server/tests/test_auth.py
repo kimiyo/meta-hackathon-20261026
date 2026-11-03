@@ -166,7 +166,7 @@ def test_rename_pen_name_needs_password(client):
                    json={"pen_name": "x", "password": "pw1234"}).status_code == 401
 
 
-def test_start_guard_conflict(client):
+def test_same_episode_coexists_across_works(client):
     c, _ = client
     from app.main import app
     from app.routes.works import get_meta as works_meta
@@ -177,7 +177,7 @@ def test_start_guard_conflict(client):
         wa = _mkwork(c, ta, "A작품")
         ha = c.post(f"/api/v1/works/{wa['uid']}/handoff", json={},
                     headers=_h(ta)).json()
-        r = c.post("/api/v1/episodes/1/start",
+        r = c.post(f"/api/v1/episodes/1/start?work={wa['uid']}",
                    json={"design_id": ha["design_id"]}, headers=_h(ta))
         assert r.json()["state"] == "WRITING", r.text
         _register(c, login_id="other", pen_name="타인")
@@ -185,12 +185,20 @@ def test_start_guard_conflict(client):
         wb = _mkwork(c, tb, "B작품")
         hb = c.post(f"/api/v1/works/{wb['uid']}/handoff", json={},
                     headers=_h(tb)).json()
-        # same episode number in another design is blocked, not corrupted
-        r = c.post("/api/v1/episodes/1/start",
+        # same episode number in another work coexists (§5.1)
+        r = c.post(f"/api/v1/episodes/1/start?work={wb['uid']}",
                    json={"design_id": hb["design_id"]}, headers=_h(tb))
+        assert r.json()["state"] == "WRITING", r.text
+        # ...but neither author can see the other's episode
+        assert c.get(f"/api/v1/episodes/1?work={wa['uid']}",
+                     headers=_h(tb)).status_code == 404
+        assert c.get(f"/api/v1/episodes/1?work={wb['uid']}",
+                     headers=_h(ta)).status_code == 404
+        assert c.get(f"/api/v1/episodes/1?work={wb['uid']}",
+                     headers=_h(tb)).status_code == 200
+        # same work + same number is still a conflict
+        r = c.post(f"/api/v1/episodes/1/start?work={wa['uid']}",
+                   json={"design_id": ha["design_id"]}, headers=_h(ta))
         assert r.status_code == 409, r.text
-        assert c.get("/api/v1/episodes/1", headers=_h(tb)).status_code == 404
-        assert c.get("/api/v1/episodes/1",
-                     headers=_h(ta)).status_code == 200
     finally:
         del app.dependency_overrides[works_meta]

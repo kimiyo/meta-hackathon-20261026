@@ -895,8 +895,28 @@ export function mountManuscriptPanel(root, options) {
   };
   window.addEventListener("beforeunload", beforeLeave);
 
+  // 근거 이동(§7): 인용 구간으로 버전을 맞추고 검색·스크롤한다.
+  function jumpToQuote(quoteText, revisionId) {
+    const q = (quoteText || "").trim().slice(0, 200);
+    if (!q) return false;
+    if (revisionId != null) {
+      const id = String(revisionId);
+      if (doc.versions.some((v) => v.id === id)) {
+        selected = id;
+        editing = false;
+      }
+    }
+    query = q;
+    ui("query").value = q;
+    index = 0;
+    render();
+    move();
+    ui("body").focus({ preventScroll: true });
+    return matches.length > 0;
+  }
+
   return {
-    flush, refresh,
+    flush, refresh, jumpToQuote,
     getDocument: () => structuredClone(doc),
     getRecovery: () => recovery.read(),
     getUiState,

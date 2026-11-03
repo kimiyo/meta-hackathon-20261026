@@ -18,11 +18,12 @@ PROMPT = (Path(__file__).parent / "prompts" / "verify.txt").read_text(encoding="
 VERDICTS = ("ok", "error", "change", "deferred")
 
 
-def _approved_corpus(conn: sqlite3.Connection, episode_no: int) -> str:
+def _approved_corpus(conn: sqlite3.Connection, episode_no: int,
+                   work_id: int) -> str:
     rows = conn.execute(
-        "SELECT text FROM manuscript_revisions WHERE episode_no<=?"
+        "SELECT text FROM manuscript_revisions WHERE work_id=? AND episode_no<=?"
         " AND approval_status='approved' ORDER BY episode_no, version",
-        (episode_no,)).fetchall()
+        (work_id, episode_no)).fetchall()
     return "\n".join(r["text"] for r in rows)
 
 
@@ -36,7 +37,7 @@ def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
                      revision_id: int, proposal_set_id: int, manuscript: str,
                      world_rules: list[str] | None = None, work_id: int | None = None,
                      max_tokens: int = 8000) -> dict:
-    items = [i for i in memory.get_proposals(conn, episode_no)
+    items = [i for i in memory.get_proposals(conn, episode_no, work_id)
              if i["proposal_set_id"] == proposal_set_id]
     # Skip citation-failed items: they stay deferred, never judged.
     judgeable = [i for i in items if i["validation"] != "deferred"]
@@ -44,7 +45,7 @@ def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
         return {"verdicts": {}, "counts": {"deferred": len(items)}}
 
     approved_states = []
-    for ent in memory.search_entities(conn):
+    for ent in memory.search_entities(conn, work_id=work_id):
         ev_rows = conn.execute(
             "SELECT attribute_path, evidence_quote FROM entity_changes"
             " WHERE entity_id=? AND episode_no<? AND evidence_quote<>''"
@@ -56,14 +57,17 @@ def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
         approved_states.append({
             "entity_id": ent["entity_id"], "name": ent["canonical_name"],
             "attributes": memory.reconstruct_state(conn, ent["entity_id"],
-                                                   episode_no - 1),
+                                                   episode_no - 1, work_id),
             "evidence": evidence})
     payload_items = [{
         "item_id": i["item_id"], "entity_id": i["entity_id"],
-        "candidate_name": i["candidate_name"], "operation": i["operation"],
-        "attribute_path": i["attribute_path"],
+        "candidate_name": i["candidate_name"], "kind": i["kind"],
+        "operation": i["operation"], "attribute_path": i["attribute_path"],
         "old_value": i["old_value"], "new_value": i["new_value"],
-        "story_time": i["story_time"], "evidence_quote": i["evidence_quote"],
+        "standard_value": i.get("standard_value", ""),
+        "story_time": i["story_time"],
+        "narrative_mode": i.get("narrative_mode", "narration"),
+        "evidence_quote": i["evidence_quote"],
     } for i in judgeable]
     out = meta.chat_json(
         bundle="verify", episode=episode_no, system=PROMPT, work_id=work_id,
@@ -82,7 +86,7 @@ def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
              }, ensure_ascii=False),
         schema=sch.VerifyOutput, max_tokens=max_tokens)
 
-    corpus = _approved_corpus(conn, episode_no)
+    corpus = _approved_corpus(conn, episode_no, work_id or 0)
     counts: dict[str, int] = {}
     applied = {}
     by_id = {i["item_id"]: i for i in judgeable}

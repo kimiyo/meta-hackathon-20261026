@@ -13,8 +13,8 @@ def conn(tmp_path):
               " concept_json, sections_json, status) VALUES(1,1,1,2,'{}','[]','approved')")
     c.execute("INSERT INTO episode_outlines(design_id, episode_no, title, goal)"
               " VALUES(1,1,'T','G')")
-    c.execute("INSERT INTO episode_jobs(episode_no, design_id, state,"
-              " attempt, updated_at) VALUES(1,1,'IN_REVIEW',0,'t')")
+    c.execute("INSERT INTO episode_jobs(work_id, episode_no, design_id, state,"
+              " attempt, updated_at) VALUES(1,1,1,'IN_REVIEW',0,'t')")
     c.commit()
     yield c
     c.close()
@@ -36,7 +36,7 @@ def test_add_and_list_issues(conn):
         {"title": "능력 모순", "severity": "critical",
          "manuscript_quote": "그는 날았다"},
         {"title": "오타", "severity": "bogus"},
-    ])
+    ], 1)["issues"]
     assert len(saved) == 2
     assert consistency.open_count(conn, 1) == 2
     issues = consistency.list_issues(conn, 1)
@@ -44,10 +44,12 @@ def test_add_and_list_issues(conn):
 
 
 def test_issue_status_flow(conn):
-    [saved] = consistency.add_issues(conn, 1, [{"title": "x"}])
-    out = consistency.set_issue_status(conn, saved["issue_id"], "resolved")
-    assert out["status"] == "resolved" and out["resolved_at"]
+    [saved] = consistency.add_issues(conn, 1, [{"title": "x"}], 1)["issues"]
+    out = consistency.set_issue_status(conn, saved["issue_id"], "fixed")
+    assert out["status"] == "fixed" and out["resolved_at"]
     assert consistency.open_count(conn, 1) == 0
+    out = consistency.set_issue_status(conn, saved["issue_id"], "resolved")
+    assert out["status"] == "fixed"  # legacy alias normalized
     out = consistency.set_issue_status(conn, saved["issue_id"], "open")
     assert out["status"] == "open" and out["resolved_at"] is None
     with pytest.raises(ValueError, match="unknown status"):
@@ -57,7 +59,7 @@ def test_issue_status_flow(conn):
 
 
 def test_analyze_registers_issues(conn):
-    rev = drafting.save_revision(conn, 1, "그는 어제 죽었는데 오늘 웃었다")
+    rev = drafting.save_revision(conn, 1, 1, "그는 어제 죽었는데 오늘 웃었다")
     meta = IssueMeta([{
         "issues": [{"severity": "major", "title": "생사 모순",
                     "detail": "사망 후 등장", "manuscript_quote": "오늘 웃었다",
@@ -72,7 +74,7 @@ def test_analyze_registers_issues(conn):
 
 
 def test_chat_saves_messages_and_issues(conn):
-    rev = drafting.save_revision(conn, 1, "본문")
+    rev = drafting.save_revision(conn, 1, 1, "본문")
     meta = IssueMeta([{
         "reply": "모순 없음",
         "issues": [{"severity": "minor", "title": "표기",
@@ -87,4 +89,5 @@ def test_chat_saves_messages_and_issues(conn):
     assert [m["role"] for m in msgs] == ["user", "assistant"]
     with pytest.raises(ValueError, match="blank"):
         consistency.chat(meta, conn, episode_no=1,
-                         revision_id=rev["revision_id"], message="  ")
+                         revision_id=rev["revision_id"], message="  ",
+                         work_id=1)

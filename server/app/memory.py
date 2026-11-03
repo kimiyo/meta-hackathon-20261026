@@ -1,16 +1,29 @@
 """Entity memory: reconstruction, snapshots, idempotent commit, invalidation.
 
-Reads use committed rows only. The program owns all writes; AI output arrives
-as proposal items and is applied only through commit_episode().
+Reads use committed rows of the ACTIVE run only. The program owns all
+writes; AI output arrives as proposal items and is applied only through
+commit/save. Memory is scoped per work (work_id).
+
+Fact kinds: attribute | state | relation | rule | event.
+Narrative modes: narration | dialogue | rumor | conjecture | hypothesis |
+negation | dream | recollection | lie. NON_STATE_MODES never change the
+reconstructed state (§4): they are kept as history/events only.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import sqlite3
 
 from .db import now_iso
 
 OPERATIONS = ("create", "set", "add", "remove", "end_relation", "no_change")
+KINDS = ("attribute", "state", "relation", "rule", "event")
+MODES = ("narration", "dialogue", "rumor", "conjecture", "hypothesis",
+         "negation", "dream", "recollection", "lie")
+NON_STATE_MODES = frozenset({"dream", "conjecture", "hypothesis", "lie",
+                             "recollection"})
 TYPE_PREFIX = {"character": "ch", "location": "loc"}
 
 
@@ -27,7 +40,16 @@ def _u(text: str):
         return text
 
 
+def norm_kind(kind: str) -> str:
+    return kind if kind in KINDS else "attribute"
+
+
+def norm_mode(mode: str) -> str:
+    return mode if mode in MODES else "narration"
+
+
 def next_entity_id(conn: sqlite3.Connection, type_: str) -> str:
+    """Globally unique IDs (counter is global; scoping is via work_id)."""
     prefix = TYPE_PREFIX.get(type_, "en")
     row = conn.execute(
         "SELECT entity_id FROM entities WHERE entity_id LIKE ? ORDER BY entity_id DESC LIMIT 1",
@@ -37,12 +59,12 @@ def next_entity_id(conn: sqlite3.Connection, type_: str) -> str:
     return f"{prefix}_{n:04d}"
 
 
-def create_entity(conn, *, entity_id, type_, name, first_episode, description="",
-                _commit=True):
+def create_entity(conn, *, entity_id, work_id, type_, name, first_episode,
+                  description="", _commit=True):
     conn.execute(
-        "INSERT INTO entities(entity_id, type, canonical_name, first_episode, description)"
-        " VALUES(?,?,?,?,?)",
-        (entity_id, type_, name, first_episode, description),
+        "INSERT INTO entities(entity_id, work_id, type, canonical_name,"
+        " first_episode, description) VALUES(?,?,?,?,?,?)",
+        (entity_id, work_id, type_, name, first_episode, description),
     )
     if _commit:
         conn.commit()
@@ -54,9 +76,13 @@ def get_entity(conn, entity_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def search_entities(conn, type_: str | None = None, q: str | None = None) -> list[dict]:
+def search_entities(conn, type_: str | None = None, q: str | None = None,
+                    work_id: int | None = None) -> list[dict]:
     sql = "SELECT * FROM entities WHERE 1=1"
     args: list = []
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
     if type_:
         sql += " AND type=?"
         args.append(type_)
@@ -101,8 +127,18 @@ def _apply_operation(attrs: dict, operation: str, path: str, new_value) -> dict:
     return attrs
 
 
-def reconstruct_state(conn, entity_id: str, as_of_episode: int) -> dict:
-    """State at end of episode N: snapshot(N) or replay of committed changes."""
+def reconstruct_state(conn, entity_id: str, as_of_episode: int,
+                      work_id: int | None = None) -> dict:
+    """State at end of episode N from ACTIVE committed sets only.
+
+    Snapshots are a cache, never the source: on any doubt the caller can
+    delete the snapshot row and this rebuilds by replaying history.
+    """
+    ent = get_entity(conn, entity_id)
+    if ent is None:
+        return {}
+    if work_id is not None and ent["work_id"] != work_id:
+        return {}
     row = conn.execute(
         "SELECT attributes_json FROM entity_snapshots WHERE entity_id=? AND episode_no=?",
         (entity_id, as_of_episode),
@@ -111,16 +147,22 @@ def reconstruct_state(conn, entity_id: str, as_of_episode: int) -> dict:
         return json.loads(row["attributes_json"])
     attrs: dict = {}
     changes = conn.execute(
-        "SELECT operation, attribute_path, new_value FROM entity_changes"
-        " WHERE entity_id=? AND episode_no<=? ORDER BY episode_no, change_id",
+        "SELECT c.operation, c.attribute_path, c.new_value, c.narrative_mode"
+        " FROM entity_changes c"
+        " JOIN change_proposals s ON s.proposal_set_id=c.proposal_set_id"
+        " WHERE c.entity_id=? AND c.episode_no<=? AND s.status='committed'"
+        " ORDER BY c.episode_no, c.change_id",
         (entity_id, as_of_episode),
     ).fetchall()
     for ch in changes:
+        if ch["narrative_mode"] in NON_STATE_MODES:
+            continue  # dreams, guesses, lies, recollections stay history-only
         _apply_operation(attrs, ch["operation"], ch["attribute_path"], _u(ch["new_value"]))
+    ver = current_memory_version(conn, ent["work_id"])
     conn.execute(
-        "INSERT OR REPLACE INTO entity_snapshots(entity_id, episode_no, attributes_json)"
-        " VALUES(?,?,?)",
-        (entity_id, as_of_episode, _j(attrs)),
+        "INSERT OR REPLACE INTO entity_snapshots(entity_id, work_id, episode_no,"
+        " memory_version, attributes_json) VALUES(?,?,?,?,?)",
+        (entity_id, ent["work_id"], as_of_episode, ver, _j(attrs)),
     )
     conn.commit()
     return attrs
@@ -140,48 +182,169 @@ def entity_history(conn, entity_id: str, from_ep: int | None = None,
     return [dict(r) for r in conn.execute(sql, args)]
 
 
+def committed_rules(conn, work_id: int, episode_no: int) -> list[dict]:
+    """Active rule-kind facts (machine-checkable constraints)."""
+    rows = conn.execute(
+        "SELECT c.*, e.canonical_name FROM entity_changes c"
+        " JOIN change_proposals s ON s.proposal_set_id=c.proposal_set_id"
+        " JOIN entities e ON e.entity_id=c.entity_id"
+        " WHERE c.work_id=? AND c.episode_no<=? AND c.kind='rule'"
+        " AND s.status='committed' ORDER BY c.episode_no, c.change_id",
+        (work_id, episode_no)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def active_relations(conn, work_id: int, episode_no: int) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM entity_relations WHERE work_id=?"
+        " AND valid_from_episode<=? AND (valid_to_episode IS NULL"
+        " OR valid_to_episode>?) ORDER BY relation_id",
+        (work_id, episode_no, episode_no)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# -- narrative units ----------------------------------------------------
+_UNIT_SPLIT = re.compile(r"\n\s*\n")
+
+
+def ensure_units(conn, work_id: int, episode_no: int, revision_id: int,
+                 text: str) -> list[dict]:
+    """Split a revision into paragraph units (offset coordinates, §2).
+
+    Offsets are Python str indices into the revision text (== UTF-16
+    offsets for BMP text, which covers Korean). Idempotent per revision.
+    """
+    rows = conn.execute(
+        "SELECT * FROM narrative_units WHERE manuscript_revision_id=?"
+        " ORDER BY unit_index", (revision_id,)).fetchall()
+    if rows:
+        return [dict(r) for r in rows]
+    units: list[dict] = []
+    pos = 0
+    idx = 0
+    for m in _UNIT_SPLIT.finditer(text):
+        end = m.start()
+        if text[pos:end].strip():
+            units.append((idx, pos, end))
+            idx += 1
+        pos = m.end()
+    if text[pos:].strip():
+        units.append((idx, pos, len(text)))
+    if not units and text.strip():
+        units.append((0, 0, len(text)))
+    for i, s, e in units:
+        h = hashlib.sha1(text[s:e].encode("utf-8")).hexdigest()[:16]
+        conn.execute(
+            "INSERT INTO narrative_units(work_id, episode_no,"
+            " manuscript_revision_id, unit_index, start_offset, end_offset,"
+            " text_hash) VALUES(?,?,?,?,?,?,?)",
+            (work_id, episode_no, revision_id, i, s, e, h))
+    conn.commit()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM narrative_units WHERE manuscript_revision_id=?"
+        " ORDER BY unit_index", (revision_id,))]
+
+
+def unit_index_for_offset(units: list[dict], offset: int | None) -> int | None:
+    if offset is None:
+        return None
+    for u in units:
+        if u["start_offset"] <= offset < u["end_offset"]:
+            return u["unit_index"]
+    return units[-1]["unit_index"] if units else None
+
+
+# -- memory versions ------------------------------------------------------
+def current_memory_version(conn, work_id: int) -> int:
+    row = conn.execute("SELECT COALESCE(MAX(version),0) v FROM memory_versions"
+                       " WHERE work_id=?", (work_id,)).fetchone()
+    return row["v"]
+
+
+def _bump_memory_version(conn, work_id: int, episode_no: int,
+                         proposal_set_id: int) -> int:
+    ver = current_memory_version(conn, work_id) + 1
+    conn.execute("INSERT INTO memory_versions(work_id, version, episode_no,"
+                 " proposal_set_id, created_at) VALUES(?,?,?,?,?)",
+                 (work_id, ver, episode_no, proposal_set_id, now_iso()))
+    return ver
+
+
 # -- proposals -----------------------------------------------------------
 def store_proposal(conn, *, episode_no, revision_id, items, mentions=(),
-                   events=()) -> int:
+                   events=(), work_id=0, base_memory_version=0,
+                   model_version="", prompt_version="", units_total=0,
+                   unit_statuses=()) -> int:
     cur = conn.execute(
-        "INSERT INTO change_proposals(episode_no, manuscript_revision_id, created_at,"
-        " events_json) VALUES(?,?,?,?)",
-        (episode_no, revision_id, now_iso(), _j(list(events))),
+        "INSERT INTO change_proposals(work_id, episode_no, manuscript_revision_id,"
+        " base_memory_version, model_version, prompt_version, units_total,"
+        " unit_statuses_json, events_json, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (work_id, episode_no, revision_id, base_memory_version,
+         model_version, prompt_version, units_total,
+         _j(list(unit_statuses)), _j(list(events)), now_iso()),
     )
     set_id = cur.lastrowid
     for it in items:
         conn.execute(
-            "INSERT INTO change_proposal_items(proposal_set_id, entity_id, candidate_name,"
-            " operation, attribute_path, old_value, new_value, story_time, evidence_quote,"
-            " evidence_start, evidence_end, validation) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO change_proposal_items(proposal_set_id, entity_id,"
+            " candidate_name, explicit_new, kind, operation, attribute_path,"
+            " old_value, new_value, standard_value, story_time, narrative_mode,"
+            " unit_index, evidence_quote, evidence_start, evidence_end,"
+            " validation) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (set_id, it.get("entity_id"), it.get("candidate_name", ""),
+             1 if it.get("explicit_new") else 0,
+             norm_kind(it.get("kind", "attribute") or "attribute"),
              it["operation"], it.get("attribute_path", ""),
              _j(it.get("old_value", "")) if it.get("old_value", "") != "" else "",
              _j(it.get("new_value", "")) if it.get("new_value", "") != "" else "",
-             it.get("story_time", ""), it.get("evidence_quote", ""),
+             _j(it.get("standard_value", "")) if it.get("standard_value", "") != "" else "",
+             it.get("story_time", ""),
+             norm_mode(it.get("narrative_mode", "narration") or "narration"),
+             it.get("unit_index"), it.get("evidence_quote", ""),
              it.get("evidence_start"), it.get("evidence_end"),
              it.get("validation", "pending")),
         )
     for m in mentions:
         conn.execute(
-            "INSERT INTO entity_mentions(entity_id, episode_no, manuscript_revision_id,"
-            " quote, start_offset, end_offset) VALUES(?,?,?,?,?,?)",
-            (m["entity_id"], episode_no, revision_id, m["quote"],
+            "INSERT INTO entity_mentions(entity_id, work_id, episode_no,"
+            " manuscript_revision_id, unit_index, quote, start_offset,"
+            " end_offset) VALUES(?,?,?,?,?,?,?,?)",
+            (m["entity_id"], work_id, episode_no, revision_id,
+             m.get("unit_index"), m["quote"],
              m.get("start_offset"), m.get("end_offset")),
         )
     conn.commit()
     return set_id
 
 
-def get_proposals(conn, episode_no: int) -> list[dict]:
-    rows = conn.execute(
-        "SELECT s.proposal_set_id, s.status AS set_status, s.manuscript_revision_id,"
-        " i.* FROM change_proposals s"
-        " JOIN change_proposal_items i ON i.proposal_set_id=s.proposal_set_id"
-        " WHERE s.episode_no=? ORDER BY s.proposal_set_id DESC, i.item_id",
-        (episode_no,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+def record_failed_run(conn, *, episode_no, revision_id, work_id=0,
+                      base_memory_version=0, model_version="",
+                      prompt_version="", units_total=0, error="") -> int:
+    cur = conn.execute(
+        "INSERT INTO change_proposals(work_id, episode_no, manuscript_revision_id,"
+        " base_memory_version, model_version, prompt_version, units_total,"
+        " error, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (work_id, episode_no, revision_id, base_memory_version,
+         model_version, prompt_version, units_total, error[:1000],
+         "failed", now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_proposals(conn, episode_no: int,
+                  work_id: int | None = None) -> list[dict]:
+    sql = ("SELECT s.proposal_set_id, s.status AS set_status,"
+           " s.manuscript_revision_id, i.* FROM change_proposals s"
+           " JOIN change_proposal_items i ON i.proposal_set_id=s.proposal_set_id"
+           " WHERE s.episode_no=?")
+    args: list = [episode_no]
+    if work_id is not None:
+        sql += " AND s.work_id=?"
+        args.append(work_id)
+    sql += " ORDER BY s.proposal_set_id DESC, i.item_id"
+    return [dict(r) for r in conn.execute(sql, args)]
 
 
 def get_proposal_events(conn, proposal_set_id: int) -> list[dict]:
@@ -193,11 +356,12 @@ def get_proposal_events(conn, proposal_set_id: int) -> list[dict]:
 
 
 def set_item_validation(conn, item_id: int, validation: str, reason: str = "",
-                      counter_quote: str = "") -> None:
+                        counter_quote: str = "", _commit: bool = True) -> None:
     conn.execute("UPDATE change_proposal_items SET validation=?, reason=?,"
                  " counter_quote=? WHERE item_id=?",
                  (validation, reason[:500], counter_quote[:1000], item_id))
-    conn.commit()
+    if _commit:
+        conn.commit()
 
 
 def discard_proposal_set(conn, set_id: int) -> None:
@@ -223,29 +387,6 @@ def delete_pending_item(conn, item_id: int) -> dict:
     return {"episode_no": row["episode_no"], "deleted": item_id}
 
 
-def discard_pending_for_revision(conn, episode_no: int, revision_id: int) -> None:
-    """Drop stale pending sets before a fresh extraction on the same text."""
-    conn.execute("UPDATE change_proposals SET status='discarded'"
-                 " WHERE episode_no=? AND manuscript_revision_id=?"
-                 " AND status='pending'",
-                 (episode_no, revision_id))
-    conn.commit()
-
-
-def discard_all_pending(conn, episode_no: int) -> int:
-    """재추출 대체 의미: 해당 회차의 임시 변경안을 모두 버린다.
-
-    확정분(committed/superseded)은 건드리지 않는다. 저장 시
-    save_episode_memory가 확정분을 교체하므로, 임시안을 비우면
-    새로 추출한 결과가 현재안을 온전히 대체한다.
-    """
-    cur = conn.execute("UPDATE change_proposals SET status='discarded'"
-                       " WHERE episode_no=? AND status='pending'",
-                       (episode_no,))
-    conn.commit()
-    return cur.rowcount
-
-
 def delete_pending_event(conn, proposal_set_id: int, index: int) -> dict:
     """임시 변경안의 사건 1건을 삭제한다. 확정분은 삭제 불가."""
     row = conn.execute("SELECT * FROM change_proposals WHERE proposal_set_id=?",
@@ -265,31 +406,94 @@ def delete_pending_event(conn, proposal_set_id: int, index: int) -> dict:
             "events": len(events)}
 
 
-def get_pending_set_for_revision(conn, episode_no: int,
-                                revision_id: int) -> dict | None:
-    row = conn.execute(
-        "SELECT * FROM change_proposals WHERE episode_no=?"
-        " AND manuscript_revision_id=? AND status='pending'"
-        " ORDER BY proposal_set_id DESC LIMIT 1",
-        (episode_no, revision_id)).fetchone()
+def discard_pending_for_revision(conn, episode_no: int, revision_id: int) -> None:
+    """Drop stale pending sets before a fresh extraction on the same text."""
+    conn.execute("UPDATE change_proposals SET status='discarded'"
+                 " WHERE episode_no=? AND manuscript_revision_id=?"
+                 " AND status='pending'",
+                 (episode_no, revision_id))
+    conn.commit()
+
+
+def discard_all_pending(conn, episode_no: int,
+                        work_id: int | None = None) -> int:
+    """재추출 대체 의미: 해당 회차의 임시 변경안을 모두 버린다."""
+    sql = ("UPDATE change_proposals SET status='discarded'"
+           " WHERE episode_no=? AND status='pending'")
+    args: list = [episode_no]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    cur = conn.execute(sql, args)
+    conn.commit()
+    return cur.rowcount
+
+
+def discard_pending_except(conn, episode_no: int, keep_id: int,
+                           work_id: int | None = None) -> int:
+    """완성 후 교체(§5.3): 새 실행을 살리고 나머지 pending을 버린다."""
+    sql = ("UPDATE change_proposals SET status='discarded'"
+           " WHERE episode_no=? AND status='pending' AND proposal_set_id!=?")
+    args: list = [episode_no, keep_id]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    cur = conn.execute(sql, args)
+    conn.commit()
+    return cur.rowcount
+
+
+def get_pending_set_for_revision(conn, episode_no: int, revision_id: int,
+                                work_id: int | None = None) -> dict | None:
+    sql = ("SELECT * FROM change_proposals WHERE episode_no=?"
+           " AND manuscript_revision_id=? AND status='pending'")
+    args: list = [episode_no, revision_id]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    sql += " ORDER BY proposal_set_id DESC LIMIT 1"
+    row = conn.execute(sql, args).fetchone()
     return dict(row) if row else None
 
 
-def latest_pending_set(conn, episode_no: int) -> dict | None:
-    row = conn.execute(
-        "SELECT * FROM change_proposals WHERE episode_no=?"
-        " AND status='pending' ORDER BY proposal_set_id DESC LIMIT 1",
-        (episode_no,)).fetchone()
+def latest_pending_set(conn, episode_no: int,
+                       work_id: int | None = None) -> dict | None:
+    sql = ("SELECT * FROM change_proposals WHERE episode_no=?"
+           " AND status='pending'")
+    args: list = [episode_no]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    sql += " ORDER BY proposal_set_id DESC LIMIT 1"
+    row = conn.execute(sql, args).fetchone()
     return dict(row) if row else None
 
 
-def has_any_proposal(conn, episode_no: int) -> bool:
-    row = conn.execute("SELECT 1 FROM change_proposals WHERE episode_no=?"
-                       " LIMIT 1", (episode_no,)).fetchone()
+def latest_set(conn, episode_no: int,
+               work_id: int | None = None) -> dict | None:
+    """Newest run of any status (for basis display incl. failed)."""
+    sql = "SELECT * FROM change_proposals WHERE episode_no=?"
+    args: list = [episode_no]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    sql += " ORDER BY proposal_set_id DESC LIMIT 1"
+    row = conn.execute(sql, args).fetchone()
+    return dict(row) if row else None
+
+
+def has_any_proposal(conn, episode_no: int,
+                     work_id: int | None = None) -> bool:
+    sql = "SELECT 1 FROM change_proposals WHERE episode_no=?"
+    args: list = [episode_no]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    row = conn.execute(sql + " LIMIT 1", args).fetchone()
     return row is not None
 
 
-def approve_proposal_set(conn, set_id: int) -> None:
+def approve_proposal_set(conn, set_id: int, _commit: bool = True) -> None:
     """작가 승인: pending 항목을 ok로 확정한다.
 
     deferred/error는 제외 유지되어 절대 커밋되지 않는다.
@@ -297,48 +501,71 @@ def approve_proposal_set(conn, set_id: int) -> None:
     conn.execute("UPDATE change_proposal_items SET validation='ok'"
                  " WHERE proposal_set_id=? AND validation='pending'",
                  (set_id,))
-    conn.commit()
+    if _commit:
+        conn.commit()
 
 
-def get_committed_set_for_revision(conn, episode_no: int,
-                                  revision_id: int) -> dict | None:
-    row = conn.execute(
-        "SELECT * FROM change_proposals WHERE episode_no=?"
-        " AND manuscript_revision_id=? AND status='committed'"
-        " ORDER BY proposal_set_id DESC LIMIT 1",
-        (episode_no, revision_id)).fetchone()
+def get_committed_set_for_revision(conn, episode_no: int, revision_id: int,
+                                  work_id: int | None = None) -> dict | None:
+    sql = ("SELECT * FROM change_proposals WHERE episode_no=?"
+           " AND manuscript_revision_id=? AND status='committed'")
+    args: list = [episode_no, revision_id]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    sql += " ORDER BY proposal_set_id DESC LIMIT 1"
+    row = conn.execute(sql, args).fetchone()
     return dict(row) if row else None
 
 
-def approve_manuscript_revision(conn, revision_id: int) -> None:
+def approve_manuscript_revision(conn, revision_id: int,
+                                _commit: bool = True) -> None:
     conn.execute("UPDATE manuscript_revisions SET approval_status='approved'"
                  " WHERE revision_id=?", (revision_id,))
-    conn.commit()
+    if _commit:
+        conn.commit()
 
 
 def save_episode_memory(conn, *, episode_no: int, revision_id: int,
-                       proposal_set_id: int) -> dict:
-    """검토 확정: 미발간 회차의 기존 기억을 교체하고 새 변경안을 확정한다.
+                        proposal_set_id: int,
+                        work_id: int | None = None) -> dict:
+    """검토 확정: 새 변경안을 원자적으로 공식 기억으로 저장한다(§5).
 
-    같은 회차의 낡은 기억(이전 원고 기준)은 삭제 후 다시 쓰므로
-    초안 기반 사실이 공식 기억에 남지 않는다. 호출자는 원고 버전이
-    최신인지(신선도) 미리 확인해야 한다.
+    같은 회차의 이전 확정 실행은 superseded로만 바꾸고, 그 사실들은
+    이력으로 남긴다. 공식 조회는 활성(committed) 실행만 사용한다.
+    기준 기억(base_memory_version)이 바뀌었으면 저장하지 않고 재검토를
+    요구한다.
     """
-    conn.execute("DELETE FROM event_participants WHERE event_id IN"
-                 " (SELECT event_id FROM events WHERE episode_no=?)",
-                 (episode_no,))
-    conn.execute("DELETE FROM events WHERE episode_no=?", (episode_no,))
-    conn.execute("DELETE FROM entity_changes WHERE episode_no=?",
-                 (episode_no,))
-    conn.execute("DELETE FROM entity_snapshots WHERE episode_no>=?",
-                 (episode_no,))
-    conn.execute("UPDATE change_proposals SET status='superseded'"
-                 " WHERE episode_no=? AND status='committed'",
-                 (episode_no,))
-    conn.commit()
-    approve_proposal_set(conn, proposal_set_id)
-    return commit_episode(conn, episode_no=episode_no, revision_id=revision_id,
-                          proposal_set_id=proposal_set_id)
+    pset = conn.execute("SELECT * FROM change_proposals WHERE proposal_set_id=?",
+                        (proposal_set_id,)).fetchone()
+    if not pset:
+        raise KeyError(f"proposal set {proposal_set_id} not found")
+    if pset["status"] != "pending":
+        raise ValueError(f"proposal set {proposal_set_id} is {pset['status']}")
+    wid = work_id if work_id is not None else pset["work_id"]
+    if current_memory_version(conn, wid) != (pset["base_memory_version"] or 0):
+        raise ValueError("기준 기억이 바뀌어 재검토가 필요합니다")
+    try:
+        conn.execute("UPDATE change_proposals SET status='superseded'"
+                     " WHERE episode_no=? AND work_id=? AND status='committed'",
+                     (episode_no, wid))
+        approve_proposal_set(conn, proposal_set_id, _commit=False)
+        version = _bump_memory_version(conn, wid, episode_no, proposal_set_id)
+        result = commit_episode(conn, episode_no=episode_no,
+                                revision_id=revision_id,
+                                proposal_set_id=proposal_set_id,
+                                work_id=wid, memory_version=version,
+                                _commit=False)
+        for eid in result["entities"]:
+            conn.execute("DELETE FROM entity_snapshots WHERE entity_id=?"
+                         " AND episode_no>=?", (eid, episode_no))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    for eid in result["entities"]:
+        reconstruct_state(conn, eid, episode_no, wid)
+    return {**result, "memory_version": version}
 
 
 # -- commit (idempotent) ---------------------------------------------------
@@ -351,54 +578,135 @@ def is_committed(conn, episode_no: int, revision_id: int) -> bool:
     return row is not None
 
 
-def commit_episode(conn, *, episode_no, revision_id, proposal_set_id) -> dict:
-    """Atomically apply approved proposal items. Idempotent on (episode, revision)."""
+def _commit_resolve(conn, work_id: int, entity_id: str | None,
+                    candidate: str, explicit_new: bool,
+                    new_ids: dict[str, str], episode_no: int) -> str:
+    """Stable identity (§5.5): reuse the resolved entity whenever possible.
+
+    A new entity is created only for explicit-new candidates (homonym
+    splits the model marked new:) or names unknown to this work.
+    """
+    if entity_id:
+        ent = get_entity(conn, entity_id)
+        if ent and (work_id is None or ent["work_id"] == work_id):
+            return entity_id
+    name = candidate or "이름없음"
+    if name in new_ids:
+        return new_ids[name]
+    if not explicit_new and work_id is not None:
+        row = conn.execute("SELECT entity_id FROM entities"
+                           " WHERE work_id=? AND canonical_name=?",
+                           (work_id, name)).fetchone()
+        if row:
+            new_ids[name] = row["entity_id"]
+            return row["entity_id"]
+        row = conn.execute(
+            "SELECT a.entity_id FROM entity_aliases a"
+            " JOIN entities e ON e.entity_id=a.entity_id"
+            " WHERE a.work_id=? AND a.alias=? AND a.status='confirmed'",
+            (work_id, name)).fetchone()
+        if row and row["entity_id"]:
+            new_ids[name] = row["entity_id"]
+            return row["entity_id"]
+    eid = next_entity_id(conn, "character")
+    create_entity(conn, entity_id=eid, work_id=work_id or 0, type_="character",
+                  name=name, first_episode=episode_no, _commit=False)
+    new_ids[name] = eid
+    return eid
+
+
+def _relation_object(value) -> tuple[str, str]:
+    """Return (object_name, detail) from a relation item value."""
+    if isinstance(value, dict):
+        return (value.get("object") or value.get("object_name") or "",
+                value.get("detail") or "")
+    if isinstance(value, str):
+        return value, ""
+    return "", ""
+
+
+def commit_episode(conn, *, episode_no, revision_id, proposal_set_id,
+                   work_id: int | None = None, memory_version: int = 0,
+                   _commit: bool = True) -> dict:
+    """Apply approved proposal items. Idempotent on (episode, revision)."""
     if is_committed(conn, episode_no, revision_id):
         return {"committed": False, "reason": "already_committed"}
-    items = conn.execute(
+    items = [dict(r) for r in conn.execute(
         "SELECT * FROM change_proposal_items WHERE proposal_set_id=? ORDER BY item_id",
-        (proposal_set_id,),
-    ).fetchall()
-    applied = 0
-    touched: set[str] = set()
-    new_ids: dict[str, str] = {}  # candidate_name → entity_id (one set, one entity)
-    with conn:  # atomic transaction
+        (proposal_set_id,)).fetchall()]
+
+    def _apply() -> tuple[int, set[str], dict[str, str]]:
+        applied = 0
+        touched: set[str] = set()
+        new_ids: dict[str, str] = {}
+        wid = work_id
+        if wid is None:
+            srow = conn.execute("SELECT work_id FROM change_proposals"
+                                " WHERE proposal_set_id=?",
+                                (proposal_set_id,)).fetchone()
+            wid = srow["work_id"] if srow else 0
         for it in items:
             if it["validation"] not in ("ok", "change"):
                 continue  # error|deferred|pending never commit
-            entity_id = it["entity_id"]
-            if it["operation"] == "create" or entity_id is None:
-                name = it["candidate_name"] or "이름없음"
-                if name in new_ids:
-                    entity_id = new_ids[name]
-                else:
-                    entity_id = next_entity_id(conn, "character")
-                    create_entity(conn, entity_id=entity_id, type_="character",
-                                  name=name, first_episode=episode_no,
-                                  _commit=False)
-                    new_ids[name] = entity_id
+            if it["operation"] == "create" or it["entity_id"] is None:
+                entity_id = _commit_resolve(
+                    conn, wid, it["entity_id"], it["candidate_name"],
+                    bool(it["explicit_new"]), new_ids, episode_no)
+            else:
+                entity_id = it["entity_id"]
+                ent = get_entity(conn, entity_id)
+                if ent is None or (wid and ent["work_id"] != wid):
+                    entity_id = _commit_resolve(
+                        conn, wid, None, it["candidate_name"] or "이름없음",
+                        False, new_ids, episode_no)
             conn.execute(
-                "INSERT INTO entity_changes(entity_id, episode_no, manuscript_revision_id,"
-                " attribute_path, operation, old_value, new_value, story_time,"
-                " evidence_quote, committed_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (entity_id, episode_no, revision_id, it["attribute_path"],
+                "INSERT INTO entity_changes(entity_id, work_id, episode_no,"
+                " manuscript_revision_id, proposal_set_id, memory_version,"
+                " kind, attribute_path, operation, old_value, new_value,"
+                " standard_value, story_time, narrative_mode, evidence_quote,"
+                " evidence_start, evidence_end, committed_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (entity_id, wid, episode_no, revision_id, proposal_set_id,
+                 memory_version, it["kind"], it["attribute_path"],
                  it["operation"], it["old_value"], it["new_value"],
-                 it["story_time"], it["evidence_quote"], now_iso()),
+                 it.get("standard_value", ""), it["story_time"],
+                 it.get("narrative_mode", "narration") or "narration",
+                 it["evidence_quote"], it["evidence_start"],
+                 it["evidence_end"], now_iso()),
             )
             applied += 1
             touched.add(entity_id)
+            if it["kind"] == "relation":
+                _commit_relation(conn, wid, entity_id, episode_no,
+                                 revision_id, it, new_ids)
+            elif it["operation"] == "end_relation":
+                _close_relation(conn, wid, entity_id, episode_no, it)
         for ev in get_proposal_events(conn, proposal_set_id):
+            if ev.get("validation") == "deferred":
+                continue
             cur = conn.execute(
-                "INSERT INTO events(episode_no, summary, story_time, cause, consequence)"
-                " VALUES(?,?,?,?,?)",
-                (episode_no, ev.get("summary", ""), ev.get("story_time", ""),
-                 ev.get("cause", ""), ev.get("consequence", "")))
+                "INSERT INTO events(work_id, episode_no, summary, story_time,"
+                " cause, consequence, evidence_revision_id, evidence_quote,"
+                " evidence_start, evidence_end) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (wid, episode_no, ev.get("summary", ""),
+                 ev.get("story_time", ""), ev.get("cause", ""),
+                 ev.get("consequence", ""), revision_id,
+                 ev.get("evidence_quote", ""), ev.get("evidence_start"),
+                 ev.get("evidence_end")))
             for p in ev.get("participants", []):
-                pid = p.get("entity_id") or new_ids.get(p.get("candidate_name", ""))
+                pid = p.get("entity_id")
+                if not pid and p.get("candidate_name"):
+                    pid = _participant_resolve(conn, wid, episode_no,
+                                               p["candidate_name"], new_ids)
+                elif pid:
+                    ent = get_entity(conn, pid)
+                    if ent is None or (wid and ent["work_id"] != wid):
+                        pid = None
                 if pid:
                     conn.execute(
-                        "INSERT OR IGNORE INTO event_participants(event_id, entity_id, role)"
-                        " VALUES(?,?,?)", (cur.lastrowid, pid, p.get("role", "")))
+                        "INSERT OR IGNORE INTO event_participants(event_id,"
+                        " entity_id, role) VALUES(?,?,?)",
+                        (cur.lastrowid, pid, p.get("role", "")))
         conn.execute(
             "UPDATE change_proposals SET status='committed' WHERE proposal_set_id=?",
             (proposal_set_id,),
@@ -408,27 +716,115 @@ def commit_episode(conn, *, episode_no, revision_id, proposal_set_id) -> dict:
             " WHERE revision_id=?",
             (revision_id,),
         )
+        return applied, touched, new_ids
+
+    if _commit:
+        with conn:
+            applied, touched, _ = _apply()
+    else:
+        applied, touched, _ = _apply()
     for eid in touched:
-        # Refresh snapshot caches at this episode (recompute, don't trust cache).
         conn.execute("DELETE FROM entity_snapshots WHERE entity_id=? AND episode_no>=?",
                      (eid, episode_no))
-    conn.commit()
+    if _commit:
+        conn.commit()
     for eid in touched:
-        reconstruct_state(conn, eid, episode_no)
+        wid = work_id
+        if wid is None:
+            ent = get_entity(conn, eid)
+            wid = ent["work_id"] if ent else 0
+        reconstruct_state(conn, eid, episode_no, wid)
     return {"committed": True, "applied": applied, "entities": sorted(touched)}
 
 
+def _participant_resolve(conn, work_id: int, episode_no: int, name: str,
+                         new_ids: dict[str, str]) -> str | None:
+    """Link an event participant name to this work (or a new entity)."""
+    if not name:
+        return None
+    if name in new_ids:
+        return new_ids[name]
+    row = conn.execute("SELECT entity_id FROM entities"
+                       " WHERE work_id=? AND canonical_name=?",
+                       (work_id, name)).fetchone()
+    if row:
+        return row["entity_id"]
+    eid = next_entity_id(conn, "character")
+    create_entity(conn, entity_id=eid, work_id=work_id, type_="character",
+                  name=name, first_episode=episode_no, _commit=False)
+    new_ids[name] = eid
+    return eid
+
+
+def _commit_relation(conn, work_id: int, subject_id: str, episode_no: int,
+                     revision_id: int, it, new_ids: dict[str, str]) -> None:
+    """Write a relation-kind fact to entity_relations (directed, §2)."""
+    obj_name, _detail = _relation_object(_u(it["new_value"]))
+    if not obj_name:
+        return
+    obj_id = _participant_resolve(conn, work_id, episode_no, obj_name, new_ids)
+    if not obj_id:
+        return
+    dup = conn.execute(
+        "SELECT 1 FROM entity_relations WHERE subject_id=? AND predicate=?"
+        " AND object_id=? AND valid_to_episode IS NULL",
+        (subject_id, it["attribute_path"], obj_id)).fetchone()
+    if dup:
+        return
+    conn.execute(
+        "INSERT INTO entity_relations(work_id, subject_id, predicate, object_id,"
+        " valid_from_episode, story_time, evidence_revision_id, evidence_quote,"
+        " evidence_start, evidence_end) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (work_id, subject_id, it["attribute_path"], obj_id, episode_no,
+         it["story_time"], revision_id, it["evidence_quote"],
+         it["evidence_start"], it["evidence_end"]))
+
+
+def _close_relation(conn, work_id: int, subject_id: str, episode_no: int,
+                    it) -> None:
+    """End matching relations: valid during [from, to), ended this episode."""
+    obj_name, _detail = _relation_object(_u(it["new_value"]))
+    sql = ("UPDATE entity_relations SET valid_to_episode=?"
+           " WHERE subject_id=? AND predicate=? AND valid_to_episode IS NULL")
+    args: list = [episode_no, subject_id, it["attribute_path"]]
+    if obj_name:
+        row = conn.execute("SELECT entity_id FROM entities"
+                           " WHERE work_id=? AND canonical_name=?",
+                           (work_id, obj_name)).fetchone()
+        if row:
+            sql += " AND object_id=?"
+            args.append(row["entity_id"])
+    conn.execute(sql, args)
+
+
 # -- aliases ---------------------------------------------------------------
-def add_alias_candidate(conn, *, entity_id, alias, basis="") -> int:
+def add_alias_candidate(conn, *, entity_id, work_id, alias, basis="",
+                        revision_id=None, quote="", start=None, end=None,
+                        _commit=True) -> int:
     cur = conn.execute(
-        "INSERT INTO entity_aliases(entity_id, alias, basis) VALUES(?,?,?)",
-        (entity_id, alias, basis),
+        "INSERT INTO entity_aliases(work_id, entity_id, alias, basis,"
+        " manuscript_revision_id, quote, start_offset, end_offset)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        (work_id, entity_id, alias, basis, revision_id, quote, start, end),
     )
-    conn.commit()
+    if _commit:
+        conn.commit()
     return cur.lastrowid
 
 
-def resolve_alias(conn, alias_id: int, *, entity_id: str | None, basis: str) -> dict:
+def list_alias_candidates(conn, work_id: int,
+                          episode_no: int | None = None) -> list[dict]:
+    del episode_no  # reserved: candidates are work-level until linked
+    rows = conn.execute(
+        "SELECT a.*, e.canonical_name AS entity_name FROM entity_aliases a"
+        " LEFT JOIN entities e ON e.entity_id=a.entity_id"
+        " WHERE a.work_id=? AND a.status='candidate' ORDER BY a.alias_id",
+        (work_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def resolve_alias(conn, alias_id: int, *, entity_id: str | None,
+                  basis: str) -> dict:
     """Author judgment: confirm link (entity_id) or register new entity (None)."""
     row = conn.execute("SELECT * FROM entity_aliases WHERE alias_id=?",
                        (alias_id,)).fetchone()
@@ -438,8 +834,8 @@ def resolve_alias(conn, alias_id: int, *, entity_id: str | None, basis: str) -> 
         return {"alias_id": alias_id, "status": row["status"], "repeated": True}
     if entity_id is None:
         new_id = next_entity_id(conn, "character")
-        create_entity(conn, entity_id=new_id, type_="character",
-                      name=row["alias"], first_episode=0)
+        create_entity(conn, entity_id=new_id, work_id=row["work_id"],
+                      type_="character", name=row["alias"], first_episode=0)
         conn.execute(
             "UPDATE entity_aliases SET entity_id=?, status='confirmed', basis=?"
             " WHERE alias_id=?",
@@ -466,16 +862,21 @@ def reject_alias(conn, alias_id: int, basis: str = "") -> dict:
 
 
 # -- invalidation ------------------------------------------------------------
-def mark_stale_from(conn, episode_no: int) -> int:
-    """Mark later-episode validations stale after an earlier episode is fixed.
+def mark_stale_from(conn, episode_no: int,
+                    work_id: int | None = None) -> int:
+    """Mark later-episode pending validations stale (§5.9, broad).
 
-    MVP scope: the next episode only (episode_no+1).
+    An earlier episode's fix invalidates every later pending proposal of
+    the same work until re-extracted.
     """
-    cur = conn.execute(
-        "UPDATE change_proposal_items SET validation='stale'"
-        " WHERE proposal_set_id IN (SELECT proposal_set_id FROM change_proposals"
-        " WHERE episode_no=?)",
-        (episode_no + 1,),
-    )
+    sql = ("UPDATE change_proposal_items SET validation='stale'"
+           " WHERE proposal_set_id IN (SELECT proposal_set_id FROM change_proposals"
+           " WHERE episode_no>? AND status='pending'")
+    args: list = [episode_no]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    sql += ")"
+    cur = conn.execute(sql, args)
     conn.commit()
     return cur.rowcount
