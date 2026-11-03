@@ -232,6 +232,39 @@ def discard_pending_for_revision(conn, episode_no: int, revision_id: int) -> Non
     conn.commit()
 
 
+def discard_all_pending(conn, episode_no: int) -> int:
+    """재추출 대체 의미: 해당 회차의 임시 변경안을 모두 버린다.
+
+    확정분(committed/superseded)은 건드리지 않는다. 저장 시
+    save_episode_memory가 확정분을 교체하므로, 임시안을 비우면
+    새로 추출한 결과가 현재안을 온전히 대체한다.
+    """
+    cur = conn.execute("UPDATE change_proposals SET status='discarded'"
+                       " WHERE episode_no=? AND status='pending'",
+                       (episode_no,))
+    conn.commit()
+    return cur.rowcount
+
+
+def delete_pending_event(conn, proposal_set_id: int, index: int) -> dict:
+    """임시 변경안의 사건 1건을 삭제한다. 확정분은 삭제 불가."""
+    row = conn.execute("SELECT * FROM change_proposals WHERE proposal_set_id=?",
+                       (proposal_set_id,)).fetchone()
+    if not row:
+        raise KeyError(f"proposal set {proposal_set_id} not found")
+    if row["status"] != "pending":
+        raise ValueError("committed events cannot be deleted")
+    events = json.loads(row["events_json"] or "[]")
+    if index < 0 or index >= len(events):
+        raise IndexError(f"event {index} not found")
+    events.pop(index)
+    conn.execute("UPDATE change_proposals SET events_json=? WHERE proposal_set_id=?",
+                 (_j(events), proposal_set_id))
+    conn.commit()
+    return {"proposal_set_id": proposal_set_id, "deleted": index,
+            "events": len(events)}
+
+
 def get_pending_set_for_revision(conn, episode_no: int,
                                 revision_id: int) -> dict | None:
     row = conn.execute(

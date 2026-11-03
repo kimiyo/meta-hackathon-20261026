@@ -67,6 +67,8 @@ def extract_entities(episode_no: int, body: ExtractIn | None = None,
                      author: dict = Depends(get_current_author)):
     """프리셋 작업: 현재 원고에서 Entity 변경안을 추출해 임시 저장한다.
 
+    재추출은 대체 의미다. 기존 임시 변경안(pending)은 원고 버전과
+    관계없이 모두 버리고, 이번 추출 결과로 현재안을 교체한다.
     instruction이 있으면 수정 요청을 반영해 다시 추출한다.
     """
     job = _job_or_404(conn, episode_no, author["id"])
@@ -79,8 +81,7 @@ def extract_entities(episode_no: int, body: ExtractIn | None = None,
         raise HTTPException(400, "manuscript is empty")
     design = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
                           (job["design_id"],)).fetchone()
-    memory.discard_pending_for_revision(conn, episode_no,
-                                        job["manuscript_revision_id"])
+    memory.discard_all_pending(conn, episode_no)
     try:
         out = extraction.extract_changes(
             meta, conn, episode_no=episode_no,
@@ -148,6 +149,25 @@ def delete_entity_item(item_id: int,
     except KeyError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/episodes/{episode_no}/entity-events/{index}")
+def delete_entity_event(episode_no: int, index: int,
+                        conn: sqlite3.Connection = Depends(get_conn),
+                        author: dict = Depends(get_current_author)):
+    """임시 변경안의 사건 1건 삭제. 검토 단계의 pending 사건만 가능하다."""
+    job = _job_or_404(conn, episode_no, author["id"])
+    if job["state"] != "IN_REVIEW":
+        raise HTTPException(400, "entity edit needs IN_REVIEW")
+    pset = memory.latest_pending_set(conn, episode_no)
+    if not pset:
+        raise HTTPException(404, f"episode {episode_no} has no pending events")
+    try:
+        return memory.delete_pending_event(conn, pset["proposal_set_id"], index)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except (ValueError, IndexError) as e:
         raise HTTPException(400, str(e))
 
 

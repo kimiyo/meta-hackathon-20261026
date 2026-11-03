@@ -25,7 +25,18 @@ let busy = false;
 function setBusy(v) {
   busy = v;
   for (const b of document.querySelectorAll("#s3 button")) b.disabled = v;
-  if (!v) updateActionState();
+  if (!v) {
+    updateActionState();
+    updateExtractBtnLabel();
+  }
+}
+
+function updateExtractBtnLabel() {
+  const btn = $("btn-entity-extract");
+  if (!btn || busy) return;
+  const hasExisting = !!(pending?.proposal_set || pending?.saved_set);
+  btn.textContent = hasExisting ? "Entity 재 추출 실행" : "Entity 추출 실행";
+  btn.title = "기존 임시 추출은 버리고 새로 추출하여 대체합니다";
 }
 
 function inReview() {
@@ -184,7 +195,7 @@ const TRASH_SVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" s
 function proposalItemsHtml(items) {
   if (!items.length) return `<li><span class="muted small">변경 항목 없음</span></li>`;
   return items.map((it) => `
-    <li><div class="pev-head"><span><span class="chip mono">${esc(it.operation)}</span>
+    <li><div class="pev-head"><span>
       <b>${esc(it.entity_id || it.candidate_name || "(미지정)")}</b>
       ${it.attribute_path ? `<span class="small muted">${esc(it.attribute_path)}</span>` : ""}
       ${it.story_time ? `<span class="chip">${esc(it.story_time)}</span>` : ""}
@@ -198,8 +209,9 @@ function proposalItemsHtml(items) {
 function proposalEventsHtml(events) {
   if (!events.length) return "";
   return `<div class="small" style="margin-top:6px"><b>사건 (${events.length})</b></div>
-    <ul class="ep-scenes">${events.map((ev) => `
-      <li>${ev.story_time ? `<span class="chip">${esc(ev.story_time)}</span> ` : ""}<span class="small">${esc(ev.summary || "")}</span></li>`
+    <ul class="ep-scenes">${events.map((ev, idx) => `
+      <li><div class="pev-head"><span>${ev.story_time ? `<span class="chip">${esc(ev.story_time)}</span> ` : ""}<span class="small">${esc(ev.summary || "")}</span></span>
+      <button class="btn sm ghost pev-del" data-del-event="${idx}" data-role="review.memory.event-del-btn" title="이 사건 삭제">${TRASH_SVG}</button></div></li>`
     ).join("")}</ul>`;
 }
 
@@ -234,9 +246,17 @@ function renderPending() {
       renderPending();
     }));
   });
+  box.querySelectorAll("[data-del-event]").forEach((btn) => {
+    btn.addEventListener("click", () => run(async () => {
+      await api.deleteEntityEvent(currentEp(), Number(btn.dataset.delEvent));
+      pending = await api.entityProposals(currentEp());
+      renderPending();
+    }));
+  });
   if (!inReview()) {
     for (const b of box.querySelectorAll("button")) b.disabled = true;
   }
+  updateExtractBtnLabel();
 }
 
 function renderMemory(entities) {
@@ -332,15 +352,10 @@ export function initReview() {
   });
   $("btn-entity-extract").addEventListener("click", () =>
     run(async () => {
-      const btn = $("btn-entity-extract");
-      btn.textContent = "추출 중…";
-      try {
-        await api.extractEntities(currentEp());
-        pending = await api.entityProposals(currentEp());
-        renderPending();
-      } finally {
-        btn.textContent = "Entity 추출 실행";
-      }
+      $("btn-entity-extract").textContent = "추출 중…";
+      await api.extractEntities(currentEp());
+      pending = await api.entityProposals(currentEp());
+      renderPending();
     })
   );
   $("btn-entity-save").addEventListener("click", () =>

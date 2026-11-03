@@ -279,3 +279,63 @@ def test_publish_and_ops_api(api_client):
         assert r.status_code == 403  # no token
     finally:
         del app.dependency_overrides[get_meta]
+
+
+def test_entity_reextract_replaces_and_event_delete(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_drafting import FakeMeta as DraftFake
+    from tests.test_planning import FakeMeta as PlanFake
+    from tests.test_consistency import IssueMeta
+
+    wid = api_client.post("/api/v1/works", json={"title": "w"}).json()["id"]
+    app.dependency_overrides[get_meta] = lambda: PlanFake(1)
+    did = api_client.post(f"/api/v1/works/{wid}/designs",
+                          json={"keywords": "k", "total_episodes": 1}).json()["design_id"]
+    app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 5000])
+    api_client.post("/api/v1/episodes/1/start", json={"design_id": did})
+    api_client.post("/api/v1/episodes/1/submit-review")
+
+    def _item(name, value):
+        return {"entity_ref": f"new:{name}", "candidate_name": name,
+                "operation": "create", "attribute_path": "직업",
+                "old_value": "", "new_value": value,
+                "story_time": "", "evidence_quote": "가" * 100}
+
+    def _ev(summary):
+        return {"summary": summary, "story_time": "", "cause": "",
+                "consequence": "", "participants": []}
+
+    meta = IssueMeta([
+        {"items": [_item("민준", "서점주인")], "mentions": [],
+         "events": [_ev("사건A"), _ev("사건B")]},
+        {"items": [_item("서연", "장부지기")], "mentions": [],
+         "events": [_ev("사건C")]},
+    ])
+    app.dependency_overrides[get_meta] = lambda: meta
+    try:
+        r = api_client.post("/api/v1/episodes/1/entities/extract")
+        assert r.status_code == 200, r.text
+        prop = api_client.get("/api/v1/episodes/1/entity-proposals").json()
+        assert len(prop["items"]) == 1
+        assert [e["summary"] for e in prop["events"]] == ["사건A", "사건B"]
+
+        r = api_client.delete("/api/v1/episodes/1/entity-events/0")
+        assert r.status_code == 200, r.text
+        assert r.json() == {"proposal_set_id": prop["proposal_set"]["proposal_set_id"],
+                            "deleted": 0, "events": 1}
+        prop = api_client.get("/api/v1/episodes/1/entity-proposals").json()
+        assert [e["summary"] for e in prop["events"]] == ["사건B"]
+
+        r = api_client.delete("/api/v1/episodes/1/entity-events/9")
+        assert r.status_code == 400
+
+        # 재추출은 대체: 이전 임시 항목·사건이 남지 않는다.
+        r = api_client.post("/api/v1/episodes/1/entities/extract")
+        assert r.status_code == 200, r.text
+        prop = api_client.get("/api/v1/episodes/1/entity-proposals").json()
+        assert len(prop["items"]) == 1
+        assert prop["items"][0]["candidate_name"] == "서연"
+        assert [e["summary"] for e in prop["events"]] == ["사건C"]
+    finally:
+        del app.dependency_overrides[get_meta]

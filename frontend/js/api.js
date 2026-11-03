@@ -168,6 +168,8 @@ export const api = {
     }),
   entityProposals: (no) => req(`/episodes/${no}/entity-proposals`),
   deleteEntityItem: (id) => req(`/entity-items/${id}`, { method: "DELETE" }),
+  deleteEntityEvent: (no, index) =>
+    req(`/episodes/${no}/entity-events/${index}`, { method: "DELETE" }),
   llmCalls: () => req("/ops/llm-calls?limit=20"),
   opsBudget: () => req("/ops/budget"),
   model: () => req("/ops/model"),

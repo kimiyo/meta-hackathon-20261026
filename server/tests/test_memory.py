@@ -136,6 +136,57 @@ def test_commit_is_idempotent(conn):
     assert n == 1
 
 
+def test_discard_all_pending_drops_every_revision(conn):
+    rev1 = _rev(conn, 1, ver=1)
+    rev2 = _rev(conn, 1, ver=2)
+    item = {"entity_id": "ch_0001", "operation": "set",
+            "attribute_path": "나이", "new_value": 26,
+            "evidence_quote": "스물여섯"}
+    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+                         name="서연", first_episode=1)
+    s1 = memory.store_proposal(conn, episode_no=1, revision_id=rev1,
+                               items=[dict(item)])
+    s2 = memory.store_proposal(conn, episode_no=1, revision_id=rev2,
+                               items=[dict(item)])
+    assert memory.latest_pending_set(conn, 1)["proposal_set_id"] == s2
+    assert memory.discard_all_pending(conn, 1) == 2
+    assert memory.latest_pending_set(conn, 1) is None
+    rows = conn.execute("SELECT status FROM change_proposals"
+                        " WHERE proposal_set_id IN (?,?)", (s1, s2)).fetchall()
+    assert {r["status"] for r in rows} == {"discarded"}
+
+
+def test_delete_pending_event(conn):
+    rev = _rev(conn, 1)
+    memory.create_entity(conn, entity_id="ch_0001", type_="character",
+                         name="서연", first_episode=1)
+    events = [{"summary": "사건A", "story_time": "", "cause": "",
+               "consequence": "", "participants": []},
+              {"summary": "사건B", "story_time": "", "cause": "",
+               "consequence": "", "participants": []},
+              {"summary": "사건C", "story_time": "", "cause": "",
+               "consequence": "", "participants": []}]
+    sid = memory.store_proposal(
+        conn, episode_no=1, revision_id=rev,
+        items=[{"entity_id": "ch_0001", "operation": "set",
+                "attribute_path": "나이", "new_value": 26,
+                "evidence_quote": "스물여섯"}],
+        events=events)
+    out = memory.delete_pending_event(conn, sid, 1)
+    assert out == {"proposal_set_id": sid, "deleted": 1, "events": 2}
+    assert [e["summary"] for e in memory.get_proposal_events(conn, sid)] == [
+        "사건A", "사건C"]
+    with pytest.raises(IndexError):
+        memory.delete_pending_event(conn, sid, 5)
+    for it in memory.get_proposals(conn, 1):
+        if it["proposal_set_id"] == sid:
+            memory.set_item_validation(conn, it["item_id"], "ok")
+    memory.commit_episode(conn, episode_no=1, revision_id=rev,
+                          proposal_set_id=sid)
+    with pytest.raises(ValueError, match="committed"):
+        memory.delete_pending_event(conn, sid, 0)
+
+
 def test_history_and_invalidation(conn):
     memory.create_entity(conn, entity_id="ch_0001", type_="character",
                          name="서연", first_episode=1)
