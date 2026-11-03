@@ -16,6 +16,8 @@ let synopsis = { content: "", version: 0 };
 let synEditing = false;
 let synDraft = "";
 let synSaving = false;
+// locale-changed 리렌더 중 편집 textarea 교체로 발생하는 blur 자동저장을 건너뛴다.
+let suspendSynBlurSave = false;
 let settings = [];
 let busy = false;
 let loadedUid = null;
@@ -133,12 +135,12 @@ function resetInclusionDefaults() {
   updateMsgModeSeg();
 }
 
-function renderAll() {
+function renderAll(opts = {}) {
   renderThreads();
   renderChat();
   renderSynopsis();
   renderStructure();
-  renderSettings();
+  if (!opts.skipSettings) renderSettings();
   renderHandoff();
   const banner = $("ideas-locked");
   if (banner) banner.style.display = locked() ? "" : "none";
@@ -474,7 +476,7 @@ function renderSynopsis() {
       autoresize();
     });
     ta.addEventListener("blur", () => {
-      saveSynopsisEdit();
+      if (!suspendSynBlurSave) saveSynopsisEdit();
     });
     ta.addEventListener("keydown", (e) => {
       e.stopPropagation();
@@ -1173,4 +1175,19 @@ export function initIdeas() {
     if (e.target.closest?.(".proposal-btn[data-tip]")) hideTip();
   });
   $("chat-messages").addEventListener("scroll", hideTip, { passive: true });
+  // 화면 언어 전환: 입력·편집 상태는 유지하고 문구만 다시 그린다.
+  // 설정 편집기가 열려 있으면 입력 보호를 위해 설정 목록은 건너뛴다.
+  document.addEventListener("locale-changed", () => {
+    const chatBox = $("chat-messages");
+    const scroll = chatBox ? chatBox.scrollTop : 0;
+    const editorOpen = [...document.querySelectorAll("#setting-list .setting-edit")]
+      .some((box) => box.childElementCount > 0);
+    suspendSynBlurSave = true;
+    try {
+      renderAll({ skipSettings: editorOpen });
+    } finally {
+      suspendSynBlurSave = false;
+    }
+    if (chatBox) chatBox.scrollTop = scroll;
+  });
 }

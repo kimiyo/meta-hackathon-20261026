@@ -87,64 +87,64 @@
 <!-- ════════════ 화면 1 · 아이디어 ════════════ -->
 <section class="screen" id="ideas" data-role="ideas.screen">
   <div id="ideas-error"></div>
-  <div class="screen-lead"><b>이야기의 씨앗</b>어떤 이야기를 시작할까요? AI와 소재를 다듬고 줄거리와 설정을 정리하세요.</div>
-  <div id="ideas-locked" data-role="ideas.screen.locked-notice" class="notice warn" style="display:none">설계로 인계되어 읽기 전용입니다. 줄거리 개정이 내려가면 이 화면이 아니라 소설 설계에서 이어가세요.</div>
+  <div class="screen-lead"><b data-i18n="ideas.lead.title">이야기의 씨앗</b><span data-i18n="ideas.lead.text">어떤 이야기를 시작할까요? AI와 소재를 다듬고 줄거리와 설정을 정리하세요.</span></div>
+  <div id="ideas-locked" data-role="ideas.screen.locked-notice" data-i18n="ideas.lockedNotice" class="notice warn" style="display:none">설계로 인계되어 읽기 전용입니다. 줄거리 개정이 내려가면 이 화면이 아니라 소설 설계에서 이어가세요.</div>
   <div class="grid-ideas">
     <div class="card" data-role="ideas.chat.panel">
-      <h3>아이디어 대화 <span class="hint">AI와 소재·줄거리·설정 논의</span></h3>
+      <h3><span data-i18n="ideas.chat.title">아이디어 대화</span> <span class="hint" data-i18n="ideas.chat.hint">AI와 소재·줄거리·설정 논의</span></h3>
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <select id="thread-select" data-role="ideas.chat.thread-select" style="flex:1"></select>
-        <button class="btn sm" id="btn-thread-new" data-role="ideas.chat.new-thread-btn" style="white-space:nowrap">새 대화</button>
+        <button class="btn sm" id="btn-thread-new" data-role="ideas.chat.new-thread-btn" data-i18n="ideas.thread.new" style="white-space:nowrap">새 대화</button>
       </div>
       <div id="chat-messages" data-role="ideas.chat.messages" class="chat-box"></div>
       <div id="choice-row" data-role="ideas.chat.choices" class="btn-row"></div>
-      <label class="f">대화를 메시지에 포함</label>
-      <div class="seg" id="msg-mode" data-role="ideas.chat.msg-mode"><button data-mmode="all" data-role="ideas.chat.msg-mode-all">전부 포함</button><button data-mmode="none" data-role="ideas.chat.msg-mode-none">전부 포함 않음</button><button data-mmode="select" data-role="ideas.chat.msg-mode-select">선택</button></div>
-      <label class="f">메시지 (@설정제목·@노드코드로 기존 자료 포함)</label>
-      <textarea id="chat-input" data-role="ideas.chat.input" placeholder="아이디어를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+      <label class="f" data-i18n="ideas.chat.includeLabel">대화를 메시지에 포함</label>
+      <div class="seg" id="msg-mode" data-role="ideas.chat.msg-mode"><button data-mmode="all" data-role="ideas.chat.msg-mode-all" data-i18n="ideas.chat.modeAll">전부 포함</button><button data-mmode="none" data-role="ideas.chat.msg-mode-none" data-i18n="ideas.chat.modeNone">전부 포함 않음</button><button data-mmode="select" data-role="ideas.chat.msg-mode-select" data-i18n="ideas.chat.modeSelect">선택</button></div>
+      <label class="f" data-i18n="ideas.chat.messageLabel">메시지 (@설정제목·@노드코드로 기존 자료 포함)</label>
+      <textarea id="chat-input" data-role="ideas.chat.input" data-i18n-placeholder="ideas.chat.inputPlaceholder" placeholder="아이디어를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
       <div class="btn-row">
-        <button class="btn primary" id="btn-chat-send" data-role="ideas.chat.send-btn">전송</button>
+        <button class="btn primary" id="btn-chat-send" data-role="ideas.chat.send-btn" data-i18n="ideas.chat.send">전송</button>
       </div>
     </div>
-    <div class="col-resizer" id="ideas-col-resizer" data-role="ideas.screen.col-resizer" title="드래그하여 너비 조절"></div>
+    <div class="col-resizer" id="ideas-col-resizer" data-role="ideas.screen.col-resizer" data-i18n-title="ideas.resizerTitle" title="드래그하여 너비 조절"></div>
     <div>
       <div class="card" data-role="ideas.synopsis.panel">
-        <h3><input type="checkbox" class="inc" id="syn-include" data-role="ideas.synopsis.include-checkbox" checked title="대화를 메시지에 포함"> 전체 줄거리 <span class="hint" id="synopsis-meta"></span><span class="hint" id="synopsis-edit-hint">클릭하여 편집</span></h3>
+        <h3><input type="checkbox" class="inc" id="syn-include" data-role="ideas.synopsis.include-checkbox" checked data-i18n-title="ideas.chat.includeLabel" title="대화를 메시지에 포함"> <span data-i18n="ideas.synopsis.title">전체 줄거리</span> <span class="hint" id="synopsis-meta"></span><span class="hint" id="synopsis-edit-hint" data-i18n="ideas.synopsis.editHintLabel">클릭하여 편집</span></h3>
         <div id="synopsis-view" data-role="ideas.synopsis.view" class="synopsis-view"></div>
       </div>
       <div class="card" data-role="ideas.structure.panel">
-        <h3 class="split"><span><input type="checkbox" class="inc" id="struct-include" data-role="ideas.structure.include-checkbox" checked title="대화를 메시지에 포함"> <button class="linkbtn" id="struct-toggle" data-role="ideas.structure.toggle-btn">▾ 작품 구조</button> <span class="hint">줄거리와 함께 필수</span></span><span class="small muted" id="struct-summary" style="display:none"></span></h3>
+        <h3 class="split"><span><input type="checkbox" class="inc" id="struct-include" data-role="ideas.structure.include-checkbox" checked data-i18n-title="ideas.chat.includeLabel" title="대화를 메시지에 포함"> <button class="linkbtn" id="struct-toggle" data-role="ideas.structure.toggle-btn">▾ 작품 구조</button> <span class="hint" data-i18n="ideas.structure.requiredHint">줄거리와 함께 필수</span></span><span class="small muted" id="struct-summary" style="display:none"></span></h3>
         <div id="struct-collapsed-parts" style="display:none"></div>
         <div id="struct-body">
           <div class="struct-row">
             <select id="st-level" data-role="ideas.structure.level-select">
-              <option value="part">Part(부) 사용</option>
-              <option value="chapter">Chapter(장)만 사용</option>
-              <option value="none">Part·Chapter 사용 안 함</option>
+              <option value="part" data-i18n="ideas.structure.optPart">Part(부) 사용</option>
+              <option value="chapter" data-i18n="ideas.structure.optChapter">Chapter(장)만 사용</option>
+              <option value="none" data-i18n="ideas.structure.optNone">Part·Chapter 사용 안 함</option>
             </select>
-            <label class="f">총 Episode</label>
+            <label class="f" data-i18n="ideas.structure.totalLabel">총 Episode</label>
             <input type="number" id="st-total" data-role="ideas.structure.total-input" value="25" min="1" max="300">
-            <span class="small muted">화</span>
+            <span class="small muted" data-i18n="ideas.structure.episodeUnit">화</span>
           </div>
           <div class="part-mode-row">
-            <label class="f">Part 구성 <span class="hint">각 Part의 개략 요약</span></label>
-            <span class="seg" id="part-mode" data-role="ideas.structure.part-mode"><button data-pmode="one" data-role="ideas.structure.part-mode-one">한줄</button><button data-pmode="flow" data-role="ideas.structure.part-mode-flow">이어서</button><button data-pmode="full" data-role="ideas.structure.part-mode-full">전체</button></span>
+            <label class="f"><span data-i18n="ideas.structure.partsLabel">Part 구성</span> <span class="hint" data-i18n="ideas.structure.partsHint">각 Part의 개략 요약</span></label>
+            <span class="seg" id="part-mode" data-role="ideas.structure.part-mode"><button data-pmode="one" data-role="ideas.structure.part-mode-one" data-i18n="ideas.viewMode.one">한줄</button><button data-pmode="flow" data-role="ideas.structure.part-mode-flow" data-i18n="ideas.viewMode.flow">이어서</button><button data-pmode="full" data-role="ideas.structure.part-mode-full" data-i18n="ideas.viewMode.full">전체</button></span>
           </div>
           <div id="part-list" data-role="ideas.structure.part-list"></div>
           <div class="btn-row">
-            <button class="btn sm" id="btn-part-add" data-role="ideas.structure.part-add-btn">Part 추가</button>
+            <button class="btn sm" id="btn-part-add" data-role="ideas.structure.part-add-btn" data-i18n="ideas.structure.partAdd">Part 추가</button>
             <span class="small muted" id="struct-info"></span>
           </div>
         </div>
       </div>
       <div class="card" data-role="ideas.settings.panel">
-        <h3 class="split"><span class="h3-left"><input type="checkbox" id="setting-all" data-role="ideas.settings.all-checkbox" class="inc" title="모든 설정정보를 메시지에 포함/제외"><span>설정정보 <span class="hint">인물·세계관·사건·Part 이야기</span></span></span>
-          <span class="h3-right"><span class="seg" id="setting-mode" data-role="ideas.settings.view-mode"><button data-mode="one" data-role="ideas.settings.view-mode-one">한줄</button><button data-mode="flow" data-role="ideas.settings.view-mode-flow">이어서</button><button data-mode="full" data-role="ideas.settings.view-mode-full">전체</button></span></span>
+        <h3 class="split"><span class="h3-left"><input type="checkbox" id="setting-all" data-role="ideas.settings.all-checkbox" class="inc" data-i18n-title="ideas.settings.allTitle" title="모든 설정정보를 메시지에 포함/제외"><span><span data-i18n="ideas.settings.title">설정정보</span> <span class="hint" data-i18n="ideas.settings.hint">인물·세계관·사건·Part 이야기</span></span></span>
+          <span class="h3-right"><span class="seg" id="setting-mode" data-role="ideas.settings.view-mode"><button data-mode="one" data-role="ideas.settings.view-mode-one" data-i18n="ideas.viewMode.one">한줄</button><button data-mode="flow" data-role="ideas.settings.view-mode-flow" data-i18n="ideas.viewMode.flow">이어서</button><button data-mode="full" data-role="ideas.settings.view-mode-full" data-i18n="ideas.viewMode.full">전체</button></span></span>
         </h3>
         <div id="setting-list" data-role="ideas.settings.list"></div>
       </div>
       <div class="card" data-role="ideas.handoff.panel">
-        <h3>설계로 인계</h3>
+        <h3 data-i18n="ideas.handoff.title">설계로 인계</h3>
         <div class="btn-row">
           <button class="btn primary" id="btn-handoff" data-role="ideas.handoff.start-btn">아이디어 마무리 → 소설 설계로</button>
         </div>
@@ -535,12 +535,12 @@
 
 <div id="handoff-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="handoff-dialog-title" data-role="ideas.handoff.dialog">
-    <h3 id="handoff-dialog-title">설계로 인계 확인</h3>
+    <h3 id="handoff-dialog-title" data-i18n="ideas.handoff.dialogTitle">설계로 인계 확인</h3>
     <div id="handoff-dialog-error"></div>
     <div id="handoff-preview" data-role="ideas.handoff.preview"></div>
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-handoff-cancel" data-role="ideas.handoff.cancel-btn">취소</button>
-      <button class="btn primary" id="btn-handoff-confirm" data-role="ideas.handoff.confirm-btn">AI로 옮기고 인계하기</button>
+      <button class="btn ghost" id="btn-handoff-cancel" data-role="ideas.handoff.cancel-btn" data-i18n="ideas.handoff.cancel">취소</button>
+      <button class="btn primary" id="btn-handoff-confirm" data-role="ideas.handoff.confirm-btn" data-i18n="ideas.handoff.confirm">AI로 옮기고 인계하기</button>
     </div>
   </div>
 </div>

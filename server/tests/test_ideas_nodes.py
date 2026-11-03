@@ -156,9 +156,10 @@ def test_delete_work_needs_title_and_keeps_logs(client):
                                      "ok": 1, "error": ""})
     conn.commit()
     conn.close()
-    assert c.delete(f"/api/v1/works/{w['uid']}",
-                    json={"title": "엉뚱한 제목"}).status_code == 400
-    r = c.delete(f"/api/v1/works/{w['uid']}", json={"title": w["title"]})
+    assert c.request("DELETE", f"/api/v1/works/{w['uid']}",
+                       json={"title": "엉뚱한 제목"}).status_code == 400
+    r = c.request("DELETE", f"/api/v1/works/{w['uid']}",
+                  json={"title": w["title"]})
     assert r.json()["deleted"] == w["id"]
     assert c.get(f"/api/v1/works/{w['uid']}").status_code == 404
     assert c.get("/api/v1/works").json()["works"] == []

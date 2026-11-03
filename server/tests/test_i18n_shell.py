@@ -32,6 +32,28 @@ OBJVAL_RE = re.compile(r"""^[ \t]*[A-Za-z0-9_]+:[ \t]*["']((?:common|nav|error|h
 ATTR_RE = re.compile(r"""data-i18n(?:-html|-placeholder|-title|-aria-label|-content)?="([^"]+)\"""")
 KOREAN_RE = re.compile(r"[가-힣]")
 
+# index.html blocks owned by other i18n scopes. Each block is covered by its
+# own scope test (e.g. test_i18n_ideas.py covers the ideas section), so the
+# shell scan skips them to keep ownership disjoint.
+# (start marker, end marker, include end marker in the cut)
+NON_SHELL_BLOCKS = [
+    ('<section class="screen" id="ideas"', "</section>", True),
+    ('<div id="handoff-backdrop"', '<div id="ailog-backdrop"', False),
+]
+
+
+def _strip_non_shell_blocks(src):
+    for start_marker, end_marker, include_end in NON_SHELL_BLOCKS:
+        start = src.find(start_marker)
+        if start == -1:
+            continue
+        end = src.find(end_marker, start)
+        if end == -1:
+            continue
+        cut = end + len(end_marker) if include_end else end
+        src = src[:start] + src[cut:]
+    return src
+
 
 def _load(p):
     return json.loads(p.read_text(encoding="utf-8"))
@@ -59,6 +81,8 @@ def _used_keys():
                 keys.add(m.group(1))
     for name in OWNED_HTML:
         src = (ROOT / "frontend" / name).read_text(encoding="utf-8")
+        if name == "index.html":
+            src = _strip_non_shell_blocks(src)
         keys.update(ATTR_RE.findall(src))
         keys.update(T_CALL_RE.findall(src))
     return keys
