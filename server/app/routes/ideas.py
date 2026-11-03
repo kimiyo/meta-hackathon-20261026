@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import design_nodes, ideas, refs as refsmod
+from .. import meta_client as metac
+from .. import prompt_loader
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from ..schemas import ideas as sch
@@ -15,6 +17,12 @@ from .deps import (get_conn, get_current_author, require_thread,
                        require_work)
 
 router = APIRouter(prefix="/api/v1", tags=["ideas"])
+
+
+def _work_locale(work: dict) -> tuple[str, str]:
+    """(writing_locale, market) from a work row; ko-KR/KR fallback."""
+    return (work.get("writing_locale") or "ko-KR",
+            work.get("market") or "KR")
 
 
 def get_meta():
@@ -96,21 +104,23 @@ def _resolve_refs(conn: sqlite3.Connection, work_id: int, refs: list[str],
 
 
 def _normalize_setting_proposals(items: list | None,
-                                 settings: list[dict] = ()) -> list:
+                                 settings: list[dict] = (),
+                                 writing_locale: str = "ko-KR") -> list:
     """Fill blank titles and drop codes that do not belong to this work.
 
     The prompt requires titles, but a blank may still slip through;
-    fall back to the summary head, then to '무제'. A code the model
-    invented would make the button patch nothing, so it is cleared and
-    the proposal becomes a new entry.
+    fall back to the summary head, then to '무제' ('Untitled' for
+    en-US). A code the model invented would make the button patch
+    nothing, so it is cleared and the proposal becomes a new entry.
     """
     known = {s["code"] for s in settings if s.get("code")}
+    untitled = "Untitled" if writing_locale == "en-US" else "무제"
     out = []
     for s in items or []:
         s = dict(s)
         if not (s.get("title") or "").strip():
             head = (s.get("summary") or "").strip().split("\n")[0][:30]
-            s["title"] = head.strip() or "무제"
+            s["title"] = head.strip() or untitled
         code = (s.get("code") or "").strip().upper()
         s["code"] = code if code in known else ""
         out.append(s)
@@ -143,27 +153,37 @@ CTX_LAST = 4000
 INDEX_MAX = 100
 
 
-def _clip(text: str, limit: int) -> tuple[str, bool]:
+def _clip(text: str, limit: int,
+          writing_locale: str = "ko-KR") -> tuple[str, bool]:
     text = text or ""
     if len(text) <= limit:
         return text, False
+    if writing_locale == "en-US":
+        return (text[:limit]
+                + f"\n…({len(text) - limit} chars omitted)", True)
     return text[:limit] + f"\n…(이하 {len(text) - limit}자 생략)", True
 
 
-def _clip_lines(lines: list[str], limit: int) -> list[str]:
+def _clip_lines(lines: list[str], limit: int,
+                writing_locale: str = "ko-KR") -> list[str]:
     """Keep whole lines up to limit; say how many were left out."""
     out, used = [], 0
     for i, ln in enumerate(lines):
         if used + len(ln) > limit:
-            out.append(f"…({len(lines) - i}개 생략)")
+            if writing_locale == "en-US":
+                out.append(f"…({len(lines) - i} omitted)")
+            else:
+                out.append(f"…({len(lines) - i}개 생략)")
             break
         out.append(ln)
         used += len(ln) + 1
     return out
 
 
-def _setting_line(s: dict, full: bool) -> str:
-    head = f"- {s['code'] or '번호없음'} [{s['category']}] {s['title']}"
+def _setting_line(s: dict, full: bool,
+                  writing_locale: str = "ko-KR") -> str:
+    no_code = "unnumbered" if writing_locale == "en-US" else "번호없음"
+    head = f"- {s['code'] or no_code} [{s['category']}] {s['title']}"
     if not full:
         return head
     return f"{head}: {s['summary']}\n  {s['detail']}"
@@ -199,43 +219,59 @@ def _structure_applied(prop: dict, struct: dict) -> bool:
 
 
 def _proposal_digest(m: dict, settings: list[dict], syn: dict,
-                     struct: dict) -> str:
+                     struct: dict, writing_locale: str = "ko-KR") -> str:
     """One line telling the model what it proposed and what was applied.
 
     The reply itself never carries proposal content, so without this the
     next turn cannot know what it suggested or whether the author took it.
     """
     props = m.get("proposals") or {}
+    en = writing_locale == "en-US"
+    applied = "applied" if en else "반영됨"
+    pending = "pending" if en else "미반영"
     bits = []
     sp = []
     for p in props.get("settings") or []:
         s = _find_setting(settings, p)
-        state = "반영됨" if s and _same_setting(s, p) else "미반영"
+        state = applied if s and _same_setting(s, p) else pending
         sp.append(f"[{p.get('category', 'misc')}]{p.get('title', '')}({state})")
     if sp:
-        bits.append("설정 " + ", ".join(sp))
+        bits.append(("Settings " if en else "설정 ") + ", ".join(sp))
     merged = props.get("merge_from") or []
     if merged:
         alive = {s["code"] for s in settings}
         done = all(x["code"] not in alive for x in merged)
-        bits.append("통합 삭제 " + "·".join(x["code"] for x in merged)
-                    + f"({'반영됨' if done else '미반영'})")
+        bits.append(("Merged away " if en else "통합 삭제 ")
+                    + "·".join(x["code"] for x in merged)
+                    + f"({applied if done else pending})")
     sy = props.get("synopsis_proposal") or ""
     if sy:
-        bits.append("줄거리 개정"
-                    f"({'반영됨' if sy == (syn['content'] or '') else '미반영'})")
+        bits.append(("Synopsis revision" if en else "줄거리 개정")
+                    + f"({applied if sy == (syn['content'] or '') else pending})")
     st = props.get("structure")
     if isinstance(st, dict) and any(st.get(k) is not None for k in
                                     ("use_part", "use_chapter",
                                      "total_episodes", "parts")):
         desc = []
         if st.get("total_episodes") is not None:
-            desc.append(f"총 {st['total_episodes']}화")
+            if en:
+                desc.append(f"Total {st['total_episodes']} episodes")
+            else:
+                desc.append(f"총 {st['total_episodes']}화")
         if st.get("parts") is not None:
-            desc.append(f"Part {len(st['parts'])}개")
-        bits.append(f"구조 {'·'.join(desc) or '변경'}"
-                    f"({'반영됨' if _structure_applied(st, struct) else '미반영'})")
-    return f"\n  (이 답변의 제안: {' / '.join(bits)})" if bits else ""
+            if en:
+                desc.append(f"{len(st['parts'])} Parts")
+            else:
+                desc.append(f"Part {len(st['parts'])}개")
+        changed = "changed" if en else "변경"
+        bits.append((f"Structure {'·'.join(desc) or changed}"
+                     if en else f"구조 {'·'.join(desc) or changed}")
+                    + f"({applied if _structure_applied(st, struct) else pending})")
+    if not bits:
+        return ""
+    if en:
+        return f"\n  (This reply proposed: {' / '.join(bits)})"
+    return f"\n  (이 답변의 제안: {' / '.join(bits)})"
 
 
 def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
@@ -244,12 +280,16 @@ def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
                   include_settings: list[int] | None = None,
                   include_messages: list[int] | None = None,
                   include_structure: bool | None = None,
-                  refs: list[str] = []) -> tuple[str, dict]:
+                  refs: list[str] = [],
+                  writing_locale: str = "ko-KR") -> tuple[str, dict]:
     """Build the AI context. None fields keep the legacy behavior.
 
     Returns (text, info); info["synopsis_safe"] is False when the model
     saw no synopsis or a clipped one, so a full rewrite would lose text.
     """
+    en = writing_locale == "en-US"
+    no_code = "unnumbered" if en else "번호없음"
+    none = "(none)" if en else "(없음)"
     if include_messages is None:
         h = max(1, min(history or 12, 50))
         msgs = ideas.list_messages(conn, thread_id, 200)[-h:]
@@ -261,74 +301,110 @@ def _chat_context(conn: sqlite3.Connection, work: dict, thread_id: int, *,
     syn = ideas.get_synopsis(conn, work["id"])
     struct = ideas.parse_structure(work["structure_json"])
     all_settings = ideas.list_settings(conn, work["id"])
-    parts = [f"작품: {work['title']}"]
+    parts = [(f"Work: {work['title']}" if en
+              else f"작품: {work['title']}")]
     if include_structure is None:
-        parts.append(f"현재 구조 결정: {work['structure_json']}")
+        if en:
+            parts.append(f"Current structure: {work['structure_json']}")
+        else:
+            parts.append(f"현재 구조 결정: {work['structure_json']}")
     elif include_structure:
-        plines = [f"Part {'사용' if struct['use_part'] else '미사용'}, "
-                  f"Chapter {'사용' if struct['use_chapter'] else '미사용'}, "
-                  f"총 {struct['total_episodes']}화, "
-                  f"Part {len(struct['parts'])}개"]
+        if en:
+            plines = [f"Part {'enabled' if struct['use_part'] else 'disabled'}, "
+                      f"Chapter {'enabled' if struct['use_chapter'] else 'disabled'}, "
+                      f"Total {struct['total_episodes']} episodes, "
+                      f"{len(struct['parts'])} Parts"]
+        else:
+            plines = [f"Part {'사용' if struct['use_part'] else '미사용'}, "
+                      f"Chapter {'사용' if struct['use_chapter'] else '미사용'}, "
+                      f"총 {struct['total_episodes']}화, "
+                      f"Part {len(struct['parts'])}개"]
         plines += [f"- {p['title']}: {p['summary']}" for p in struct["parts"]]
-        parts.append("[포함된 작품 구조]:\n" + "\n".join(plines))
+        if en:
+            parts.append("[Included work structure]:\n" + "\n".join(plines))
+        else:
+            parts.append("[포함된 작품 구조]:\n" + "\n".join(plines))
     else:
-        parts.append("[작품 구조 미포함]")
+        parts.append("[Work structure excluded]" if en else "[작품 구조 미포함]")
     syn_text = syn["content"] or ""
     if include_synopsis is False:
-        parts.append("[전체 줄거리 미포함]")
+        parts.append("[Full synopsis excluded]" if en else "[전체 줄거리 미포함]")
         syn_safe = not syn_text  # nothing to lose on an empty synopsis
     else:
-        shown, cut = _clip(syn_text, CTX_SYNOPSIS)
-        label = (f"현재 전체 줄거리(v{syn['version']}):" if include_synopsis
-                 is None else "[포함된 전체 줄거리]:")
+        shown, cut = _clip(syn_text, CTX_SYNOPSIS, writing_locale)
+        if en:
+            label = (f"Current full synopsis (v{syn['version']}):"
+                     if include_synopsis is None
+                     else "[Included full synopsis]:")
+        else:
+            label = (f"현재 전체 줄거리(v{syn['version']}):" if include_synopsis
+                     is None else "[포함된 전체 줄거리]:")
         if cut:
-            label += " (뒷부분 생략됨: 줄거리 전문 개정 금지)"
+            label += (" (tail clipped: no full-synopsis rewrite)" if en
+                      else " (뒷부분 생략됨: 줄거리 전문 개정 금지)")
         parts.append(f"{label}\n{shown}")
         syn_safe = not cut
     skip: set[int] = set()
     if include_settings is None:
         picked = all_settings[:30]
-        parts.append("설정정보:")
-        parts += [f"- {s['code'] or '번호없음'} [{s['category']}] {s['title']}:"
-                  f" {s['summary']}" for s in picked] or ["(없음)"]
+        parts.append("Settings:" if en else "설정정보:")
+        parts += [f"- {s['code'] or no_code} [{s['category']}] {s['title']}:"
+                  f" {s['summary']}" for s in picked] or [none]
     else:
         want_ids = set(include_settings)
         picked = [s for s in all_settings if s["id"] in want_ids]
-        parts.append("[포함된 설정정보]:")
-        parts += _clip_lines([_setting_line(s, True) for s in picked],
-                             CTX_SETTINGS) or ["(선택 없음)"]
+        parts.append("[Included settings]:" if en else "[포함된 설정정보]:")
+        parts += _clip_lines([_setting_line(s, True, writing_locale)
+                              for s in picked],
+                             CTX_SETTINGS, writing_locale) or \
+            [("(nothing selected)" if en else "(선택 없음)")]
         rest = [s for s in all_settings if s["id"] not in want_ids]
         if rest:
-            parts.append("[다른 기존 설정 목록(제목만)]:")
-            parts += _clip_lines([_setting_line(s, False)
-                                  for s in rest[:INDEX_MAX]], CTX_INDEX)
+            if en:
+                parts.append("[Other existing settings (titles only)]:")
+            else:
+                parts.append("[다른 기존 설정 목록(제목만)]:")
+            parts += _clip_lines([_setting_line(s, False, writing_locale)
+                                  for s in rest[:INDEX_MAX]], CTX_INDEX,
+                                 writing_locale)
     skip = {s["id"] for s in picked}
     if refs:
         sl, nl, unk = _resolve_refs(conn, work["id"], list(refs), skip)
         if sl or nl or unk:
-            parts.append("[@언급]:")
+            parts.append("[@Mentions]:" if en else "[@언급]:")
             parts += sl + nl
             if unk:
-                parts.append(f"(확인 불가: {', '.join(unk)})")
+                if en:
+                    parts.append(f"(unresolvable: {', '.join(unk)})")
+                else:
+                    parts.append(f"(확인 불가: {', '.join(unk)})")
+    author = "Author" if en else "작가"
     convo = []
     for m in msgs[:-1]:
         if m["role"] == "user":
-            convo.append(f"작가: {m['content']}")
+            convo.append(f"{author}: {m['content']}")
         else:
             convo.append(f"AI: {m['content']}"
-                         + _proposal_digest(m, all_settings, syn, struct))
+                         + _proposal_digest(m, all_settings, syn, struct,
+                                            writing_locale))
     # Older turns go first when over budget; the latest question stays whole.
     convo.reverse()
-    convo = _clip_lines(convo, CTX_CONVO)
+    convo = _clip_lines(convo, CTX_CONVO, writing_locale)
     convo.reverse()
     if msgs:
         last = msgs[-1]
-        who = "작가" if last["role"] == "user" else "AI"
+        who = author if last["role"] == "user" else "AI"
         digest = "" if last["role"] == "user" else \
-            _proposal_digest(last, all_settings, syn, struct)
-        convo.append(f"{who}: {_clip(last['content'], CTX_LAST)[0]}{digest}")
-    convo_label = "최근 대화:" if include_messages is None else "[포함된 대화]:"
-    parts += ["", convo_label] + (convo or ["(없음)"])
+            _proposal_digest(last, all_settings, syn, struct, writing_locale)
+        convo.append(
+            f"{who}: {_clip(last['content'], CTX_LAST, writing_locale)[0]}"
+            f"{digest}")
+    if en:
+        convo_label = ("Recent conversation:" if include_messages is None
+                       else "[Included conversation]:")
+    else:
+        convo_label = ("최근 대화:" if include_messages is None else "[포함된 대화]:")
+    parts += ["", convo_label] + (convo or [none])
     return "\n".join(parts), {"synopsis_safe": syn_safe}
 
 
@@ -343,6 +419,7 @@ def post_message(thread_id: int, body: MessageIn,
     content = (body.content or "").strip()
     if not content:
         raise HTTPException(400, "content must not be blank")
+    writing_locale, market = _work_locale(w)
     user_msg = ideas.add_message(conn, thread_id, "user", content, body.refs)
     ctx, info = _chat_context(
         conn, w, thread_id, user_msg=user_msg,
@@ -350,16 +427,27 @@ def post_message(thread_id: int, body: MessageIn,
         include_synopsis=body.include_synopsis,
         include_settings=body.include_settings,
         include_messages=body.include_messages,
-        include_structure=body.include_structure, refs=body.refs)
+        include_structure=body.include_structure, refs=body.refs,
+        writing_locale=writing_locale)
     try:
-        out = meta.chat_json(
-            bundle="idea_chat", episode=None, system=CHAT_PROMPT,
+        system = prompt_loader.load(
+            "ideas_chat", writing_locale, market).text
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
+    preset_id, preset_version = metac.preset_ref(conn, w["id"])
+    try:
+        out = metac.chat_with_provenance(
+            meta, bundle="idea_chat", episode=None, system=system,
             work_id=w["id"], user=ctx, schema=sch.IdeaChatOut,
-            max_tokens=IDEA_MAX_TOKENS)
+            max_tokens=IDEA_MAX_TOKENS,
+            writing_locale=writing_locale, market=market,
+            prompt_feature="ideas_chat",
+            preset_id=preset_id, preset_version=preset_version)
     except LLMStepError as e:
         raise HTTPException(502, f"idea_chat failed: {e.reason} {e.detail}")
     settings = ideas.list_settings(conn, w["id"])
-    sps = _normalize_setting_proposals(out.get("settings", []), settings)
+    sps = _normalize_setting_proposals(out.get("settings", []), settings,
+                                       writing_locale)
     syn_prop = out.get("synopsis_proposal", "")
     # A full rewrite from a missing/clipped synopsis would delete text.
     syn_blocked = bool(syn_prop) and not info["synopsis_safe"]
@@ -541,24 +629,50 @@ def extract(key: str, body: ExtractIn,
     else:
         _thread(conn, thread_id, author["id"])
     msgs = ideas.list_messages(conn, thread_id, 200)[-body.limit:]
+    writing_locale, market = _work_locale(w)
+    en = writing_locale == "en-US"
+    author = "Author" if en else "작가"
+    no_code = "unnumbered" if en else "번호없음"
     syn = ideas.get_synopsis(conn, w["id"])
     settings = ideas.list_settings(conn, w["id"])[:30]
-    lines = [f"{'작가' if m['role'] == 'user' else 'AI'}: {m['content']}"
+    lines = [f"{author if m['role'] == 'user' else 'AI'}: {m['content']}"
              for m in msgs][::-1]
-    convo = "\n".join(_clip_lines(lines, CTX_CONVO)[::-1]) or "(대화 없음)"
-    user = (f"작품: {w['title']}\n현재 구조 결정: {w['structure_json']}\n"
-            f"현재 전체 줄거리(v{syn['version']}):\n"
-            f"{_clip(syn['content'], CTX_SYNOPSIS)[0]}\n"
-            f"현재 설정정보:\n" + ("\n".join(_clip_lines(
-                [f"- {s['code'] or '번호없음'} [{s['category']}] {s['title']}:"
-                 f" {s['summary']}" for s in settings], CTX_SETTINGS))
-                or "(없음)") +
-            f"\n\n분석할 대화:\n{convo}")
+    convo = "\n".join(_clip_lines(lines, CTX_CONVO,
+                                  writing_locale)[::-1]) or \
+        ("(no conversation)" if en else "(대화 없음)")
+    if en:
+        user = (f"Work: {w['title']}\n"
+                f"Current structure: {w['structure_json']}\n"
+                f"Current full synopsis (v{syn['version']}):\n"
+                f"{_clip(syn['content'], CTX_SYNOPSIS, writing_locale)[0]}\n"
+                f"Current settings:\n" + ("\n".join(_clip_lines(
+                    [f"- {s['code'] or no_code} [{s['category']}]"
+                     f" {s['title']}: {s['summary']}" for s in settings],
+                    CTX_SETTINGS, writing_locale))
+                    or "(none)") +
+                f"\n\nConversation to analyze:\n{convo}")
+    else:
+        user = (f"작품: {w['title']}\n현재 구조 결정: {w['structure_json']}\n"
+                f"현재 전체 줄거리(v{syn['version']}):\n"
+                f"{_clip(syn['content'], CTX_SYNOPSIS)[0]}\n"
+                f"현재 설정정보:\n" + ("\n".join(_clip_lines(
+                    [f"- {s['code'] or '번호없음'} [{s['category']}] {s['title']}:"
+                     f" {s['summary']}" for s in settings], CTX_SETTINGS))
+                    or "(없음)") +
+                f"\n\n분석할 대화:\n{convo}")
     try:
-        return meta.chat_json(bundle="idea_extract", episode=None,
-                              system=EXTRACT_PROMPT, user=user,
-                              schema=sch.ExtractOut, max_tokens=IDEA_MAX_TOKENS,
-                              work_id=w["id"])
+        system = prompt_loader.load(
+            "ideas_extract", writing_locale, market).text
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
+    preset_id, preset_version = metac.preset_ref(conn, w["id"])
+    try:
+        return metac.chat_with_provenance(
+            meta, bundle="idea_extract", episode=None, system=system,
+            user=user, schema=sch.ExtractOut, max_tokens=IDEA_MAX_TOKENS,
+            work_id=w["id"], writing_locale=writing_locale, market=market,
+            prompt_feature="ideas_extract",
+            preset_id=preset_id, preset_version=preset_version)
     except LLMStepError as e:
         raise HTTPException(502, f"idea_extract failed: {e.reason} {e.detail}")
 
@@ -566,17 +680,32 @@ def extract(key: str, body: ExtractIn,
 # ---------------------------------------------------------------- handoff
 
 def _handoff_user_text(w: dict, structure: dict, syn: dict,
-                       settings: list) -> str:
-    levels = " / ".join(
-        ((["Part(부)"] if structure["use_part"] else []) +
-         (["Chapter(장)"] if structure["use_chapter"] else []) +
-         ["Episode(화)"]))
+                       settings: list,
+                       writing_locale: str = "ko-KR") -> str:
+    en = writing_locale == "en-US"
+    if en:
+        level_names = ((["Part"] if structure["use_part"] else []) +
+                       (["Chapter"] if structure["use_chapter"] else []) +
+                       ["Episode"])
+    else:
+        level_names = ((["Part(부)"] if structure["use_part"] else []) +
+                       (["Chapter(장)"] if structure["use_chapter"] else []) +
+                       ["Episode(화)"])
+    levels = " / ".join(level_names)
+    no_code = "unnumbered" if en else "번호없음"
     parts_txt = "\n".join(f"- {p['title']}: {p['summary']}"
-                          for p in structure["parts"]) or "(Part 미정)"
+                          for p in structure["parts"]) or \
+        ("(Parts undecided)" if en else "(Part 미정)")
     settings_txt = "\n".join(
-        f"- [{s['code'] or '번호없음'}|{s['category']}] {s['title']}:"
+        f"- [{s['code'] or no_code}|{s['category']}] {s['title']}:"
         f" {s['summary']}" + (f" / {s['detail']}" if s["detail"] else "")
-        for s in settings) or "(설정 없음)"
+        for s in settings) or ("(no settings)" if en else "(설정 없음)")
+    if en:
+        return (f"Work: {w['title']}\nWork structure: {levels},"
+                f" {structure['total_episodes']} episodes total\n"
+                f"Parts:\n{parts_txt}\n\nFull synopsis:\n"
+                f"{syn['content'] or '(none)'}\n\nSettings:\n"
+                f"{settings_txt}")[:12000]
     return (f"작품: {w['title']}\n작품 구조: {levels},"
             f" 총 {structure['total_episodes']}화\n"
             f"Part 목록:\n{parts_txt}\n\n전체 줄거리:\n"
@@ -592,24 +721,39 @@ def handoff_preview(key: str,
     w = _work(conn, key, author["id"])
     if w["ideas_locked"]:
         raise HTTPException(409, "ideas already handed off (read-only)")
+    writing_locale, market = _work_locale(w)
+    en = writing_locale == "en-US"
     structure = ideas.parse_structure(w["structure_json"])
     syn = ideas.get_synopsis(conn, w["id"])
     settings = ideas.list_settings(conn, w["id"])
-    user = _handoff_user_text(w, structure, syn, settings)
+    user = _handoff_user_text(w, structure, syn, settings, writing_locale)
     try:
-        plan = meta.chat_json(bundle="handoff_migrate", episode=None,
-                              system=HANDOFF_PROMPT, user=user,
-                              schema=sch.HandoffOut, max_tokens=16000,
-                              work_id=w["id"])
+        system = prompt_loader.load(
+            "handoff_migrate", writing_locale, market).text
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
+    preset_id, preset_version = metac.preset_ref(conn, w["id"])
+    try:
+        plan = metac.chat_with_provenance(
+            meta, bundle="handoff_migrate", episode=None, system=system,
+            user=user, schema=sch.HandoffOut, max_tokens=16000,
+            work_id=w["id"], writing_locale=writing_locale, market=market,
+            prompt_feature="handoff_migrate",
+            preset_id=preset_id, preset_version=preset_version)
     except LLMStepError as e:
         raise HTTPException(
             502, f"handoff_migrate failed: {e.reason} {e.detail}")
     tree, counts = ideas.build_migration_tree(structure, plan)
     row = conn.execute("SELECT COALESCE(MAX(version),0) v FROM story_designs"
                        " WHERE work_id=?", (w["id"],)).fetchone()
-    levels = ((["Part(부)"] if structure["use_part"] else []) +
-              (["Chapter(장)"] if structure["use_chapter"] else []) +
-              ["Episode(화)"])
+    if en:
+        levels = ((["Part"] if structure["use_part"] else []) +
+                  (["Chapter"] if structure["use_chapter"] else []) +
+                  ["Episode"])
+    else:
+        levels = ((["Part(부)"] if structure["use_part"] else []) +
+                  (["Chapter(장)"] if structure["use_chapter"] else []) +
+                  ["Episode(화)"])
     return {"title": w["title"], "design_version": row["v"] + 1,
             "levels": levels, "tree": tree, "counts": counts,
             "plan": plan, "locked_after": True,

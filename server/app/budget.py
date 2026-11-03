@@ -7,6 +7,28 @@ from datetime import datetime, timezone
 from .db import now_iso
 from .errors import BudgetExceeded
 
+# English output-budget basis (plan §8.1). INTERIM, pending real model
+# measurement: ceil(words_max * 9/5) = 1.3 validation overshoot x ~1.35
+# output tokens per English word, plus headroom because max_tokens also
+# covers reasoning. Do NOT tune this ratio from Korean char data — the
+# per-word rate must be re-measured on real English drafts (target
+# lengths, output tokens, retry rate) before launch, and the EN default
+# episode length itself is still undecided (plan §8.1: no mechanical
+# char→word conversion). Kept separate from the KR char basis in
+# drafting.BUDGET_NUM/BUDGET_DEN so each market's math stays explicit.
+EN_BUDGET_NUM, EN_BUDGET_DEN = 9, 5
+
+
+def en_draft_output_budget(words_max: int, floor: int = 8000) -> int:
+    """Ceiling-only output budget for an English (words-unit) draft.
+
+    Mirrors drafting.draft_output_budget on the interim EN basis above.
+    Actual spend is unchanged when text is short; only the ceiling moves.
+    """
+    return max(floor,
+               (words_max * EN_BUDGET_NUM + EN_BUDGET_DEN - 1)
+               // EN_BUDGET_DEN)
+
 
 def record_llm_call(conn: sqlite3.Connection, record: dict) -> None:
     conn.execute(

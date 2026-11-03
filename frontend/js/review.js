@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { t } from "./i18n.js";
 import { $, esc, showError, showToast, stateKo, severityKo, issueStatusKo, verdictKo, kindKo, modeKo, historyTimelineHtml } from "./util.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
 import { mountManuscriptPanel } from "./manuscript.js";
@@ -69,14 +70,14 @@ function updateMemoryButtons() {
 function openResetConfirm() {
   const s = pending?.committed_summary ?? {};
   const bits = [];
-  if (s.changes) bits.push(`변경 ${s.changes}건`);
-  if (s.events) bits.push(`사건 ${s.events}건`);
-  if (s.aliases) bits.push(`별명 ${s.aliases}건`);
+  if (s.changes) bits.push(t("review.reset.changes", { n: s.changes }));
+  if (s.events) bits.push(t("review.reset.events", { n: s.events }));
+  if (s.aliases) bits.push(t("review.reset.aliases", { n: s.aliases }));
   $("reset-confirm-msg").textContent = (bits.length
-    ? `이번 화의 저장된 설정 기억(${bits.join("·")})과 추출 이력을 모두 삭제합니다.`
-    : `임시 추출안을 삭제합니다.`)
-    + (issues.length ? ` 이슈 ${issues.length}건도 함께 삭제됩니다.` : "")
-    + ` 되돌릴 수 없습니다.`;
+    ? t("review.reset.savedMemory", { bits: bits.join("·") })
+    : t("review.reset.draftOnly"))
+    + (issues.length ? " " + t("review.reset.issuesNote", { n: issues.length }) : "")
+    + " " + t("review.reset.irreversible");
   $("reset-confirm-backdrop").style.display = "";
 }
 
@@ -92,10 +93,10 @@ function updateConsistencyResetButton() {
 
 function openReviewResetConfirm() {
   const bits = [];
-  if (issues.length) bits.push(`이슈 ${issues.length}건`);
-  if (analysis) bits.push("분석 기록");
+  if (issues.length) bits.push(t("review.consistencyReset.issues", { n: issues.length }));
+  if (analysis) bits.push(t("review.consistencyReset.analysis"));
   $("consistency-reset-confirm-msg").textContent =
-    `이번 화의 ${bits.join("·")}를 삭제합니다. 되돌릴 수 없습니다.`;
+    t("review.consistencyReset.message", { bits: bits.join("·") }) + " " + t("review.reset.irreversible");
   $("consistency-reset-confirm-backdrop").style.display = "";
 }
 
@@ -122,11 +123,11 @@ async function doReviewReset() {
 }
 
 async function doExtract() {
-  $("btn-entity-extract").textContent = "추출 중…";
+  $("btn-entity-extract").textContent = t("review.memory.extracting");
   try {
     await api.extractEntities(currentEp(), null, currentWorkKey());
   } finally {
-    $("btn-entity-extract").textContent = "설정 추출 실행";
+    $("btn-entity-extract").textContent = t("review.memory.extractRun");
     await reloadMemoryPanel();
   }
 }
@@ -164,15 +165,14 @@ function updateFixSelectedButton() {
   const btn = $("btn-fix-selected");
   if (!btn) return;
   const n = selectedFixIds().length;
-  const label = "선택된 모순 AI 수정 및 집필로 이동";
-  btn.textContent = busy ? "수정 중…" : (n ? `${label} (${n}건)` : label);
+  const label = t("review.fix.label");
+  btn.textContent = busy ? t("review.fix.fixing") : (n ? label + t("review.fix.countSuffix", { n }) : label);
   btn.disabled = busy || !inReview() || n === 0;
 }
 
 function openFixConfirm() {
   const n = selectedFixIds().length;
-  $("fix-confirm-msg").textContent =
-    `선택된 ${n}건을 AI가 수정합니다. 집필중으로 전환되고 '일관성 ${n}건 AI 수정' 새 버전이 저장되며, 선택 이슈는 수정 완료로 마감됩니다.`;
+  $("fix-confirm-msg").textContent = t("review.fix.confirm", { n });
   $("fix-confirm-backdrop").style.display = "";
 }
 
@@ -180,10 +180,10 @@ async function doFixSelected() {
   const ids = selectedFixIds();
   if (!ids.length) return;
   const btn = $("btn-fix-selected");
-  if (btn) btn.textContent = "수정 중…";
+  if (btn) btn.textContent = t("review.fix.fixing");
   try {
     const out = await api.manuscriptFix(currentEp(), ids, currentWorkKey());
-    showToast(`일관성 ${out.fixed_issue_ids?.length ?? ids.length}건 수정 완료, 집필로 이동합니다`);
+    showToast(t("review.fix.doneToast", { n: out.fixed_issue_ids?.length ?? ids.length }));
     const w = getWork();
     const ep = currentEp();
     go(novelPath(w.uid || w.id, "monitor"));
@@ -236,7 +236,7 @@ function jumpToEvidence(quote, revisionId) {
   if (!msPanel || !quote) return;
   const found = msPanel.jumpToQuote(quote, revisionId ?? null);
   if (!found) {
-    showError("review-error", "현재 원고에서 해당 구간을 찾지 못했습니다(다른 회차 근거일 수 있습니다).");
+    showError("review-error", t("review.evidenceNotFound"));
   } else {
     showError("review-error", "");
   }
@@ -245,11 +245,11 @@ function jumpToEvidence(quote, revisionId) {
 async function load(epNo) {
   const wk = currentWorkKey();
   if (!wk) {
-    showError("review-error", "작품을 먼저 선택하세요.");
+    showError("review-error", t("review.needWork"));
     return;
   }
   if (!Number.isInteger(epNo) || epNo < 1) {
-    showError("review-error", "유효한 회차 번호를 입력하세요.");
+    showError("review-error", t("review.needEp"));
     return;
   }
   const j = await api.episode(epNo, wk);
@@ -292,32 +292,34 @@ function renderNotice() {
     const saved = pending?.saved_set;
     const revId = job.manuscript_revision_id;
     if (pset && pset.manuscript_revision_id === revId) {
-      conds.push("미저장 변경 있음(저장 필요)");
+      conds.push(t("review.notice.unsavedChanges"));
     } else if (!saved || saved.manuscript_revision_id !== revId) {
-      conds.push("추출 필요");
+      conds.push(t("review.notice.needExtract"));
     }
     if (!analysis) {
-      conds.push("일관성 분석 전");
+      conds.push(t("review.notice.beforeAnalysis"));
     } else if (analysis.status === "partial") {
-      conds.push("분석 부분 완료(AI 실패)");
+      conds.push(t("review.notice.partial"));
     } else if (analysis.status === "failed") {
-      conds.push("분석 실패");
+      conds.push(t("review.notice.failed"));
     } else if (analysis.status === "skipped") {
-      conds.push("분석 건너뜀(비교 대상 없음)");
+      conds.push(t("review.notice.skipped"));
     } else if (analysis.manuscript_revision_id !== revId) {
-      conds.push("분석이 낡음(원고 변경됨)");
+      conds.push(t("review.notice.stale"));
     }
-    if (open > 0) conds.push(`열린 이슈 ${open}건`);
-    preconditions = conds.length ? ` — 발간 전 확인: ${esc(conds.join(" · "))}` : " — 발간 가능";
-    box.innerHTML = `<div class="notice ok"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — 열린 이슈 ${open}건. 수정이 필요하면 집필중으로 돌아가세요. 문제없으면 발간요청을 누르세요.${preconditions}</div>`;
+    if (open > 0) conds.push(t("review.notice.openIssues", { n: open }));
+    preconditions = conds.length
+      ? esc(t("review.notice.precheck", { conds: conds.join(" · ") }))
+      : t("review.notice.publishable");
+    box.innerHTML = `<div class="notice ok"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — ${esc(t("review.notice.inReviewBody", { open }))}${preconditions}</div>`;
   } else if (job.state === "PUBLISHING") {
-    box.innerHTML = `<div class="notice"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — 발간된 회차입니다. 읽기 전용입니다.</div>`;
+    box.innerHTML = `<div class="notice"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — ${t("review.notice.publishedBody")}</div>`;
   } else if (job.needs_attention) {
-    box.innerHTML = `<div class="notice err"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — ${esc(job.last_error || "확인이 필요합니다.")}</div>`;
+    box.innerHTML = `<div class="notice err"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — ${esc(job.last_error || t("review.notice.attentionFallback"))}</div>`;
   } else {
-    box.innerHTML = `<div class="notice warn"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — 집필중인 회차입니다. 집필 화면에서 검토를 요청하세요.</div>`;
+    box.innerHTML = `<div class="notice warn"><b>EP ${esc(job.episode_no)} · ${stateKo(job.state)}</b> — ${t("review.notice.writingBody")}</div>`;
   }
-  $("review-state").innerHTML = `상태: <b>${esc(stateKo(job.state))}</b>`;
+  $("review-state").innerHTML = t("review.notice.stateLabel", { state: esc(stateKo(job.state)) });
 }
 
 function renderMessages() {
@@ -337,25 +339,46 @@ function renderMessages() {
 function renderAnalysis() {
   const box = $("analysis-status");
   if (!analysis) {
-    box.innerHTML = `<span class="muted small">분석 전입니다. 전체 분석 실행을 눌러주세요.</span>`;
+    box.innerHTML = `<span class="muted small">${t("review.analysis.beforeAnalysis")}</span>`;
     return;
   }
   const counts = (() => { try { return JSON.parse(analysis.counts_json || "{}"); } catch { return {}; } })();
   const cov = (() => { try { return JSON.parse(analysis.coverage_json || "{}"); } catch { return {}; } })();
-  const statusKo = { completed: "분석 완료", partial: "부분 완료", failed: "분석 실패", skipped: "건너뜀" }[analysis.status] ?? analysis.status;
-  const CHECK_KO = { check_count_limits: "횟수 제한", check_death: "사망 후 행동", check_exclusive_location: "배타적 위치", check_state_clash: "상태 충돌" };
+  const statusKo = {
+    completed: t("review.analysis.status.completed"),
+    partial: t("review.analysis.status.partial"),
+    failed: t("review.analysis.status.failed"),
+    skipped: t("review.analysis.status.skipped"),
+  }[analysis.status] ?? analysis.status;
+  const CHECK_KO = {
+    check_count_limits: t("review.analysis.check.countLimits"),
+    check_death: t("review.analysis.check.death"),
+    check_exclusive_location: t("review.analysis.check.exclusiveLocation"),
+    check_state_clash: t("review.analysis.check.stateClash"),
+  };
   const ruleChecks = cov.rule_checks ?? [];
   const failedChecks = ruleChecks.filter((r) => r.status !== "completed");
   const ruleSummary = !ruleChecks.length ? ""
-    : failedChecks.length ? ` · 확정검사 ${ruleChecks.length}건 중 ${failedChecks.length}건 실패(${failedChecks.map((r) => esc(CHECK_KO[r.check] ?? r.check)).join(", ")})`
-    : ` · 확정검사 ${ruleChecks.length}건 완료`;
-  const prev = cov.prev_manuscript ? `EP ${esc(cov.prev_manuscript.episode_no)} 원문${cov.prev_manuscript.approved ? "(발간본)" : "(최신본)"} + ` : "";
+    : failedChecks.length ? " · " + t("review.analysis.ruleFailed", {
+        total: ruleChecks.length,
+        failed: failedChecks.length,
+        names: failedChecks.map((r) => esc(CHECK_KO[r.check] ?? r.check)).join(", "),
+      })
+    : " · " + t("review.analysis.ruleOk", { total: ruleChecks.length });
+  const prev = cov.prev_manuscript ? t("review.analysis.prevSource", {
+    ep: esc(cov.prev_manuscript.episode_no),
+    edition: cov.prev_manuscript.approved
+      ? t("review.analysis.editionApproved")
+      : t("review.analysis.editionLatest"),
+  }) + " " : "";
   box.innerHTML = `<span class="chip">${esc(statusKo)}</span> ` +
-    `<span class="small muted">${prev ? `비교 범위: ${prev}확정 기억` : "비교 범위: 확정 기억"}` +
-    (cov.entity_groups ? ` · 설정 묶음 ${esc(cov.entity_groups)}개` : "") +
-    ` · 규칙 ${esc(counts.rule ?? 0)}건 · AI ${esc(counts.ai ?? 0)}건 · 저장 ${esc(counts.saved ?? issues.length)}건` +
-    (counts.accepted_explained ? ` (설명됨 ${esc(counts.accepted_explained)}건 수용)` : "") +
-    ` · 제외 ${esc(counts.dropped ?? 0)}건` +
+    `<span class="small muted">${prev ? t("review.analysis.scopeWithPrev", { prev }) : t("review.analysis.scopeBase")}` +
+    (cov.entity_groups ? " · " + t("review.analysis.groups", { n: esc(cov.entity_groups) }) : "") +
+    " · " + t("review.analysis.counts", {
+      rule: esc(counts.rule ?? 0), ai: esc(counts.ai ?? 0), saved: esc(counts.saved ?? issues.length),
+    }) +
+    (counts.accepted_explained ? " " + t("review.analysis.accepted", { n: esc(counts.accepted_explained) }) : "") +
+    " · " + t("review.analysis.dropped", { n: esc(counts.dropped ?? 0) }) +
     ruleSummary +
     (cov.reason ? ` · ${esc(cov.reason)}` : "") +
     (analysis.error ? ` · ${esc(analysis.error.slice(0, 120))}` : "") + `</span>`;
@@ -364,11 +387,11 @@ function renderAnalysis() {
 function renderIssues() {
   const box = $("issue-list");
   const open = issues.filter((i) => i.status === "open").length;
-  $("issue-count").textContent = `열린 이슈 ${open}건 / 전체 ${issues.length}건`;
+  $("issue-count").textContent = t("review.issues.count", { open, total: issues.length });
   updateConsistencyResetButton();
   renderAnalysis();
   if (!issues.length) {
-    box.innerHTML = `<span class="muted small">등록된 이슈가 없습니다.</span>`;
+    box.innerHTML = `<span class="muted small">${t("review.issues.empty")}</span>`;
     return;
   }
   box.innerHTML = issues.map((it) => {
@@ -377,21 +400,21 @@ function renderIssues() {
     return `
     <div class="issue-card" data-issue="${it.issue_id}" data-status="${esc(it.status)}">
       <div class="issue-head">
-        ${it.status === "open" ? `<input type="checkbox" data-issue-sel="${it.issue_id}" title="AI 수정 대상으로 선택"${inReview() ? "" : " disabled"}>` : ""}
+        ${it.status === "open" ? `<input type="checkbox" data-issue-sel="${it.issue_id}" title="${t("review.issues.selectTitle")}"${inReview() ? "" : " disabled"}>` : ""}
         <span class="sev-${esc(it.severity)}">${esc(severityKo(it.severity))}</span>
-        <span class="title">${esc(it.title || "(제목 없음)")}</span>
+        <span class="title">${esc(it.title || t("review.issues.untitled"))}</span>
         <span class="issue-status">${esc(issueStatusKo(it.status))}</span>
       </div>
-      <div class="small muted">판정: <b>${esc(verdictKo(it.verdict))}</b>${refs.length ? ` · 관련 사실 #${refs.map((r) => esc(r)).join(", #")}` : ""}</div>
+      <div class="small muted">${t("review.issues.verdict")} <b>${esc(verdictKo(it.verdict))}</b>${refs.length ? " · " + t("review.issues.relatedFacts", { refs: refs.map((r) => esc(r)).join(", #") }) : ""}</div>
       ${it.detail ? `<div class="issue-detail">${esc(it.detail)}</div>` : ""}
-      ${it.manuscript_quote ? `<div class="quote-box"><span class="src">원고 인용</span>${esc(it.manuscript_quote)} <button class="btn sm ghost" data-jump data-role="review.issues.jump-btn" data-quote="${esc(it.manuscript_quote.slice(0, 200))}" data-rev="${it.manuscript_revision_id ?? ""}">원고 이동</button></div>` : ""}
-      ${it.evidence_quote ? `<div class="quote-box"><span class="src">근거${it.evidence_episode ? ` · EP ${esc(it.evidence_episode)}` : ""}${it.entity_id ? ` · ${esc(it.entity_id)}` : ""}</span>${esc(it.evidence_quote)}</div>` : ""}
+      ${it.manuscript_quote ? `<div class="quote-box"><span class="src">${t("review.issues.msQuote")}</span>${esc(it.manuscript_quote)} <button class="btn sm ghost" data-jump data-role="review.issues.jump-btn" data-quote="${esc(it.manuscript_quote.slice(0, 200))}" data-rev="${it.manuscript_revision_id ?? ""}">${t("review.issues.jumpBtn")}</button></div>` : ""}
+      ${it.evidence_quote ? `<div class="quote-box"><span class="src">${t("review.issues.evidence")}${it.evidence_episode ? " · " + t("review.issues.evidenceEp", { ep: esc(it.evidence_episode) }) : ""}${it.entity_id ? ` · ${esc(it.entity_id)}` : ""}</span>${esc(it.evidence_quote)}</div>` : ""}
       <div class="btn-row">
         ${it.status === "open"
-          ? `<button class="btn sm" data-fixed>수정 완료</button>
-             <button class="btn sm ghost" data-accepted>의도적 수용</button>
-             <button class="btn sm ghost" data-dismissed>오탐 기각</button>`
-          : `<button class="btn sm ghost" data-reopen>다시 열기</button>`}
+          ? `<button class="btn sm" data-fixed>${t("review.issues.fixDone")}</button>
+             <button class="btn sm ghost" data-accepted>${t("review.issues.accept")}</button>
+             <button class="btn sm ghost" data-dismissed>${t("review.issues.dismiss")}</button>`
+          : `<button class="btn sm ghost" data-reopen>${t("review.issues.reopen")}</button>`}
       </div>
     </div>`;
   }).join("");
@@ -433,20 +456,20 @@ function displayValue(v) {
 const TRASH_SVG = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 4h12M6 4V2.5h4V4M4 4l.7 10h6.6L12 4M6.5 7v4M9.5 7v4"/></svg>`;
 
 function proposalItemsHtml(items, readonly = false) {
-  if (!items.length) return `<li><span class="muted small">변경 항목 없음</span></li>`;
+  if (!items.length) return `<li><span class="muted small">${t("review.memory.noChanges")}</span></li>`;
   return items.map((it) => `
     <li><div class="pev-head"><span>
       <span class="chip">${esc(kindKo(it.kind))}</span>
-      <b>${esc(it.entity_id || it.candidate_name || "(미지정)")}</b>
+      <b>${esc(it.entity_id || it.candidate_name || t("review.memory.unspecified"))}</b>
       ${it.attribute_path ? `<span class="small muted">${esc(it.attribute_path)}</span>` : ""}
       ${it.story_time ? `<span class="chip">${esc(it.story_time)}</span>` : ""}
       ${(it.narrative_mode && it.narrative_mode !== "narration") ? `<span class="small muted">${esc(modeKo(it.narrative_mode))}</span>` : ""}
-      ${it.validation === "deferred" ? `<span class="small muted">(근거 미확인·제외)</span>` : ""}
-      ${it.validation === "stale" ? `<span class="small muted">(낡음·재추출 필요)</span>` : ""}</span>
-      <span><button class="btn sm ghost pev-del" data-jump data-role="review.memory.item-jump-btn" data-quote="${esc((it.evidence_quote || "").slice(0, 200))}" title="원고에서 근거 보기">이동</button>${readonly ? "" : `
-      <button class="btn sm ghost pev-del" data-del-item="${it.item_id}" data-role="review.memory.item-del-btn" title="이 항목 삭제">${TRASH_SVG}</button>`}</span></div>
+      ${it.validation === "deferred" ? `<span class="small muted">${t("review.memory.deferred")}</span>` : ""}
+      ${it.validation === "stale" ? `<span class="small muted">${t("review.memory.stale")}</span>` : ""}</span>
+      <span><button class="btn sm ghost pev-del" data-jump data-role="review.memory.item-jump-btn" data-quote="${esc((it.evidence_quote || "").slice(0, 200))}" title="${t("review.memory.viewEvidenceTitle")}">${t("review.memory.jumpBtn")}</button>${readonly ? "" : `
+      <button class="btn sm ghost pev-del" data-del-item="${it.item_id}" data-role="review.memory.item-del-btn" title="${t("review.memory.delItemTitle")}">${TRASH_SVG}</button>`}</span></div>
       <span class="small">${esc(displayValue(it.new_value).slice(0, 120))}</span>
-      <br><span class="small muted">인용: ${esc((it.evidence_quote || "").slice(0, 120))}</span></li>`
+      <br><span class="small muted">${t("review.memory.quoteLabel")} ${esc((it.evidence_quote || "").slice(0, 120))}</span></li>`
   ).join("");
 }
 
@@ -462,20 +485,20 @@ function eventPartsHtml(ev, idx, readonly = false) {
   if (!parts.length) return "";
   return `<div class="small" style="margin-top:2px">` + parts.map((p, pidx) => {
     const label = p.role ? `${p.role}: ${partName(p)}` : partName(p);
-    const del = readonly ? "" : ` <button class="btn sm ghost pev-del" data-del-part="${idx}:${pidx}" data-role="review.memory.part-remove-btn" title="이 참여자 제외">×</button>`;
+    const del = readonly ? "" : ` <button class="btn sm ghost pev-del" data-del-part="${idx}:${pidx}" data-role="review.memory.part-remove-btn" title="${t("review.memory.delPartTitle")}">×</button>`;
     return `<span class="chip">${esc(label)}</span>${del}`;
   }).join(" ") + `</div>`;
 }
 
 function proposalEventsHtml(events, readonly = false) {
   if (!events.length) return "";
-  return `<div class="small" style="margin-top:6px"><b>사건 (${events.length})</b></div>
+  return `<div class="small" style="margin-top:6px"><b>${t("review.memory.eventsTitle", { n: events.length })}</b></div>
     <ul class="ep-scenes">${events.map((ev, idx) => `
       <li><div class="pev-head"><span>${ev.story_time ? `<span class="chip">${esc(ev.story_time)}</span> ` : ""}<span class="small">${esc(ev.summary || "")}</span>
       ${(ev.narrative_mode && ev.narrative_mode !== "narration") ? ` <span class="small muted">${esc(modeKo(ev.narrative_mode))}</span>` : ""}
-      ${ev.validation === "deferred" ? ` <span class="small muted">(근거 미확인·제외)</span>` : ""}</span>
-      <span>${ev.evidence_quote ? `<button class="btn sm ghost pev-del" data-jump data-role="review.memory.event-jump-btn" data-quote="${esc((ev.evidence_quote || "").slice(0, 200))}" title="원고에서 근거 보기">이동</button>` : ""}${readonly ? "" : `
-      <button class="btn sm ghost pev-del" data-del-event="${idx}" data-role="review.memory.event-del-btn" title="이 사건 삭제">${TRASH_SVG}</button>`}</span></div>${eventPartsHtml(ev, idx, readonly)}</li>`
+      ${ev.validation === "deferred" ? ` <span class="small muted">${t("review.memory.deferred")}</span>` : ""}</span>
+      <span>${ev.evidence_quote ? `<button class="btn sm ghost pev-del" data-jump data-role="review.memory.event-jump-btn" data-quote="${esc((ev.evidence_quote || "").slice(0, 200))}" title="${t("review.memory.viewEvidenceTitle")}">${t("review.memory.jumpBtn")}</button>` : ""}${readonly ? "" : `
+      <button class="btn sm ghost pev-del" data-del-event="${idx}" data-role="review.memory.event-del-btn" title="${t("review.memory.delEventTitle")}">${TRASH_SVG}</button>`}</span></div>${eventPartsHtml(ev, idx, readonly)}</li>`
     ).join("")}</ul>`;
 }
 
@@ -487,9 +510,9 @@ function diffHtml(items, savedItems) {
   const added = items.filter((it) => !savedKeys.has(key(it)));
   const removed = savedItems.filter((it) => !curKeys.has(key(it)));
   if (!added.length && !removed.length) {
-    return `<div class="small muted">저장본과 임시안이 같습니다.</div>`;
+    return `<div class="small muted">${t("review.memory.sameAsSaved")}</div>`;
   }
-  return `<div class="small" style="margin-top:6px"><b>저장본 대비 차이</b></div>
+  return `<div class="small" style="margin-top:6px"><b>${t("review.memory.diffTitle")}</b></div>
     <ul class="ep-scenes">` +
     added.map((it) => `<li><span class="small">+ ${esc(it.entity_id || it.candidate_name || "")} ${esc(it.attribute_path || "")} ${esc(displayValue(it.new_value).slice(0, 60))}</span></li>`).join("") +
     removed.map((it) => `<li><span class="small muted">− ${esc(it.entity_id || it.candidate_name || "")} ${esc(it.attribute_path || "")} ${esc(displayValue(it.new_value).slice(0, 60))}</span></li>`).join("") +
@@ -513,19 +536,19 @@ function entityGroupLabel(g) {
   if (g.candidate_name) return g.candidate_name;
   const opt = g.entity_id
     ? entityOptions.find((e) => e.entity_id === g.entity_id) : null;
-  return opt?.canonical_name || g.entity_id || "(미지정)";
+  return opt?.canonical_name || g.entity_id || t("review.memory.unspecified");
 }
 
 function groupedItemsHtml(items, readonly = false) {
   return groupItemsByEntity(items).map((g) => {
     const idChip = g.entity_id
       ? `<span class="chip mono">${esc(g.entity_id)}</span>`
-      : `<span class="chip">신규</span>`;
+      : `<span class="chip">${t("review.memory.newChip")}</span>`;
     const histBtn = g.entity_id
-      ? `<button class="btn sm ghost" data-hist="${esc(g.entity_id)}" data-role="review.memory.history-btn">기존 이력 보기</button>`
+      ? `<button class="btn sm ghost" data-hist="${esc(g.entity_id)}" data-role="review.memory.history-btn">${t("review.memory.showHistory")}</button>`
       : "";
     return `<div style="margin-top:8px">
-      <div class="pev-head"><span><b>${esc(entityGroupLabel(g))}</b> ${idChip} <span class="small muted">이번 회차 ${g.items.length}건</span></span>
+      <div class="pev-head"><span><b>${esc(entityGroupLabel(g))}</b> ${idChip} <span class="small muted">${t("review.memory.thisEpCount", { n: g.items.length })}</span></span>
       <span>${histBtn}</span></div>
       <ul class="ep-scenes">${proposalItemsHtml(g.items, readonly)}</ul>
       ${g.entity_id ? `<div data-hist-box="${esc(g.entity_id)}"></div>` : ""}
@@ -538,7 +561,7 @@ function basisBadgeHtml() {
   const saved = pending?.saved_set;
   const memVer = pending?.memory_version ?? "?";
   if (saved) {
-    return `<span class="chip">v${esc(saved.version ?? "?")} 저장됨 · 기억 v${esc(memVer)}에 반영됨</span>`;
+    return `<span class="chip">${t("review.memory.savedBadge", { version: esc(saved.version ?? "?"), mem: esc(memVer) })}</span>`;
   }
   return "";
 }
@@ -550,34 +573,34 @@ function renderPending() {
   let html = basisBadgeHtml();
   const latest = pending?.latest_run;
   if (latest && latest.status === "failed") {
-    html += `<div class="notice err small" style="margin-top:6px">최근 추출 실패: ${esc((latest.error || "").slice(0, 200))} — 기존 임시안을 유지합니다.</div>`;
+    html += `<div class="notice err small" style="margin-top:6px">${t("review.memory.extractFailed", { error: esc((latest.error || "").slice(0, 200)) })}</div>`;
   }
   if (!pset) {
     const savedSet = pending?.saved_set;
     const savedItems = pending?.saved_items ?? [];
     const savedEvents = pending?.saved_events ?? [];
     if (savedSet && (savedItems.length || savedEvents.length)) {
-      html += `<div class="small muted" style="margin-top:6px">저장된 설정 (읽기 전용 · 다시 추출하려면 설정 추출 실행을 누르세요)</div>` +
+      html += `<div class="small muted" style="margin-top:6px">${t("review.memory.savedReadonly")}</div>` +
         groupedItemsHtml(savedItems, true) +
         proposalEventsHtml(savedEvents, true);
     } else {
-      html += `<div class="small muted" style="margin-top:6px">임시 변경안이 없습니다. 설정 추출 실행을 눌러주세요.</div>`;
+      html += `<div class="small muted" style="margin-top:6px">${t("review.memory.noDraft")}</div>`;
     }
   } else {
     const badge = pending.fresh
-      ? `<span class="chip">원고 v${esc(pset.version ?? "?")} · 기준 기억 v${esc(pset.base_memory_version ?? "?")} · 저장 대기</span>`
-      : `<span class="chip warn">낡음 · 원고가 바뀌어 재추출 필요</span>`;
+      ? `<span class="chip">${t("review.memory.pendingBadge", { version: esc(pset.version ?? "?"), base: esc(pset.base_memory_version ?? "?") })}</span>`
+      : `<span class="chip warn">${t("review.memory.staleBadge")}</span>`;
     const items = pending.items ?? [];
     const events = pending.events ?? [];
     const savedItems = pending.saved_items ?? [];
-    html += `<div style="margin-top:6px">${badge} <span class="small muted">현재 기억 v${esc(memVer)}</span></div>
+    html += `<div style="margin-top:6px">${badge} <span class="small muted">${t("review.memory.currentMem", { mem: esc(memVer) })}</span></div>
       ${groupedItemsHtml(items)}
       ${proposalEventsHtml(events)}
       ${diffHtml(items, savedItems)}`;
     if (!items.length && !events.length) {
-      html += `<div class="small muted">성공한 빈 추출입니다. 저장하면 빈 기억으로 확정됩니다.</div>`;
+      html += `<div class="small muted">${t("review.memory.emptySuccess")}</div>`;
     } else if (!items.length && events.length) {
-      html += `<div class="small muted">인물·장소 항목이 비어 있습니다. 아래 수정 요청으로 보완하거나 다시 추출하세요.</div>`;
+      html += `<div class="small muted">${t("review.memory.emptyItems")}</div>`;
     }
   }
   box.innerHTML = html;
@@ -620,17 +643,17 @@ function renderPending() {
       if (histBox.dataset.open === "1") {
         histBox.dataset.open = "";
         histBox.innerHTML = "";
-        btn.textContent = "기존 이력 보기";
+        btn.textContent = t("review.memory.showHistory");
         return;
       }
-      btn.textContent = "불러오는 중…";
+      btn.textContent = t("review.memory.loading");
       try {
         const hist = await api.entityHistory(id);
         histBox.dataset.open = "1";
         histBox.innerHTML = `<div class="timeline" style="margin-top:6px">${historyTimelineHtml(hist.history ?? [])}</div>`;
-        btn.textContent = "기존 이력 닫기";
+        btn.textContent = t("review.memory.hideHistory");
       } catch (e) {
-        btn.textContent = "기존 이력 보기";
+        btn.textContent = t("review.memory.showHistory");
         throw e;
       }
     }));
@@ -684,23 +707,23 @@ function renderAliases() {
   const { hidden, autoNames } = aliasDisplay();
   const vis = aliases.filter((a) => !hidden.has(a.alias_id));
   const autoNote = autoNames.length
-    ? `<div class="small muted" style="margin-bottom:6px">${autoNames.map(esc).join("·")} — 저장 시 자동 처리됩니다.</div>`
+    ? `<div class="small muted" style="margin-bottom:6px">${t("review.memory.autoNote", { names: autoNames.map(esc).join("·") })}</div>`
     : "";
   if (!vis.length) {
-    box.innerHTML = autoNote + `<span class="muted small">대기 중인 후보가 없습니다.</span>`;
+    box.innerHTML = autoNote + `<span class="muted small">${t("review.memory.noAliases")}</span>`;
     return;
   }
   box.innerHTML = autoNote + `<ul class="ep-scenes">${vis.map((a) => `
     <li><div class="pev-head"><span><b>${esc(a.alias)}</b>
       <span class="small muted">${esc(a.basis || "")}</span></span></div>
-      ${a.quote ? `<span class="small muted">인용: ${esc(a.quote.slice(0, 100))}</span><br>` : ""}
-      <span class="small">어느 설정에 연결할까요? </span>
+      ${a.quote ? `<span class="small muted">${t("review.memory.quoteLabel")} ${esc(a.quote.slice(0, 100))}</span><br>` : ""}
+      <span class="small">${t("review.memory.whichEntity")} </span>
       <select data-alias-link="${a.alias_id}" data-role="review.memory.alias-link-select" style="max-width:60%">
-        <option value="">연결할 설정 선택</option>
+        <option value="">${t("review.memory.selectEntity")}</option>
         ${entityOptions.map((e) => `<option value="${esc(e.entity_id)}">${esc(e.canonical_name)} (${esc(e.entity_id)})</option>`).join("")}
       </select>
       <div class="btn-row">
-        <button class="btn sm" data-alias-ok="${a.alias_id}" data-role="review.memory.alias-ok-btn"${entityOptions.length ? "" : " disabled title=\"연결할 설정이 없습니다\""}>연결</button>
+        <button class="btn sm" data-alias-ok="${a.alias_id}" data-role="review.memory.alias-ok-btn"${entityOptions.length ? "" : ` disabled title="${t("review.memory.noEntityTitle")}"`}>${t("review.memory.linkBtn")}</button>
       </div></li>`
   ).join("")}</ul>`;
   box.querySelectorAll("[data-alias-ok]").forEach((btn) => {
@@ -709,7 +732,7 @@ function renderAliases() {
       const sel = box.querySelector(`[data-alias-link="${id}"]`);
       const entityId = sel?.value || null;
       if (!entityId) {
-        showError("review-error", "연결할 설정을 선택하세요.");
+        showError("review-error", t("review.memory.needEntity"));
         return;
       }
       await api.resolveAlias(id, { entity_id: entityId, basis: "작가 연결 확정" });
@@ -793,18 +816,18 @@ export function initReview() {
     run(async () => {
       const open = issues.filter((i) => i.status === "open").length;
       if (open > 0) {
-        showError("review-error", `열린 이슈 ${open}건이 남아 있어 발간요청을 할 수 없습니다.`);
+        showError("review-error", t("review.publish.blocked", { n: open }));
         return;
       }
       const r = await api.requestPublish(currentEp(), currentWorkKey());
-      showToast(`발간요청 완료: EP ${r.episode_no}`);
+      showToast(t("review.publish.doneToast", { ep: r.episode_no }));
       await load(currentEp());
     })
   );
   $("btn-consistency-analyze").addEventListener("click", () =>
     run(async () => {
       const btn = $("btn-consistency-analyze");
-      btn.textContent = "분석 중…";
+      btn.textContent = t("review.analyze.running");
       try {
         const out = await api.consistencyAnalyze(currentEp(), currentWorkKey());
         messages = (await api.consistencyMessages(currentEp(), currentWorkKey())).messages ?? [];
@@ -812,12 +835,12 @@ export function initReview() {
         await refreshAnalysis();
         renderMessages();
         if (out.partial) {
-          showError("review-error", `AI 분석 실패로 부분 완료되었습니다: ${out.error ?? ""} (확정 검사 결과는 저장됨)`);
+          showError("review-error", t("review.analyze.partial", { error: out.error ?? "" }));
         } else if (out.skipped) {
-          showError("review-error", "비교할 이전 기억이 없어 분석을 건너뛰었습니다.");
+          showError("review-error", t("review.analyze.skipped"));
         }
       } finally {
-        btn.textContent = "전체 분석 실행";
+        btn.textContent = t("review.analyze.runFull");
       }
     })
   );
@@ -883,22 +906,22 @@ export function initReview() {
       renderAliases();
       const linked = out.commit?.aliases_linked ?? 0;
       showSaveResultDialog(out.already
-        ? "이미 저장된 기억입니다."
-        : `설정을 저장했습니다: ${out.commit.applied}건 반영`
-          + (linked ? ` · 별명 ${linked}건 자동 정리` : "")
-          + ` (기억 v${out.commit.memory_version ?? "?"})`);
+        ? t("review.save.already")
+        : t("review.save.done", { n: out.commit.applied })
+          + (linked ? " · " + t("review.save.aliases", { n: linked }) : "")
+          + " " + t("review.save.memVersion", { mem: out.commit.memory_version ?? "?" }));
     })
   );
   const sendEntityChat = () => run(async () => {
     const input = $("entity-chat-input");
     const text = input.value.trim();
     if (!text) {
-      showError("review-error", "수정 요청을 입력하세요.");
+      showError("review-error", t("review.chat.needText"));
       return;
     }
     input.value = "";
     const btn = $("btn-entity-chat");
-    btn.textContent = "수정 중…";
+    btn.textContent = t("review.chat.revising");
     try {
       await api.extractEntities(currentEp(), text, currentWorkKey());
       pending = await api.entityProposals(currentEp(), currentWorkKey());
@@ -907,7 +930,7 @@ export function initReview() {
       renderAliases();
       renderNotice();
     } finally {
-      btn.textContent = "요청";
+      btn.textContent = t("review.chat.send");
     }
   });
   $("btn-entity-chat").addEventListener("click", sendEntityChat);

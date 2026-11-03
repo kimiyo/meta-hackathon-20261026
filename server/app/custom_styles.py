@@ -130,7 +130,12 @@ def delete_custom(conn: sqlite3.Connection, author_id: int,
 
 def apply_custom(conn: sqlite3.Connection, work_id: int, author_id: int,
                  style_id: int) -> dict:
-    """Point a work at a custom style (voice snapshotted, like presets)."""
+    """Point a work at a custom style (voice snapshotted, like presets).
+
+    Custom styles carry voice only; the length target and its unit stay
+    on the work and are passed through unchanged (unit follows the work
+    market default, see drafting.effective_length_unit).
+    """
     from . import drafting
 
     row = get_custom(conn, author_id, style_id)
@@ -155,6 +160,7 @@ def apply_custom(conn: sqlite3.Connection, work_id: int, author_id: int,
              now_iso(), work_id))
         lo, hi = drafting.parse_length_target(prow["length_target"])
     conn.commit()
-    return {"length_min": lo, "length_max": hi, "is_default": False,
-            "preset": None, "custom_style_id": style_id,
+    unit = drafting.effective_length_unit(conn, work_id)
+    return {"length_min": lo, "length_max": hi, "length_unit": unit,
+            "is_default": False, "preset": None, "custom_style_id": style_id,
             "custom_style_name": row["name"]}

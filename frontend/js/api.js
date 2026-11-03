@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 const BASE = "/api/v1";
 const TOKEN_KEY = "auth-token";
 
@@ -11,8 +13,19 @@ export function setToken(t) {
 }
 
 function mustWorkKey(workKey) {
-  if (!workKey) throw new Error("작품이 선택되지 않았습니다.");
+  if (!workKey) throw new Error(t("error.workNotSelected"));
   return workKey;
+}
+
+// 서버 오류 detail → 화면 표시문 (plan §5.4).
+// 코드형 {code, params}는 error.<CODE> 번역 + params 치환,
+// 문자열 detail은 그대로 표시(레거시 경로). 둘 다 아니면 null.
+export function detailMessage(detail) {
+  if (detail && typeof detail === "object" && typeof detail.code === "string") {
+    return t(`error.${detail.code}`, detail.params ?? {});
+  }
+  if (typeof detail === "string" && detail) return detail;
+  return null;
 }
 
 function epQuery(workKey) {
@@ -33,7 +46,7 @@ async function req(path, options = {}) {
     });
   } catch (e) {
     if (timeoutMs && (e?.name === "TimeoutError" || e?.name === "AbortError")) {
-      throw new Error("요청 시간이 초과되었습니다. 다시 시도하세요.");
+      throw new Error(t("error.requestTimeout"));
     }
     throw e;
   }
@@ -42,7 +55,18 @@ async function req(path, options = {}) {
   }
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`API ${resp.status}: ${text.slice(0, 200)}`);
+    let detail = null;
+    try {
+      detail = JSON.parse(text)?.detail ?? null;
+    } catch {
+      detail = null;
+    }
+    const message = detailMessage(detail)
+      ?? t("error.httpError", { status: resp.status, body: text.slice(0, 200) });
+    throw Object.assign(new Error(message), {
+      status: resp.status,
+      code: detail?.code,
+    });
   }
   if (resp.status === 204) return null;
   return resp.json();
@@ -62,7 +86,7 @@ async function reqEx(path, options = {}) {
       signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
     });
   } catch (cause) {
-    throw Object.assign(new Error("저장 응답을 확인하지 못했습니다."),
+    throw Object.assign(new Error(t("error.saveUnconfirmed")),
       { uncertain: true, cause });
   }
   if (resp.status === 401 && !path.startsWith("/auth/")) {
@@ -76,9 +100,9 @@ async function reqEx(path, options = {}) {
   }
   if (!resp.ok) {
     const detail = body?.detail ?? {};
-    const message = typeof detail === "string"
-      ? detail
-      : detail.message ?? `API ${resp.status}`;
+    const message = detailMessage(detail)
+      ?? detail?.message
+      ?? t("error.httpStatus", { status: resp.status });
     throw Object.assign(new Error(message), {
       status: resp.status,
       code: detail?.code,

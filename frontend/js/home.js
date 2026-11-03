@@ -1,11 +1,12 @@
 import { api, setToken } from "./api.js";
 import { $, esc, showError } from "./util.js";
+import { t } from "./i18n.js";
 
 // 메인 · 소설 목록. 선택/생성 시 enter-work 이벤트(uid)를 쏘면 app.js가 라우팅한다.
 let cache = [];
 let pendingDelete = null;
 
-const STAGE_LABEL = { ideas: "아이디어", design: "소설 설계", writing: "집필" };
+const STAGE_KEYS = { ideas: "nav.ideas", design: "nav.design", writing: "nav.writing" };
 const STAGE_SCREEN = { ideas: "ideas", design: "design", writing: "monitor" };
 
 export function stageScreen(stage) {
@@ -17,20 +18,24 @@ function fmtDate(iso) {
   return String(iso).slice(0, 16).replace("T", " ");
 }
 
+function stageLabel(stage) {
+  return STAGE_KEYS[stage] ? t(STAGE_KEYS[stage]) : (stage ?? "");
+}
+
 function cardHtml(w) {
   const done = w.completed_episodes ?? 0;
   const total = w.total_episodes ?? "?";
   return `<div class="work-item" data-uid="${esc(w.uid || w.id)}">
       <div class="t">${esc(w.title)}</div>
       <div class="meta">
-        <span class="chip">${esc(STAGE_LABEL[w.stage] ?? w.stage ?? "")}</span>
+        <span class="chip">${esc(stageLabel(w.stage))}</span>
         <span class="chip mono">EP ${esc(done)}/${esc(total)}</span>
         <span class="muted small">${esc(fmtDate(w.updated_at || w.created_at))}</span>
       </div>
       <div class="meta muted">${esc(w.logline ?? "")}</div>
       <div class="btn-row">
-        <button class="btn sm primary" data-enter data-role="home.list.enter-btn">이어 쓰기</button>
-        <button class="btn sm" data-delete data-role="home.list.delete-btn">삭제</button>
+        <button class="btn sm primary" data-enter data-role="home.list.enter-btn">${t("home.cardContinue")}</button>
+        <button class="btn sm" data-delete data-role="home.list.delete-btn">${t("common.delete")}</button>
       </div>
     </div>`;
 }
@@ -48,15 +53,15 @@ export async function refreshHome() {
   try {
     const { works } = await api.works();
     cache = works ?? [];
-    $("home-count").textContent = `${cache.length}편 · 최근 수정 순`;
+    $("home-count").textContent = t("home.countLabel", { count: cache.length });
     const list = q ? cache.filter((w) => (w.title ?? "").includes(q)) : cache;
     if (!cache.length) {
-      box.innerHTML = `<span class="muted">첫 아이디어에 이야기의 뼈대를 세워 보세요.</span>`;
+      box.innerHTML = `<span class="muted">${t("home.emptyHint")}</span>`;
       return;
     }
     if (!list.length) {
-      box.innerHTML = `<span class="muted">‘${esc(q)}’ 검색 결과가 없습니다.</span>
-        <div class="btn-row"><button class="btn sm" id="btn-home-clear" data-role="home.list.clear-search-btn">전체 소설 보기</button></div>`;
+      box.innerHTML = `<span class="muted">${t("home.noResults", { q: esc(q) })}</span>
+        <div class="btn-row"><button class="btn sm" id="btn-home-clear" data-role="home.list.clear-search-btn">${t("home.showAll")}</button></div>`;
       $("btn-home-clear").addEventListener("click", () => {
         $("home-search").value = "";
         refreshHome();
@@ -79,8 +84,8 @@ export async function refreshHome() {
       });
     });
   } catch (e) {
-    box.innerHTML = `<span class="muted small">작업을 마치지 못했습니다. 다시 시도해 주세요.</span>
-      <div class="btn-row"><button class="btn sm" id="btn-home-retry" data-role="home.list.retry-btn">재시도</button></div>`;
+    box.innerHTML = `<span class="muted small">${t("home.loadFailed")}</span>
+      <div class="btn-row"><button class="btn sm" id="btn-home-retry" data-role="home.list.retry-btn">${t("common.retry")}</button></div>`;
     $("btn-home-retry").addEventListener("click", refreshHome);
     showError("home-error", String(e));
   }
@@ -99,15 +104,13 @@ function setGateVisible(gated) {
 
 function renderGate() {
   const login = authMode === "login";
-  $("auth-title").textContent = login ? "저자 로그인" : "저자 등록";
-  $("auth-desc").textContent = login
-    ? "등록한 아이디와 비밀번호로 로그인하세요."
-    : "처음 이용하시면 저자를 등록하세요. 아이디·필명·비밀번호로 등록합니다.";
+  $("auth-title").textContent = t(login ? "home.authLoginTitle" : "home.authRegisterTitle");
+  $("auth-desc").textContent = t(login ? "home.authLoginDesc" : "home.authRegisterDesc");
   $("auth-penname-row").style.display = login ? "none" : "";
-  $("btn-auth-submit").textContent = login ? "로그인" : "등록";
+  $("btn-auth-submit").textContent = t(login ? "home.authLoginSubmit" : "home.authRegisterSubmit");
   const sw = $("btn-auth-switch");
   sw.style.display = authorsExist ? "" : "none";
-  sw.textContent = login ? "등록으로 전환" : "로그인으로 전환";
+  sw.textContent = t(login ? "home.authSwitchToRegister" : "home.authSwitchToLogin");
 }
 
 function enterGate(exists) {
@@ -157,16 +160,16 @@ async function submitDialog() {
   if (btn.disabled) return; // Enter + 클릭 중복 발화 방지
   const title = $("novel-dialog-title-input").value.trim();
   if (!title) {
-    showError("novel-dialog-error", "소설 제목을 입력하세요.");
+    showError("novel-dialog-error", t("home.titleRequired"));
     $("novel-dialog-title-input").focus();
     return;
   }
   if (title.length > 80) {
-    showError("novel-dialog-error", "제목은 최대 80자까지 입력할 수 있습니다.");
+    showError("novel-dialog-error", t("home.titleTooLong"));
     return;
   }
   btn.disabled = true;
-  btn.textContent = "만드는 중…";
+  btn.textContent = t("home.creating");
   showError("novel-dialog-error", "");
   try {
     const w = await api.createWork(title, "");
@@ -176,7 +179,7 @@ async function submitDialog() {
     showError("novel-dialog-error", String(e));
   } finally {
     btn.disabled = false;
-    btn.textContent = "만들기 · 시작";
+    btn.textContent = t("home.createConfirm");
   }
 }
 
@@ -203,11 +206,11 @@ async function submitDelete() {
   if (btn.disabled) return;
   const typed = $("novel-delete-title-input").value;
   if (typed !== pendingDelete.title) {
-    showError("novel-delete-dialog-error", "작품 제목을 동일하게 입력하세요.");
+    showError("novel-delete-dialog-error", t("home.deleteTitleMismatch"));
     return;
   }
   btn.disabled = true;
-  btn.textContent = "삭제 중…";
+  btn.textContent = t("home.deleting");
   try {
     await api.deleteWork(pendingDelete.uid || pendingDelete.id, typed);
     closeDelete();
@@ -216,7 +219,7 @@ async function submitDelete() {
     showError("novel-delete-dialog-error", String(e));
   } finally {
     btn.disabled = false;
-    btn.textContent = "영구 삭제";
+    btn.textContent = t("home.deleteConfirm");
   }
 }
 
@@ -254,4 +257,9 @@ export function initHome() {
   });
   $("home-search")?.addEventListener("input", () => refreshHome());
   document.addEventListener("work-renamed", () => refreshHome());
+  // 화면 언어 전환: 입력값은 그대로 두고 문구만 다시 그린다.
+  document.addEventListener("locale-changed", () => {
+    renderGate();
+    refreshHome();
+  });
 }

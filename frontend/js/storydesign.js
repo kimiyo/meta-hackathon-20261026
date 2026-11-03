@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { t } from "./i18n.js";
 import { $, esc, showError } from "./util.js";
 import { getWork } from "./work.js";
 import { go, novelPath } from "./router.js";
@@ -28,7 +29,23 @@ let partnerSending = false;
 let busy = false;
 let loadedUid = null;
 
-const KIND_LABEL = { work: "작품", part: "Part", chapter: "Chapter", episode: "Episode", scene: "Scene" };
+function kindLabel(kind) {
+  const map = {
+    work: t("design.kind.work"), part: t("design.kind.part"),
+    chapter: t("design.kind.chapter"), episode: t("design.kind.episode"),
+    scene: t("design.kind.scene"),
+  };
+  return map[kind] ?? kind;
+}
+
+function catLabel(cat) {
+  const map = {
+    character: t("design.cat.character"), world: t("design.cat.world"),
+    event: t("design.cat.event"), part: t("design.cat.part"),
+    misc: t("design.cat.misc"),
+  };
+  return map[cat];
+}
 
 function treeMode() {
   return localStorage.getItem("design-tree-mode") || "flow";
@@ -134,10 +151,10 @@ async function reloadNodes() {
 function renderDesignMeta() {
   const box = $("design-meta");
   if (!design) {
-    box.innerHTML = `<span class="muted">설계가 없습니다. 아이디어 화면에서 인계하세요.</span>`;
+    box.innerHTML = `<span class="muted">${esc(t("design.meta.none"))}</span>`;
     return;
   }
-  box.innerHTML = `<b>설계 v${esc(design.version)}</b> · ${esc(design.scope_total_episodes)}화`;
+  box.innerHTML = `<b>${esc(t("design.meta.version", { version: design.version }))}</b> · ${esc(t("design.meta.episodes", { count: design.scope_total_episodes }))}`;
 }
 
 // ---- 트리 ----
@@ -161,7 +178,7 @@ function nodeRowHtml(n) {
   const nss = treeNodeSettings[n.id] ?? [];
   const nsHtml = nss.length ? `<br>${nss.map((s) => `<span class="chip mono">${esc(s.code)}</span> <b>${esc(s.title)}</b>${s.summary ? ` <span class="small muted">${esc(s.summary)}</span>` : ""}`).join("<br>")}` : "";
   return `<div class="tnode${sel}${arch}" data-node="${n.id}">${toggle}<span class="nid mono" title="${esc(n.full_code ?? n.id)}">${esc(n.code ?? n.id)}</span>
-    <span><b>[${esc(KIND_LABEL[n.kind] ?? n.kind)}] ${esc(n.title)}</b><br>
+    <span><b>[${esc(kindLabel(n.kind))}] ${esc(n.title)}</b><br>
     <span class="small">${esc(n.logline)}</span>${nsHtml}</span></div>`;
 }
 
@@ -177,18 +194,18 @@ function renderTree() {
     b.classList.toggle("active", b.dataset.mode === treeMode()));
   const box = $("tree-list");
   if (!design) {
-    box.innerHTML = `<span class="muted small">설계 없음</span>`;
+    box.innerHTML = `<span class="muted small">${esc(t("design.tree.empty"))}</span>`;
     return;
   }
   if (!nodes.length) {
-    box.innerHTML = `<span class="muted small">노드가 없습니다.</span>
-      <div class="btn-row"><button class="btn sm" id="btn-seed-root" data-role="design.tree.seed-root-btn">루트 노드 만들기</button>
-      <button class="btn sm" id="btn-seed-outlines" data-role="design.tree.seed-outlines-btn">기존 개요에서 Episode 생성</button></div>`;
+    box.innerHTML = `<span class="muted small">${esc(t("design.tree.noNodes"))}</span>
+      <div class="btn-row"><button class="btn sm" id="btn-seed-root" data-role="design.tree.seed-root-btn">${esc(t("design.tree.seedRoot"))}</button>
+      <button class="btn sm" id="btn-seed-outlines" data-role="design.tree.seed-outlines-btn">${esc(t("design.tree.seedOutlines"))}</button></div>`;
     $("btn-seed-root").addEventListener("click", seedRoot);
     $("btn-seed-outlines").addEventListener("click", seedFromOutlines);
     return;
   }
-  box.innerHTML = treeHtml(null) || `<span class="muted small">표시할 노드 없음</span>`;
+  box.innerHTML = treeHtml(null) || `<span class="muted small">${esc(t("design.tree.noDisplay"))}</span>`;
   box.querySelectorAll("[data-node]").forEach((el) => {
     el.addEventListener("click", (e) => {
       if (e.target.closest("[data-toggle]")) {
@@ -262,13 +279,13 @@ async function seedFromOutlines() {
     await reloadNodes();
     renderTree();
     await refreshEditor();
-  }, "생성 중…");
+  }, t("design.busy.creating"));
 }
 
 async function addNode() {
   const title = $("node-add-title").value.trim();
   if (!title) {
-    showError("sdesign-error", "노드 제목을 입력하세요.");
+    showError("sdesign-error", t("design.tree.titleRequired"));
     return;
   }
   await run(async () => {
@@ -299,8 +316,6 @@ async function loadEditor() {
   await run(refreshEditor);
 }
 
-const INHERIT_CAT = { character: "인물", world: "세계관", event: "사건", part: "Part 이야기", misc: "기타" };
-
 function renderInherited(n) {
   const box = $("node-inherited");
   if (!box) return;
@@ -310,12 +325,12 @@ function renderInherited(n) {
     return;
   }
   const settings = (body.settings ?? []).map((s) =>
-    `<li><span class="chip mono">${esc(s.code || "")}</span> [${esc(INHERIT_CAT[s.category] ?? s.category ?? "")}] <b>${esc(s.title || "")}</b>` +
+    `<li><span class="chip mono">${esc(s.code || "")}</span> [${esc(catLabel(s.category) ?? s.category ?? "")}] <b>${esc(s.title || "")}</b>` +
     `${s.summary ? ` — ${esc(s.summary)}` : ""}` +
     `${s.detail ? `<br><span class="muted">${esc(s.detail)}</span>` : ""}</li>`).join("");
-  box.innerHTML = `<b class="small">아이디어에서 인계됨</b>` +
+  box.innerHTML = `<b class="small">${esc(t("design.inherited.title"))}</b>` +
     (body.synopsis
-      ? `<div class="small" style="margin:4px 0"><b>전체 줄거리</b><br>${esc(body.synopsis).replace(/\n/g, "<br>")}</div>`
+      ? `<div class="small" style="margin:4px 0"><b>${esc(t("design.inherited.synopsis"))}</b><br>${esc(body.synopsis).replace(/\n/g, "<br>")}</div>`
       : "") +
     (settings ? `<ul class="small ho-tree">${settings}</ul>` : "");
 }
@@ -328,12 +343,12 @@ function renderRollup(n) {
   const box = $("children-rollup");
   const kids = n?.children ?? [];
   if (!kids.length) {
-    box.innerHTML = `<span class="muted small">하위 노드 없음. 오른쪽에서 Expand로 설계하세요.</span>`;
+    box.innerHTML = `<span class="muted small">${esc(t("design.rollup.empty"))}</span>`;
     return;
   }
   const rm = rollupMode();
-  box.innerHTML = `<div class="rollup-head"><b class="small">하위 줄거리 (${kids.length})</b><span class="seg"><button data-rmode="one" data-role="design.editor.rollup-mode-one">한줄</button><button data-rmode="flow" data-role="design.editor.rollup-mode-flow">이어서</button></span></div>` + kids.map((k) => `
-    <div class="rollup-row ${rm}" data-goto="${k.id}" title="클릭하여 이동"><span class="chip mono blue" title="${esc(k.full_code ?? k.id)}">${esc(k.code ?? k.id)}</span> <b>${esc(k.title)}</b> <span class="small muted">${esc(k.logline)}</span></div>`).join("");
+  box.innerHTML = `<div class="rollup-head"><b class="small">${esc(t("design.rollup.title", { count: kids.length }))}</b><span class="seg"><button data-rmode="one" data-role="design.editor.rollup-mode-one">${esc(t("design.rollup.modeOne"))}</button><button data-rmode="flow" data-role="design.editor.rollup-mode-flow">${esc(t("design.rollup.modeFlow"))}</button></span></div>` + kids.map((k) => `
+    <div class="rollup-row ${rm}" data-goto="${k.id}" title="${esc(t("design.rollup.gotoTitle"))}"><span class="chip mono blue" title="${esc(k.full_code ?? k.id)}">${esc(k.code ?? k.id)}</span> <b>${esc(k.title)}</b> <span class="small muted">${esc(k.logline)}</span></div>`).join("");
   box.querySelectorAll("[data-rmode]").forEach((b) => {
     b.classList.toggle("active", b.dataset.rmode === rm);
     b.addEventListener("click", () => {
@@ -362,11 +377,11 @@ function renderEditor() {
     $("node-title").value = "";
     $("node-logline").value = "";
     renderInherited(null);
-    $("children-rollup").innerHTML = `<span class="muted small">노드를 선택하세요.</span>`;
+    $("children-rollup").innerHTML = `<span class="muted small">${esc(t("design.editor.selectNode"))}</span>`;
     return;
   }
   const n = editorNode;
-  $("node-id-label").innerHTML = `<span class="mono">${esc(n.full_code ?? n.id)}</span> · ${esc(KIND_LABEL[n.kind] ?? n.kind)}${n.archived ? " · 보관됨" : ""}`;
+  $("node-id-label").innerHTML = `<span class="mono">${esc(n.full_code ?? n.id)}</span> · ${esc(kindLabel(n.kind))}${n.archived ? ` · ${esc(t("design.editor.archived"))}` : ""}`;
   if (document.activeElement !== $("node-title")) $("node-title").value = n.title ?? "";
   if (document.activeElement !== $("node-logline")) $("node-logline").value = n.logline ?? "";
   $("node-save-info").textContent = "";
@@ -379,7 +394,6 @@ function renderEditor() {
 
 // ---- 노드 설정 다이얼로그 ----
 const NS_CATEGORIES = ["character", "world", "event", "misc"];
-const NS_CAT_LABEL = { character: "인물", world: "세계관", event: "사건", misc: "기타" };
 let nsDialogNode = null; // { id, title }
 let nsOwn = [];
 let nsInherited = [];
@@ -420,21 +434,21 @@ async function loadNsDialog() {
 
 function nsOwnRowHtml(s) {
   const shadow = nsOverridden.includes(s.code)
-    ? ` <span class="chip" title="상위 노드의 같은 코드 설정을 덮어씁니다">상위 덮어씀</span>` : "";
+    ? ` <span class="chip" title="${esc(t("design.ns.shadowTitle"))}">${esc(t("design.ns.shadowed"))}</span>` : "";
   return `<div class="setting" data-ns="${s.id}">
-    <div class="setting-head"><span class="chip mono">${esc(s.code)}</span><span class="chip">${esc(NS_CAT_LABEL[s.category] ?? s.category)}</span><b>${esc(s.title)}</b>${shadow}</div>
+    <div class="setting-head"><span class="chip mono">${esc(s.code)}</span><span class="chip">${esc(catLabel(s.category) ?? s.category)}</span><b>${esc(s.title)}</b>${shadow}</div>
     ${s.summary ? `<div class="small">${esc(s.summary).replace(/\n/g, "<br>")}</div>` : ""}
     ${s.detail ? `<div class="small muted">${esc(s.detail).replace(/\n/g, "<br>")}</div>` : ""}
-    <div class="btn-row"><button class="btn sm" data-ns-edit data-role="design.editor.ns-edit-btn">편집</button><button class="btn sm" data-ns-del data-role="design.editor.ns-delete-btn">삭제</button></div>
+    <div class="btn-row"><button class="btn sm" data-ns-edit data-role="design.editor.ns-edit-btn">${esc(t("design.ns.edit"))}</button><button class="btn sm" data-ns-del data-role="design.editor.ns-delete-btn">${esc(t("design.ns.delete"))}</button></div>
   </div>`;
 }
 
 function nsInheritedRowHtml(s) {
   return `<div class="setting" data-ns-src="${s.id}">
-    <div class="setting-head"><span class="chip mono" title="${esc(s.source_kind)} ${esc(s.source_title)}">${esc(s.source_node)}·${esc(s.code)}</span><span class="chip">${esc(NS_CAT_LABEL[s.category] ?? s.category)}</span><b>${esc(s.title)}</b></div>
+    <div class="setting-head"><span class="chip mono" title="${esc(s.source_kind)} ${esc(s.source_title)}">${esc(s.source_node)}·${esc(s.code)}</span><span class="chip">${esc(catLabel(s.category) ?? s.category)}</span><b>${esc(s.title)}</b></div>
     ${s.summary ? `<div class="small">${esc(s.summary).replace(/\n/g, "<br>")}</div>` : ""}
     ${s.detail ? `<div class="small muted">${esc(s.detail).replace(/\n/g, "<br>")}</div>` : ""}
-    <div class="btn-row"><button class="btn sm" data-ns-override="${s.id}" data-role="design.editor.ns-override-btn">이 노드에서 덮어쓰기</button></div>
+    <div class="btn-row"><button class="btn sm" data-ns-override="${s.id}" data-role="design.editor.ns-override-btn">${esc(t("design.ns.override"))}</button></div>
   </div>`;
 }
 
@@ -446,17 +460,17 @@ function nsFormHtml() {
       ? nsInherited.find((x) => x.id === f.from) ?? {}
       : {};
   const codeNote = f.mode === "add"
-    ? `<div class="small muted">코드는 저장 시 자동 부여(S번호)</div>`
-    : `<div class="small">코드: <span class="chip mono">${esc(f.mode === "edit" ? (src.code ?? "") : f.code)}</span>${f.mode === "override" ? " (상위 설정을 덮어씁니다)" : ""}</div>`;
-  return `<label class="f">분류</label>
+    ? `<div class="small muted">${esc(t("design.ns.codeAuto"))}</div>`
+    : `<div class="small">${esc(t("design.ns.codeLabel"))} <span class="chip mono">${esc(f.mode === "edit" ? (src.code ?? "") : f.code)}</span>${f.mode === "override" ? ` ${esc(t("design.ns.overrideNote"))}` : ""}</div>`;
+  return `<label class="f">${esc(t("design.ns.category"))}</label>
     <select data-f="category" data-role="design.editor.ns-form-category">${NS_CATEGORIES.map((c) =>
-      `<option value="${c}"${src.category === c ? " selected" : ""}>${NS_CAT_LABEL[c]}</option>`).join("")}</select>
+      `<option value="${c}"${src.category === c ? " selected" : ""}>${esc(catLabel(c) ?? c)}</option>`).join("")}</select>
     ${codeNote}
-    <label class="f">제목</label><input type="text" data-f="title" data-role="design.editor.ns-form-title" value="${esc(src.title ?? "")}">
-    <label class="f">요약</label><textarea data-f="summary" data-role="design.editor.ns-form-summary">${esc(src.summary ?? "")}</textarea>
-    <label class="f">상세</label><textarea data-f="detail" data-role="design.editor.ns-form-detail">${esc(src.detail ?? "")}</textarea>
-    <div class="btn-row"><button class="btn sm primary" data-ns-save data-role="design.editor.ns-form-save">저장</button>
-    <button class="btn sm" data-ns-cancel data-role="design.editor.ns-form-cancel">취소</button></div>`;
+    <label class="f">${esc(t("design.ns.title"))}</label><input type="text" data-f="title" data-role="design.editor.ns-form-title" value="${esc(src.title ?? "")}">
+    <label class="f">${esc(t("design.ns.summary"))}</label><textarea data-f="summary" data-role="design.editor.ns-form-summary">${esc(src.summary ?? "")}</textarea>
+    <label class="f">${esc(t("design.ns.detail"))}</label><textarea data-f="detail" data-role="design.editor.ns-form-detail">${esc(src.detail ?? "")}</textarea>
+    <div class="btn-row"><button class="btn sm primary" data-ns-save data-role="design.editor.ns-form-save">${esc(t("design.ns.save"))}</button>
+    <button class="btn sm" data-ns-cancel data-role="design.editor.ns-form-cancel">${esc(t("design.ns.cancel"))}</button></div>`;
 }
 
 function renderNsDialog() {
@@ -465,9 +479,9 @@ function renderNsDialog() {
   const formBox = $("ns-dialog-form");
   if (!ownBox || !inhBox || !formBox) return;
   ownBox.innerHTML = nsOwn.length ? nsOwn.map(nsOwnRowHtml).join("")
-    : `<span class="muted small">이 노드의 설정 없음.</span>`;
+    : `<span class="muted small">${esc(t("design.ns.noOwn"))}</span>`;
   inhBox.innerHTML = nsInherited.length ? nsInherited.map(nsInheritedRowHtml).join("")
-    : `<span class="muted small">물려받은 설정 없음.</span>`;
+    : `<span class="muted small">${esc(t("design.ns.noInherited"))}</span>`;
   if (!nsForm) {
     formBox.style.display = "none";
     formBox.innerHTML = "";
@@ -536,7 +550,7 @@ let editorSaveTimer = null;
 function scheduleEditorSave() {
   if (!editorNode) return;
   const snap = { id: editorNode.id, title: $("node-title").value, logline: $("node-logline").value };
-  $("node-save-info").textContent = "입력 중…";
+  $("node-save-info").textContent = t("design.editor.typing");
   clearTimeout(editorSaveTimer);
   editorSaveTimer = setTimeout(() => flushEditorSave(snap), 700);
 }
@@ -547,7 +561,7 @@ async function flushEditorSave(snap) {
     editorSaveTimer = setTimeout(() => flushEditorSave(snap), 700);
     return;
   }
-  $("node-save-info").textContent = "저장 중…";
+  $("node-save-info").textContent = t("design.editor.saving");
   try {
     await api.patchNode(snap.id, { title: snap.title, logline: snap.logline });
     const fresh = await api.node(snap.id);
@@ -557,7 +571,7 @@ async function flushEditorSave(snap) {
     if (editorNode?.id === snap.id) {
       if (document.activeElement !== $("node-title")) $("node-title").value = fresh.title ?? "";
       if (document.activeElement !== $("node-logline")) $("node-logline").value = fresh.logline ?? "";
-      $("node-save-info").textContent = "저장됨";
+      $("node-save-info").textContent = t("design.editor.saved");
     }
   } catch (e) {
     if (editorNode?.id === snap.id) $("node-save-info").textContent = "";
@@ -596,11 +610,11 @@ async function openDeleteDialog() {
     const all = (await api.designThreads(design.id)).threads ?? [];
     tcount = all.filter((th) => ids.has(th.node_id)).length;
   } catch { /* 개수 없이도 삭제 가능 */ }
-  let msg = `<b>${esc(editorNode.full_code ?? editorNode.id)} · ${esc(editorNode.title)}</b>`;
-  if (st.nodes) msg += ` 외 하위 ${st.nodes}개 노드`;
-  msg += `를 삭제합니다. 되돌릴 수 없습니다.`;
-  if (st.eps) msg += `<br>연결된 집필 개요 ${st.eps}건도 함께 삭제됩니다(원고 기록은 유지).`;
-  if (tcount) msg += `<br>연결된 대화 ${tcount}건도 함께 삭제됩니다.`;
+  let target = `<b>${esc(editorNode.full_code ?? editorNode.id)} · ${esc(editorNode.title)}</b>`;
+  if (st.nodes) target += ` ${esc(t("design.delete.subnodes", { count: st.nodes }))}`;
+  let msg = t("design.delete.message", { target });
+  if (st.eps) msg += `<br>${esc(t("design.delete.outlines", { count: st.eps }))}`;
+  if (tcount) msg += `<br>${esc(t("design.delete.threads", { count: tcount }))}`;
   $("delete-dialog-msg").innerHTML = msg;
   showError("delete-dialog-error", "");
   $("delete-dialog-backdrop").style.display = "";
@@ -640,7 +654,7 @@ function writeJump() {
 
 function openThreadSearch() {
   $("thread-search-input").value = "";
-  $("thread-search-list").innerHTML = `<span class="muted small">불러오는 중…</span>`;
+  $("thread-search-list").innerHTML = `<span class="muted small">${esc(t("design.search.loading"))}</span>`;
   showError("thread-search-error", "");
   $("thread-search-backdrop").style.display = "";
   $("thread-search-input").focus();
@@ -669,13 +683,13 @@ async function runThreadSearch() {
     const out = (await api.designThreads(design.id, null, q || null)).threads ?? [];
     if ($("thread-search-input").value.trim() !== q) return;
     if (!out.length) {
-      box.innerHTML = `<span class="muted small">${q ? "결과 없음" : "대화 없음"}</span>`;
+      box.innerHTML = `<span class="muted small">${esc(q ? t("design.search.noResults") : t("design.search.noThreads"))}</span>`;
       return;
     }
     box.innerHTML = out.map((th) => `
       <button class="thread-hit" data-jump-thread="${th.id}" data-jump-node="${esc(th.node_id)}">
         <span class="chip mono">${esc(th.node_code ?? "")}</span>
-        <b>${esc(th.title || "(무제)")}</b>
+        <b>${esc(th.title || t("design.thread.untitled"))}</b>
         <span class="muted small">${esc((th.updated_at || "").slice(0, 16).replace("T", " "))}</span>
         ${th.snippet ? `<span class="small">${esc(th.snippet)}</span>` : ""}
       </button>`).join("");
@@ -698,7 +712,7 @@ async function jumpToThread(nodeId, threadId) {
       await reloadNodes();
     }
     if (!nodes.some((n) => n.id === nodeId)) {
-      throw new Error("노드를 찾을 수 없습니다. 삭제되었을 수 있습니다.");
+      throw new Error(t("design.thread.nodeMissing"));
     }
     const chain = [];
     let cur = nodes.find((n) => n.id === nodeId);
@@ -724,7 +738,7 @@ function renderPartner() {
   const box = $("partner-messages");
   box.innerHTML = partnerMsgs.length ? partnerMsgs.map((m) => `
     <div class="msg ${m.role}"><label class="inc"><input type="checkbox" data-pinc-msg="${m.id}"${includedPartnerMessages.has(m.id) ? " checked" : ""}></label><div class="bubble">${esc(m.content).replace(/\n/g, "<br>")}</div></div>`).join("")
-    : `<span class="muted small">선택한 노드에 대해 질문하세요. AI가 하위 줄거리를 함께 설계합니다.</span>`;
+    : `<span class="muted small">${esc(t("design.partner.empty"))}</span>`;
   box.querySelectorAll("[data-pinc-msg]").forEach((c) => {
     c.addEventListener("change", () => {
       const id = Number(c.dataset.pincMsg);
@@ -737,7 +751,7 @@ function renderPartner() {
   });
   if (partnerSending) {
     box.insertAdjacentHTML("beforeend",
-      `<div class="msg assistant"><div class="typing" data-role="design.partner.typing" aria-label="AI 답변 생성 중"><span></span><span></span><span></span></div></div>`);
+      `<div class="msg assistant"><div class="typing" data-role="design.partner.typing" aria-label="${esc(t("design.partner.typing"))}"><span></span><span></span><span></span></div></div>`);
   }
   box.scrollTop = box.scrollHeight;
 }
@@ -777,11 +791,11 @@ async function loadPartnerThreads() {
 function renderThreadSelect() {
   const sel = $("partner-thread");
   if (!partnerThreads.length) {
-    sel.innerHTML = `<option value="">대화 없음 — ＋로 시작</option>`;
+    sel.innerHTML = `<option value="">${esc(t("design.thread.none"))}</option>`;
     return;
   }
   sel.innerHTML = partnerThreads.map((th) =>
-    `<option value="${th.id}"${th.id === partnerThreadId ? " selected" : ""}>${esc(th.title || "(무제)")}</option>`).join("");
+    `<option value="${th.id}"${th.id === partnerThreadId ? " selected" : ""}>${esc(th.title || t("design.thread.untitled"))}</option>`).join("");
 }
 
 async function openPartnerThread(tid) {
@@ -828,7 +842,7 @@ async function partnerSend() {
   partnerMsgs.push(pending);
   renderPartner();
   const send = $("btn-partner-send");
-  send.textContent = "처리중...";
+  send.textContent = t("design.partner.sending");
   send.disabled = true;
   await run(async () => {
     const tid = await ensurePartnerThread();
@@ -846,8 +860,8 @@ async function partnerSend() {
       out.assistant.id);
     partnerThreads = (await api.designThreads(design.id, selectedId)).threads ?? [];
     renderThreadSelect();
-  }, "전송 중… (취소 불가)");
-  send.textContent = "전송";
+  }, t("design.busy.sending"));
+  send.textContent = t("design.partner.send");
   send.disabled = false;
   if (partnerSending && sentNode === selectedId) {
     // AI 호출 실패: 사용자 메시지는 서버에 저장되어 있으므로 동기화
@@ -872,14 +886,14 @@ async function expandFlow() {
   await run(async () => {
     const out = await api.nodeExpand(selectedId, kind);
     renderProposals(out.children ?? [], {});
-  }, "설계 중… (취소 불가)");
+  }, t("design.busy.expanding"));
 }
 
 function renderProposals(children, patch, applied = {}, assistantId = null) {
   const box = $("proposal-list");
   const hasPatch = patch && Object.keys(patch).length > 0;
   if (!children.length && !hasPatch) {
-    box.innerHTML = `<span class="muted small">제안 없음</span>`;
+    box.innerHTML = `<span class="muted small">${esc(t("design.proposal.none"))}</span>`;
     return;
   }
   let patchApplied = Boolean(applied?.patch);
@@ -900,7 +914,7 @@ function renderProposals(children, patch, applied = {}, assistantId = null) {
   };
   const applyChild = async (c) => {
     await api.createNode(design.id, {
-      kind: c.kind, parent_id: selectedId, title: c.title || "무제",
+      kind: c.kind, parent_id: selectedId, title: c.title || t("design.proposal.untitled"),
       logline: c.logline || "", body: (c.body && typeof c.body === "object") ? c.body : {},
     });
   };
@@ -910,22 +924,22 @@ function renderProposals(children, patch, applied = {}, assistantId = null) {
     await refreshEditor();
   };
   const markApplied = (btn) => {
-    if (btn) { btn.disabled = true; btn.textContent = "✓ 반영됨"; }
+    if (btn) { btn.disabled = true; btn.textContent = t("design.proposal.applied"); }
   };
   box.innerHTML = `
     ${hasPatch ? `<div class="proposal">
-      <b class="small">선택 노드 수정안</b>
+      <b class="small">${esc(t("design.proposal.patchTitle"))}</b>
       <div class="small">${esc(patch.title ?? "")}</div>
       <div class="small muted">${esc(patch.logline ?? "")}</div>
-      <div class="btn-row"><button class="btn sm primary" data-apply-patch data-role="design.partner.apply-patch-btn">이 노드에 적용</button></div>
+      <div class="btn-row"><button class="btn sm primary" data-apply-patch data-role="design.partner.apply-patch-btn">${esc(t("design.proposal.applyPatch"))}</button></div>
     </div>` : ""}
-    ${children.length ? `<b class="small">하위 설계안 (${children.length})</b>
-    <div class="btn-row"><button class="btn sm" data-apply-all data-role="design.partner.apply-all-btn">전체 적용</button></div>` : ""}
+    ${children.length ? `<b class="small">${esc(t("design.proposal.childrenTitle", { count: children.length }))}</b>
+    <div class="btn-row"><button class="btn sm" data-apply-all data-role="design.partner.apply-all-btn">${esc(t("design.proposal.applyAll"))}</button></div>` : ""}
     ${children.map((c, i) => `
       <div class="proposal">
-        <b class="small">[${esc(KIND_LABEL[c.kind] ?? c.kind)}] ${esc(c.title)}</b>
+        <b class="small">[${esc(kindLabel(c.kind))}] ${esc(c.title)}</b>
         <div class="small muted">${esc(c.logline)}</div>
-        <div class="btn-row"><button class="btn sm" data-apply-child="${i}" data-role="design.partner.apply-child-btn">하위로 추가</button></div>
+        <div class="btn-row"><button class="btn sm" data-apply-child="${i}" data-role="design.partner.apply-child-btn">${esc(t("design.proposal.applyChild"))}</button></div>
       </div>`).join("")}`;
   box.querySelector("[data-apply-patch]")?.addEventListener("click", () => run(async () => {
     if (patchApplied) return;
@@ -955,8 +969,8 @@ function renderProposals(children, patch, applied = {}, assistantId = null) {
     markApplied(box.querySelector("[data-apply-patch]"));
     box.querySelectorAll("[data-apply-child]").forEach(markApplied);
     const allBtn = box.querySelector("[data-apply-all]");
-    if (allBtn) { allBtn.disabled = true; allBtn.textContent = "✓ 전체 반영됨"; }
-  }, "적용 중…"));
+    if (allBtn) { allBtn.disabled = true; allBtn.textContent = t("design.proposal.allApplied"); }
+  }, t("design.busy.applying")));
   if (patchApplied) markApplied(box.querySelector("[data-apply-patch]"));
   box.querySelectorAll("[data-apply-child]").forEach((b) => {
     if (childApplied.has(Number(b.dataset.applyChild))) markApplied(b);
@@ -964,7 +978,7 @@ function renderProposals(children, patch, applied = {}, assistantId = null) {
   if ((patchApplied || !hasPatch) &&
       children.every((_, i) => childApplied.has(i)) && children.length) {
     const allBtn = box.querySelector("[data-apply-all]");
-    if (allBtn) { allBtn.disabled = true; allBtn.textContent = "✓ 전체 반영됨"; }
+    if (allBtn) { allBtn.disabled = true; allBtn.textContent = t("design.proposal.allApplied"); }
   }
 }
 

@@ -82,22 +82,40 @@ def extract_changes(meta, conn: sqlite3.Connection, *, episode_no: int,
                     revision_id: int, manuscript: str, work_id: int,
                     base_memory_version: int = 0, model_version: str = "",
                     max_tokens: int = 8000,
-                    author_instruction: str = "") -> dict:
+                    author_instruction: str = "",
+                    writing_locale: str | None = None,
+                    market: str | None = None) -> dict:
+    from . import meta_client as metac
+
+    prompt, writing_locale, market = metac.feature_prompt(
+        conn, work_id, "entity", writing_locale, market)
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
     units = memory.ensure_units(conn, work_id, episode_no, revision_id,
                                 manuscript)
     payload: dict = {"manuscript": manuscript,
                      "prev_states": _prev_states(conn, episode_no, work_id),
                      "committed_rules": _committed_rules(conn, episode_no,
                                                          work_id)}
-    directive = "다음 입력에서 변경 항목을 추출하라."
-    if (author_instruction or "").strip():
-        payload["author_instruction"] = author_instruction.strip()
-        directive = ("작가의 수정 요청(author_instruction)을 최우선 반영해"
-                     " 다음 입력에서 변경 항목을 다시 추출하라.")
-    out = meta.chat_json(
-        bundle="entity", episode=episode_no, system=PROMPT, work_id=work_id,
-        user=directive + " 스켈레톤: "
-             '{"items": [{"entity_ref": str, "candidate_name": str, '
+    if writing_locale == "en-US":
+        directive = "Extract change items from the following input."
+        skel = " Skeleton: "
+        if (author_instruction or "").strip():
+            payload["author_instruction"] = author_instruction.strip()
+            directive = ("Apply the author's revision request"
+                         " (author_instruction) first, then re-extract change"
+                         " items from the following input.")
+    else:
+        directive = "다음 입력에서 변경 항목을 추출하라."
+        skel = " 스켈레톤: "
+        if (author_instruction or "").strip():
+            payload["author_instruction"] = author_instruction.strip()
+            directive = ("작가의 수정 요청(author_instruction)을 최우선 반영해"
+                         " 다음 입력에서 변경 항목을 다시 추출하라.")
+    out = metac.chat_with_provenance(
+        meta, bundle="entity", episode=episode_no, system=prompt.text,
+        work_id=work_id,
+        user=directive + skel
+             + '{"items": [{"entity_ref": str, "candidate_name": str, '
              '"kind": str, "operation": str, '
              '"attribute_path": str, "old_value": any, "new_value": any, '
              '"standard_value": any, "story_time": str, '
@@ -108,7 +126,10 @@ def extract_changes(meta, conn: sqlite3.Connection, *, episode_no: int,
              '"evidence_quote": str, '
              '"participants": [{"entity_ref": str, "role": str}]}]}\n'
              + json.dumps(payload, ensure_ascii=False),
-        schema=sch.EntityOutput, max_tokens=max_tokens)
+        schema=sch.EntityOutput, max_tokens=max_tokens,
+        writing_locale=writing_locale, market=market,
+        prompt_feature="entity", prompt_version=PROMPT_VERSION,
+        preset_id=preset_id, preset_version=preset_version)
 
     items = []
     dropped = 0

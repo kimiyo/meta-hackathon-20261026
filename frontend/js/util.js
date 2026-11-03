@@ -1,4 +1,6 @@
 // 작은 DOM·문자열 헬퍼. React와 달리 innerHTML 삽입 시 직접 이스케이프한다.
+import { t } from "./i18n.js";
+
 export function esc(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -41,52 +43,74 @@ export function showToast(message, ms = 2500) {
   }, ms);
 }
 
-// 회차 상태 코드 → 화면 표시 한글. 코드 식별자(API·CSS 클래스)는 그대로 둔다.
-const STATE_KO = {
-  WRITING: "집필중",
-  IN_REVIEW: "검토중",
-  PUBLISHING: "발간중",
+// 코드 식별자(API·CSS 클래스·DB 값) → 현재 화면 언어 표시문. 식별자는 그대로 둔다.
+// 함수명은 기존 호출부 호환을 위해 유지한다.
+const STATE_KEYS = {
+  WRITING: "common.state.WRITING",
+  IN_REVIEW: "common.state.IN_REVIEW",
+  PUBLISHING: "common.state.PUBLISHING",
 };
 
 export function stateKo(state) {
-  return STATE_KO[state] ?? String(state ?? "-");
+  const key = STATE_KEYS[state];
+  return key ? t(key) : String(state ?? "-");
 }
 
-// 일관성 이슈 심각도·상태 → 화면 표시 한글.
-const SEVERITY_KO = { critical: "심각", major: "주요", minor: "경미" };
+// 일관성 이슈 심각도·상태 → 현재 화면 언어 표시문.
+const SEVERITY_KEYS = {
+  critical: "common.severity.critical",
+  major: "common.severity.major",
+  minor: "common.severity.minor",
+};
 
 export function severityKo(s) {
-  return SEVERITY_KO[s] ?? String(s ?? "-");
+  const key = SEVERITY_KEYS[s];
+  return key ? t(key) : String(s ?? "-");
 }
 
-const ISSUE_STATUS_KO = {
-  open: "열림", fixed: "수정 완료", accepted: "의도적 수용", dismissed: "오탐 기각",
-  resolved: "수정 완료", wontfix: "오탐 기각",
+const ISSUE_STATUS_KEYS = {
+  open: "common.issueStatus.open",
+  fixed: "common.issueStatus.fixed",
+  accepted: "common.issueStatus.accepted",
+  dismissed: "common.issueStatus.dismissed",
+  resolved: "common.issueStatus.resolved",
+  wontfix: "common.issueStatus.wontfix",
 };
 
 export function issueStatusKo(s) {
-  return ISSUE_STATUS_KO[s] ?? String(s ?? "-");
+  const key = ISSUE_STATUS_KEYS[s];
+  return key ? t(key) : String(s ?? "-");
 }
 
-// 분석 판정(verdict) → 화면 표시 한글. 작가 처리 상태와 분리된다.
-const VERDICT_KO = { conflict: "모순 확정", explained: "설명됨", uncertain: "판단 보류" };
+// 분석 판정(verdict) → 현재 화면 언어 표시문. 작가 처리 상태와 분리된다.
+const VERDICT_KEYS = {
+  conflict: "common.verdict.conflict",
+  explained: "common.verdict.explained",
+  uncertain: "common.verdict.uncertain",
+};
 
 export function verdictKo(v) {
-  return VERDICT_KO[v] ?? String(v ?? "-");
+  const key = VERDICT_KEYS[v];
+  return key ? t(key) : String(v ?? "-");
 }
 
-// 사실 종류(kind) → 화면 표시 한글.
-const KIND_KO = {
-  attribute: "속성", state: "상태", relation: "관계", rule: "규칙", event: "행위",
+// 사실 종류(kind) → 현재 화면 언어 표시문.
+const KIND_KEYS = {
+  attribute: "common.kind.attribute",
+  state: "common.kind.state",
+  relation: "common.kind.relation",
+  rule: "common.kind.rule",
+  event: "common.kind.event",
 };
 
 export function kindKo(k) {
-  return KIND_KO[k] ?? String(k ?? "-");
+  const key = KIND_KEYS[k];
+  return key ? t(key) : String(k ?? "-");
 }
 
 // 확정 변경 이력 → 타임라인 HTML. 설정 화면과 작가 검토가 공유한다.
 export function historyTimelineHtml(history) {
-  if (!history.length) return `<span class="muted small">확정된 이력이 없습니다.</span>`;
+  if (!history.length) return `<span class="muted small">${esc(t("common.historyEmpty"))}</span>`;
   const fmtVal = (v) => {
     if (v === null || v === undefined || v === "") return "—";
     return typeof v === "string" ? v : JSON.stringify(v);
@@ -102,14 +126,21 @@ export function historyTimelineHtml(history) {
     .join("");
 }
 
-// 서술 방식(narrative_mode) → 화면 표시 한글.
-const MODE_KO = {
-  narration: "직접 서술", dialogue: "대사", rumor: "전언", conjecture: "추측",
-  hypothesis: "가정", negation: "부정", dream: "꿈", recollection: "회상",
-  lie: "거짓말",
+// 서술 방식(narrative_mode) → 현재 화면 언어 표시문.
+const MODE_KEYS = {
+  narration: "common.mode.narration",
+  dialogue: "common.mode.dialogue",
+  rumor: "common.mode.rumor",
+  conjecture: "common.mode.conjecture",
+  hypothesis: "common.mode.hypothesis",
+  negation: "common.mode.negation",
+  dream: "common.mode.dream",
+  recollection: "common.mode.recollection",
+  lie: "common.mode.lie",
 };
 
 export function modeKo(m) {
-  return MODE_KO[m] ?? String(m ?? "-");
+  const key = MODE_KEYS[m];
+  return key ? t(key) : String(m ?? "-");
 }
 

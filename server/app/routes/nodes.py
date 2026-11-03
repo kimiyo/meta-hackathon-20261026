@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import design_nodes, design_threads, ideas
+from .. import meta_client as metac
+from .. import prompt_loader
 from ..db import find_work
 from ..errors import LLMStepError
 from ..schemas import ideas as sch
@@ -157,18 +159,33 @@ def node_chat(node_id: str, body: NodeChatIn,
     content = (body.content or "").strip()
     if not content:
         raise HTTPException(400, "content must not be blank")
-    extra = f"작가 요청: {content}\n참조: {', '.join(body.refs) or '(없음)'}"
-    if body.refs:
-        extra += "\n참조 해석:\n" + "\n".join(
-            design_threads.ref_lines(conn, node["design_id"], body.refs))
     design = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
                           (node["design_id"],)).fetchone()
+    work_id = design["work_id"] if design else None
+    market, writing_locale = metac.work_locale(conn, work_id)
+    en = writing_locale == "en-US"
+    if en:
+        refs_txt = ", ".join(body.refs) or "(none)"
+        extra = f"Author request: {content}\nRefs: {refs_txt}"
+    else:
+        extra = f"작가 요청: {content}\n참조: {', '.join(body.refs) or '(없음)'}"
+    if body.refs:
+        extra += ("\nRef notes:\n" if en else "\n참조 해석:\n") + "\n".join(
+            design_threads.ref_lines(conn, node["design_id"], body.refs))
     try:
-        return meta.chat_json(bundle="design_chat", episode=None,
-                              system=CHAT_PROMPT,
-                              user=design_threads.node_context(conn, node, extra),
-                              schema=sch.DesignChatOut, max_tokens=8000,
-                              work_id=design["work_id"] if design else None)
+        system = prompt_loader.load(
+            "design_chat", writing_locale, market).text
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
+    try:
+        return metac.chat_with_provenance(
+            meta, bundle="design_chat", episode=None, system=system,
+            user=design_threads.node_context(conn, node, extra),
+            schema=sch.DesignChatOut, max_tokens=8000,
+            work_id=work_id, writing_locale=writing_locale, market=market,
+            prompt_feature="design_chat",
+            preset_id=preset_id, preset_version=preset_version)
     except LLMStepError as e:
         raise HTTPException(502, f"design_chat failed: {e.reason} {e.detail}")
 
@@ -186,16 +203,30 @@ def node_expand(node_id: str, body: ExpandIn,
     if body.kind is not None and body.kind not in design_nodes.KINDS:
         raise HTTPException(
             400, f"kind must be one of {sorted(design_nodes.KINDS)}")
-    extra = (f"자식 수준: {body.kind}" if body.kind
-             else "자식 수준: 선택 노드의 바로 아래 수준")
     design = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
                           (node["design_id"],)).fetchone()
+    work_id = design["work_id"] if design else None
+    market, writing_locale = metac.work_locale(conn, work_id)
+    if writing_locale == "en-US":
+        extra = (f"Child level: {body.kind}" if body.kind
+                 else "Child level: directly below the selected node")
+    else:
+        extra = (f"자식 수준: {body.kind}" if body.kind
+                 else "자식 수준: 선택 노드의 바로 아래 수준")
     try:
-        return meta.chat_json(bundle="design_expand", episode=None,
-                              system=EXPAND_PROMPT,
-                              user=design_threads.node_context(conn, node, extra),
-                              schema=sch.ExpandOut, max_tokens=8000,
-                              work_id=design["work_id"] if design else None)
+        system = prompt_loader.load(
+            "design_expand", writing_locale, market).text
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
+    try:
+        return metac.chat_with_provenance(
+            meta, bundle="design_expand", episode=None, system=system,
+            user=design_threads.node_context(conn, node, extra),
+            schema=sch.ExpandOut, max_tokens=8000,
+            work_id=work_id, writing_locale=writing_locale, market=market,
+            prompt_feature="design_expand",
+            preset_id=preset_id, preset_version=preset_version)
     except LLMStepError as e:
         raise HTTPException(502, f"design_expand failed: {e.reason} {e.detail}")
 

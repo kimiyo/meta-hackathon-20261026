@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { t } from "./i18n.js";
 import { $, esc, showError, historyTimelineHtml } from "./util.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
 import { getWork } from "./work.js";
@@ -19,7 +20,7 @@ function currentWorkId() {
 function clearDetail() {
   sel = null;
   renderList();
-  $("ent-detail").innerHTML = `<h3>설정 상태</h3><span class="muted">설정을 선택하세요.</span>`;
+  $("ent-detail").innerHTML = `<h3>${t("entities.detailTitle")}</h3><span class="muted">${t("entities.selectPrompt")}</span>`;
   $("ent-history-card").style.display = "none";
   $("ent-history").innerHTML = "";
 }
@@ -40,14 +41,14 @@ async function search(text) {
 function renderList() {
   const box = $("ent-list");
   if (!list.length) {
-    box.innerHTML = `<span class="muted small">설정 항목이 없습니다.</span>`;
+    box.innerHTML = `<span class="muted small">${t("entities.empty")}</span>`;
     return;
   }
   box.innerHTML = list
     .map(
       (e) => `<div class="work-item${e.entity_id === sel ? " selected" : ""}" data-ent="${esc(e.entity_id)}">
         <div class="t">${esc(e.canonical_name)} <span class="chip mono">${esc(e.entity_id)}</span></div>
-        <div class="meta">${esc(e.type)} · 첫 등장 EP ${esc(e.first_episode)} · ${esc(e.lifecycle_status)}</div>
+        <div class="meta">${esc(e.type)} · ${t("entities.firstEp", { ep: esc(e.first_episode) })} · ${esc(e.lifecycle_status)}</div>
         ${e.match_snippet ? `<div class="small muted">${esc(e.match_snippet)}</div>` : ""}
       </div>`
     )
@@ -66,9 +67,9 @@ function renderState(entId, state) {
     .join("");
   box.innerHTML = `
     <h3>${esc(entId)}
-      <span class="hint">${esc(asOf)}화 기준</span>
+      <span class="hint">${t("entities.asOfBasis", { asOf: esc(asOf) })}</span>
     </h3>
-    <dl class="kv">${rows || `<dt>속성</dt><dd class="mono">없음</dd>`}</dl>`;
+    <dl class="kv">${rows || `<dt>${t("entities.attrLabel")}</dt><dd class="mono">${t("entities.none")}</dd>`}</dl>`;
 }
 
 function renderHistory(history) {
@@ -97,8 +98,8 @@ function renderRelations(relations, selfId, asOf) {
     const span = `EP ${esc(r.valid_from_episode)}${r.valid_to_episode ? `~${esc(r.valid_to_episode - 1)}` : "~"}`;
     return `<div class="tl-item"><div class="ep">${outgoing ? "→" : "←"} ${esc(other)} · ${esc(r.predicate)} · ${span}</div></div>`;
   }).join("");
-  box.innerHTML = `<div class="small" style="margin-bottom:6px"><b>관계</b></div>${relHtml}
-    <div class="small" style="margin:6px 0"><b>속성 이력</b></div>` + box.innerHTML;
+  box.innerHTML = `<div class="small" style="margin-bottom:6px"><b>${t("entities.relations")}</b></div>${relHtml}
+    <div class="small" style="margin:6px 0"><b>${t("entities.attrHistory")}</b></div>` + box.innerHTML;
   card.style.display = "";
 }
 

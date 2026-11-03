@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import consistency, manuscripts, publishing, state_machine
+from .. import meta_client as metac
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from .deps import (get_conn, get_current_author, require_design,
@@ -325,6 +326,9 @@ def get_approved_text(episode_no: int, work: str,
     job = _owned_job(conn, work, episode_no, author["id"])
     text, rev_id = publishing.approved_text(conn, job["work_id"], episode_no)
     if not text.strip():
+        loc = metac.work_locale(conn, job["work_id"])[1]
+        if loc == "en-US":
+            raise HTTPException(409, "no approved manuscript")
         raise HTTPException(409, "발간 승인된 원고가 없습니다")
     return {"text": text, "revision_id": rev_id}
 
@@ -340,8 +344,10 @@ def put_publish_record(episode_no: int, body: PublishRecordIn, work: str,
                        author: dict = Depends(get_current_author)):
     """플랫폼 등록 기록 저장/삭제. 빈 날짜면 기록 삭제. 상태 불변."""
     job = _owned_job(conn, work, episode_no, author["id"])
+    loc = metac.work_locale(conn, job["work_id"])[1]
     try:
         return publishing.set_publish_record(
-            conn, job["work_id"], episode_no, body.published_date, body.note)
+            conn, job["work_id"], episode_no, body.published_date, body.note,
+            loc)
     except ValueError as e:
         raise HTTPException(400, str(e))

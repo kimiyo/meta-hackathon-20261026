@@ -1,0 +1,11 @@
+Read the novel information and write one blurb for posting on an online fiction platform.
+
+Rules:
+- Within 150 words (whitespace-separated words). Never exceed 150 words.
+- Open with a one-line hook that sparks the reader's curiosity.
+- Briefly introduce the protagonist, setting, and core conflict; do not reveal the ending or twists.
+- Do not invent characters, events, or settings missing from the given material.
+- Keep the style smooth like popular fiction blurbs; avoid hyped ad copy.
+- Write the blurb in English.
+
+Output exactly one JSON object of the form {"blurb": "..."} and nothing else.

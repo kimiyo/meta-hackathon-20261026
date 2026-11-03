@@ -7,9 +7,10 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import custom_styles, drafting, planning, publishing, style_presets
+from .. import custom_styles, drafting, locales, planning, publishing, style_presets
 from ..db import find_work, new_uid, now_iso, touch_work
-from ..errors import LLMStepError
+from ..errors import (LLMStepError, UNKNOWN_MARKET, UNKNOWN_PLATFORM,
+                      UNKNOWN_WRITING_LOCALE, WORK_LOCALE_LOCKED, coded_error)
 from ..ideas import check_total_episodes
 from .deps import (get_conn, get_current_author, require_design,
                        require_work)
@@ -32,6 +33,9 @@ def _work_or_404(conn: sqlite3.Connection, key: str,
 class WorkIn(BaseModel):
     title: str
     logline: str = ""
+    market: str | None = None
+    writing_locale: str | None = None
+    platform: str | None = None
 
 
 @router.post("/works")
@@ -42,11 +46,42 @@ def create_work(body: WorkIn, conn: sqlite3.Connection = Depends(get_conn),
         raise HTTPException(400, "title must not be blank")
     if len(title) > TITLE_MAX:
         raise HTTPException(400, f"title must be ≤{TITLE_MAX} chars")
+    try:
+        market = locales.validate_market(
+            body.market if body.market is not None
+            else locales.DEFAULT_MARKET)
+    except ValueError:
+        raise coded_error(400, UNKNOWN_MARKET, {"value": body.market})
+    try:
+        wlocale = locales.validate_writing_locale(
+            body.writing_locale if body.writing_locale is not None
+            else locales.DEFAULT_WRITING_LOCALE)
+    except ValueError:
+        raise coded_error(400, UNKNOWN_WRITING_LOCALE,
+                           {"value": body.writing_locale})
+    if body.platform is None:
+        # US works store "" until the US default is decided; KR works
+        # keep the DB default. Never auto-apply the Korean default (§4.6).
+        platform_value: str | None = "" if market == "US" else None
+    elif body.platform == "":
+        platform_value = ""
+    else:
+        try:
+            platform_value = publishing.check_platform(body.platform)
+        except ValueError:
+            raise coded_error(400, UNKNOWN_PLATFORM,
+                               {"value": body.platform})
     uid, ts = new_uid(), now_iso()
+    cols = ["uid", "author_id", "title", "logline", "market",
+            "writing_locale", "created_at", "updated_at"]
+    vals: list = [uid, author["id"], title, body.logline, market,
+                  wlocale, ts, ts]
+    if platform_value is not None:
+        cols.insert(4, "platform")
+        vals.insert(4, platform_value)
     cur = conn.execute(
-        "INSERT INTO works(uid, author_id, title, logline, created_at,"
-        " updated_at) VALUES(?,?,?,?,?,?)",
-        (uid, author["id"], title, body.logline, ts, ts))
+        f"INSERT INTO works({', '.join(cols)})"
+        f" VALUES({', '.join('?' * len(cols))})", vals)
     conn.commit()
     return dict(conn.execute("SELECT * FROM works WHERE id=?",
                              (cur.lastrowid,)).fetchone())
@@ -156,6 +191,8 @@ class WorkPatch(BaseModel):
     publish_pen_name: str | None = None
     publish_blurb: str | None = None
     platform: str | None = None
+    market: str | None = None
+    writing_locale: str | None = None
 
 
 @router.patch("/works/{key}")
@@ -193,11 +230,41 @@ def patch_work(key: str, body: WorkPatch,
         sets.append("publish_blurb=?")
         args.append(body.publish_blurb)
     if body.platform is not None:
-        try:
+        if body.platform == "":
+            # Explicit empty: US works awaiting the US default (§4.6).
             sets.append("platform=?")
-            args.append(publishing.check_platform(body.platform))
+            args.append("")
+        else:
+            try:
+                sets.append("platform=?")
+                args.append(publishing.check_platform(body.platform))
+            except ValueError:
+                raise coded_error(400, UNKNOWN_PLATFORM,
+                                   {"value": body.platform})
+    if body.market is not None or body.writing_locale is not None:
+        try:
+            new_market = (locales.validate_market(body.market)
+                          if body.market is not None
+                          else (work.get("market") or locales.DEFAULT_MARKET))
+            new_wlocale = (locales.validate_writing_locale(body.writing_locale)
+                           if body.writing_locale is not None
+                           else (work.get("writing_locale")
+                                 or locales.DEFAULT_WRITING_LOCALE))
         except ValueError as e:
             raise HTTPException(400, str(e))
+        if (new_market != work.get("market")
+                or new_wlocale != work.get("writing_locale")):
+            allowed, reason = locales.can_change_locale(conn, work["id"])
+            if not allowed:
+                raise coded_error(409, WORK_LOCALE_LOCKED,
+                                   {"reason": reason,
+                                    "market": work.get("market"),
+                                    "writing_locale":
+                                        work.get("writing_locale")})
+            sets.append("market=?")
+            args.append(new_market)
+            sets.append("writing_locale=?")
+            args.append(new_wlocale)
     if not sets:
         raise HTTPException(400, "no valid work fields")
     args.append(work["id"])
@@ -223,7 +290,8 @@ def upload_cover(key: str, body: CoverIn,
     work = _work_or_404(conn, key, author["id"])
     try:
         name = publishing.save_cover(work["id"], body.filename,
-                                     body.content_base64)
+                                     body.content_base64,
+                                     work.get("writing_locale") or "ko-KR")
     except ValueError as e:
         raise HTTPException(400, str(e))
     old = work.get("cover_path") or ""
@@ -262,7 +330,12 @@ def generate_blurb(key: str,
         raise HTTPException(409, "소개글 재료가 없습니다"
                                  "(로그라인·시놉시스·회차 개요 중 하나 필요)")
     try:
-        blurb = publishing.make_blurb(meta, work["id"], ctx)
+        blurb = publishing.make_blurb(
+            meta, work["id"], ctx,
+            writing_locale=work.get("writing_locale") or "ko-KR",
+            market=work.get("market") or "KR")
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
     except ValueError as e:
         raise HTTPException(400, str(e))
     except LLMStepError as e:

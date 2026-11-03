@@ -69,14 +69,14 @@
   <div class="inner brand-head">
     <img src="./assets/symbol-paper.svg" alt="" width="30" height="30">
     <div>
-      <h1>StorySpine — 사용 설명서</h1>
-      <p>AI 소설 창작 스튜디오 · 아이디어 → 설계 → 집필 → 검토 → 발간</p>
+      <h1 data-i18n="manual.headerTitle">StorySpine — 사용 설명서</h1>
+      <p data-i18n="manual.headerSub">AI 소설 창작 스튜디오 · 아이디어 → 설계 → 집필 → 검토 → 발간</p>
     </div>
   </div>
 </header>
 
 <main>
-<nav class="toc">
+<nav class="toc" data-i18n-html="manual.toc">
   <b>목차</b>
   <ol>
     <li><a href="#start">시작하기</a></li>
@@ -94,7 +94,7 @@
   </ol>
 </nav>
 
-<section class="card" id="start">
+<section class="card" id="start" data-i18n-html="manual.start">
 <h2>1. 시작하기</h2>
 <p>서버 하나만 띄우면 됩니다. API와 화면을 같은 주소에서 서빙하므로 별도 웹 서버가 필요 없습니다.</p>
 <pre>cd server
@@ -106,7 +106,7 @@
 </ul>
 </section>
 
-<section class="card" id="layout">
+<section class="card" id="layout" data-i18n-html="manual.layout">
 <h2>2. 화면 구성</h2>
 <h3>상단바</h3>
 <table>
@@ -131,7 +131,7 @@
 </table>
 </section>
 
-<section class="card" id="flow">
+<section class="card" id="flow" data-i18n-html="manual.flow">
 <h2>3. 기본 사용 흐름</h2>
 <div class="flow">메인에서 소설 선택/만들기 → 아이디어 대화·정리 → <b>설계로 인계</b> → 트리 구체화 → 집필 시작·수정 → 검토 요청 → 일관성 분석 → 발간요청 → 다음 회차 → …</div>
 <ol>
@@ -145,7 +145,7 @@
 </ol>
 </section>
 
-<section class="card" id="tab1">
+<section class="card" id="tab1" data-i18n-html="manual.tab1">
 <h2>4. 탭 1 — 아이디어</h2>
 <h3>아이디어 대화</h3>
 <ul>
@@ -171,7 +171,7 @@
 <p><b>아이디어 마무리 → 소설 설계로</b>만 누르면 됩니다. AI가 인계 계획을 세워 확인 창에 생성될 설계 트리(Part·Chapter·Episode 전체 회차)를 미리보기로 보여주고, 확정하면 그대로 생성됩니다. AI가 채우지 못한 회차는 빈 회차로 표시되며 설계에서 이어서 쓰면 됩니다. 전체 줄거리 전문과 설정정보는 설계 최상위 '작품' 노드에 함께 저장되어 설계 화면에서 볼 수 있습니다. 인계 후 아이디어 화면은 읽기 전용이 됩니다.</p>
 </section>
 
-<section class="card" id="tab1b">
+<section class="card" id="tab1b" data-i18n-html="manual.tab1b">
 <h2>5. 탭 2 — 소설 설계</h2>
 <h3>소설 구조 (왼쪽)</h3>
 <ul>
@@ -188,7 +188,7 @@
 </ul>
 </section>
 
-<section class="card" id="tab2">
+<section class="card" id="tab2" data-i18n-html="manual.tab2">
 <h2>6. 탭 3 — 집필</h2>
 <h3>설계 ID 불러오기</h3>
 <p>들어가면 현재 작품의 최신 설계가 자동으로 불러와집니다. 다른 설계를 보려면 설계 ID를 입력하고 <b>불러오기</b>를 누릅니다. 소설 설계의 "이 화 집필하기"로 오면 해당 설계·회차가 자동 선택됩니다.</p>
@@ -224,7 +224,7 @@
 <p>최근 20건의 AI 호출(bundle, 회차, 입출력 토큰, 지연, 성공/실패)과 오늘의 토큰 사용량을 보여줍니다. 진행률 막대는 발간된 회차 비율입니다.</p>
 </section>
 
-<section class="card" id="tab3">
+<section class="card" id="tab3" data-i18n-html="manual.tab3">
 <h2>7. 탭 4 — 작가 검토</h2>
 <p>회차 번호를 입력하고 <b>불러오기</b>를 누르면 원고와 일관성 분석 결과가 표시됩니다. 이 화면의 원고는 읽기 전용이며, 수정은 집필 화면에서만 합니다. 오른쪽은 ① 설정추출 → ② 일관성점검 순서의 탭으로 되어 있습니다.</p>
 <h3>원고 본문</h3>
@@ -258,7 +258,7 @@
 <p>원고가 마음에 들고 열린 이슈가 없으면 우측 상단의 <b>발간요청</b>을 누릅니다. 원고가 확정되며 되돌릴 수 없습니다. 검토중 상태일 때만 누를 수 있고, 현재 원고 기준의 저장된 기억도 신선한 추출도 없으면 차단됩니다. 저장을 안 한 신선한 추출만 있으면 발간 시 자동으로 확정됩니다.</p>
 </section>
 
-<section class="card" id="tab4b">
+<section class="card" id="tab4b" data-i18n-html="manual.tab4b">
 <h2>8. 탭 5 — 발간중</h2>
 <p>플랫폼에 올릴 작품 정보와 회차별 최종 출판본을 관리합니다. <b>1 · 작품정보</b> 탭에서 작품·커버를, <b>2 · 발간중인 회차</b> 탭에서 회차별 출판본을 다룹니다.</p>
 <ul>
@@ -272,7 +272,7 @@
 </ul>
 </section>
 
-<section class="card" id="tab4">
+<section class="card" id="tab4" data-i18n-html="manual.tab4">
 <h2>9. 탭 6 — 설정</h2>
 <p>인물·장소 등의 설정을 조회합니다. <b>확정된 변경만</b> 표시되며, 미확정 변경안은 포함되지 않습니다.</p>
 <ul>
@@ -282,7 +282,7 @@
 </ul>
 </section>
 
-<section class="card" id="states">
+<section class="card" id="states" data-i18n-html="manual.states">
 <h2>10. 상태와 용어</h2>
 <table>
   <tr><th>상태</th><th>의미</th></tr>
@@ -299,7 +299,7 @@
 </ul>
 </section>
 
-<section class="card" id="caution">
+<section class="card" id="caution" data-i18n-html="manual.caution">
 <h2>11. 주의사항</h2>
 <ul>
   <li><b>발간요청</b>은 되돌릴 수 없습니다. 발간된 원고는 이후 모든 일관성 분석의 기준이 됩니다</li>
@@ -308,7 +308,7 @@
 </ul>
 </section>
 
-<section class="card" id="trouble">
+<section class="card" id="trouble" data-i18n-html="manual.trouble">
 <h2>12. 문제 해결</h2>
 <table>
   <tr><th>증상</th><th>확인할 것</th></tr>
@@ -323,7 +323,33 @@
 </section>
 </main>
 
-<footer>StorySpine — 사용 설명서 · 앱으로 돌아가려면 <a href="./index.html">메인 화면</a></footer>
+<footer data-i18n-html="manual.footer">StorySpine — 사용 설명서 · 앱으로 돌아가려면 <a href="./index.html">메인 화면</a></footer>
 
+<script type="module">
+import { getLocale, setLocale, storedLocale, t } from "./js/i18n.js";
+
+// 설명서 언어: ?locale= 쿼리 > 앱에서 저장한 ui_locale > 한국어 기본값.
+const params = new URLSearchParams(location.search);
+const want = params.get("locale") || storedLocale() || "ko-KR";
+try {
+  await setLocale(want);
+} catch (e) {
+  console.error("manual locale unavailable, staying with built-in Korean", e);
+}
+// 번역 누락 키는 건드리지 않고 기존 한국어(원본 HTML)를 유지한다.
+for (const el of document.querySelectorAll("[data-i18n]")) {
+  const key = el.getAttribute("data-i18n");
+  const value = t(key);
+  if (value !== key) el.textContent = value;
+}
+for (const el of document.querySelectorAll("[data-i18n-html]")) {
+  const key = el.getAttribute("data-i18n-html");
+  const value = t(key);
+  if (value !== key) el.innerHTML = value;
+}
+const title = t("manual.title");
+if (title !== "manual.title") document.title = title;
+document.documentElement.lang = getLocale() === "en-US" ? "en" : "ko";
+</script>
 </body>
 </html>

@@ -36,7 +36,9 @@ def _excerpt(text: str, start: int | None, end: int | None, window: int = 200) -
 def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
                      revision_id: int, proposal_set_id: int, manuscript: str,
                      world_rules: list[str] | None = None, work_id: int | None = None,
-                     max_tokens: int = 8000) -> dict:
+                     max_tokens: int = 8000,
+                     writing_locale: str | None = None,
+                     market: str | None = None) -> dict:
     items = [i for i in memory.get_proposals(conn, episode_no, work_id)
              if i["proposal_set_id"] == proposal_set_id]
     # Skip citation-failed items: they stay deferred, never judged.
@@ -69,22 +71,36 @@ def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
         "narrative_mode": i.get("narrative_mode", "narration"),
         "evidence_quote": i["evidence_quote"],
     } for i in judgeable]
-    out = meta.chat_json(
-        bundle="verify", episode=episode_no, system=PROMPT, work_id=work_id,
-        user="다음 변경안을 판정하라. 스켈레톤: "
-             '{"verdicts": [{"item_id": int, "verdict": str, "reason": str, '
-             '"counter_evidence_quote": str}]}\n'
-             + json.dumps({
-                 "proposal_items": payload_items,
-                 "approved_states": approved_states,
-                 "world_rules": world_rules or [],
-                 "manuscript_excerpts": [
-                     {"item_id": i["item_id"],
-                      "excerpt": _excerpt(manuscript, i["evidence_start"],
-                                          i["evidence_end"])}
-                     for i in judgeable],
-             }, ensure_ascii=False),
-        schema=sch.VerifyOutput, max_tokens=max_tokens)
+    from . import meta_client as metac
+
+    prompt, writing_locale, market = metac.feature_prompt(
+        conn, work_id, "verify", writing_locale, market)
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
+    if writing_locale == "en-US":
+        directive = ("Judge the following change proposals. Skeleton: "
+                     '{"verdicts": [{"item_id": int, "verdict": str, '
+                     '"reason": str, "counter_evidence_quote": str}]}\n')
+    else:
+        directive = ("다음 변경안을 판정하라. 스켈레톤: "
+                     '{"verdicts": [{"item_id": int, "verdict": str, '
+                     '"reason": str, "counter_evidence_quote": str}]}\n')
+    out = metac.chat_with_provenance(
+        meta, bundle="verify", episode=episode_no, system=prompt.text,
+        work_id=work_id,
+        user=directive + json.dumps({
+            "proposal_items": payload_items,
+            "approved_states": approved_states,
+            "world_rules": world_rules or [],
+            "manuscript_excerpts": [
+                {"item_id": i["item_id"],
+                 "excerpt": _excerpt(manuscript, i["evidence_start"],
+                                     i["evidence_end"])}
+                for i in judgeable],
+        }, ensure_ascii=False),
+        schema=sch.VerifyOutput, max_tokens=max_tokens,
+        writing_locale=writing_locale, market=market,
+        prompt_feature="verify",
+        preset_id=preset_id, preset_version=preset_version)
 
     corpus = _approved_corpus(conn, episode_no, work_id or 0)
     counts: dict[str, int] = {}
@@ -117,14 +133,21 @@ def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
 
 
 def build_fix_instruction(conn: sqlite3.Connection, episode_no: int,
-                          proposal_set_id: int) -> str:
+                          proposal_set_id: int,
+                          writing_locale: str = "ko-KR") -> str:
     """Correction instruction for the VERIFY→DRAFT loop (error items only)."""
     items = [i for i in memory.get_proposals(conn, episode_no)
              if i["proposal_set_id"] == proposal_set_id
              and i["validation"] == "error"]
-    lines = ["다음 모순을 해소하도록 원고를 고쳐 써라. 승인된 기존 설정을 우선하라:"]
+    if writing_locale == "en-US":
+        lines = ["Rewrite the manuscript to resolve the following"
+                 " contradictions. Approved existing canon takes precedence:"]
+        tag = "Problem sentence"
+    else:
+        lines = ["다음 모순을 해소하도록 원고를 고쳐 써라. 승인된 기존 설정을 우선하라:"]
+        tag = "문제 문장"
     for i in items:
         lines.append(
             f"- [{i['entity_id'] or i['candidate_name']} {i['attribute_path']}] "
-            f"문제 문장: {i['evidence_quote']}")
+            f"{tag}: {i['evidence_quote']}")
     return "\n".join(lines)

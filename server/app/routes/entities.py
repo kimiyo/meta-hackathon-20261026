@@ -10,11 +10,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import extraction, memory, verification
+from .. import meta_client as metac
 from ..errors import LLMStepError
 from .deps import get_conn, get_current_author, require_episode_job, require_work
 from .works import get_meta
 
 router = APIRouter(prefix="/api/v1", tags=["memory"])
+
+
+def _locale(conn: sqlite3.Connection,
+            work_id: int | None) -> tuple[str, str]:
+    """(writing_locale, market) for a work; ko-KR/KR fallback."""
+    market, locale = metac.work_locale(conn, work_id)
+    return locale, market
+
+
+def _prompt_unavailable(e: FileNotFoundError) -> HTTPException:
+    return HTTPException(501, f"AI prompt unavailable: {e}")
 
 
 def _work_of_job(conn, job) -> int | None:
@@ -151,7 +163,12 @@ def extract_entities(episode_no: int, work: str,
     검증 패스로, 실패해도 추출 자체는 유지된다.
     """
     job = _job_or_404(conn, work, episode_no, author["id"])
+    writing_locale, market = _locale(conn, _work_of_job(conn, job))
+    en = writing_locale == "en-US"
     if job["state"] != "IN_REVIEW":
+        if en:
+            raise HTTPException(
+                400, "entity extraction is only allowed while in review")
         raise HTTPException(400, "설정 추출은 검토중 상태에서만 가능합니다")
     if not job.get("manuscript_revision_id"):
         raise HTTPException(400, "no manuscript to extract from")
@@ -169,7 +186,10 @@ def extract_entities(episode_no: int, work: str,
             revision_id=job["manuscript_revision_id"],
             manuscript=manuscript, work_id=work_id,
             base_memory_version=base, model_version=_model_version(),
-            author_instruction=(body.instruction if body else ""))
+            author_instruction=(body.instruction if body else ""),
+            writing_locale=writing_locale, market=market)
+    except FileNotFoundError as e:
+        raise _prompt_unavailable(e)
     except LLMStepError as e:
         memory.record_failed_run(
             conn, episode_no=episode_no,
@@ -185,7 +205,11 @@ def extract_entities(episode_no: int, work: str,
                 meta, conn, episode_no=episode_no,
                 revision_id=job["manuscript_revision_id"],
                 proposal_set_id=out["proposal_set_id"],
-                manuscript=manuscript, work_id=work_id)}
+                manuscript=manuscript, work_id=work_id,
+                writing_locale=writing_locale, market=market)}
+        except FileNotFoundError as e:
+            verify_out = {"verified": False,
+                          "error": f"prompt unavailable: {e}"}
         except LLMStepError as e:
             verify_out = {"verified": False, "error": f"{e.reason}: {e.detail}"}
     memory.discard_pending_except(conn, episode_no, out["proposal_set_id"],
@@ -207,7 +231,11 @@ def save_entities(episode_no: int, work: str,
     재검토를 요구한다.
     """
     job = _job_or_404(conn, work, episode_no, author["id"])
+    en = _locale(conn, _work_of_job(conn, job))[0] == "en-US"
     if job["state"] != "IN_REVIEW":
+        if en:
+            raise HTTPException(
+                400, "entity save is only allowed while in review")
         raise HTTPException(400, "설정 저장은 검토중 상태에서만 가능합니다")
     work_id = _work_of_job(conn, job)
     rev_id = job.get("manuscript_revision_id")
@@ -221,7 +249,12 @@ def save_entities(episode_no: int, work: str,
                     "already": True,
                     "proposal_set_id": saved["proposal_set_id"]}
         if memory.has_any_proposal(conn, episode_no, work_id):
+            if en:
+                raise HTTPException(
+                    400, "manuscript changed; re-extraction is required")
             raise HTTPException(400, "원고가 바뀌어 설정 재추출이 필요합니다")
+        if en:
+            raise HTTPException(400, "run entity extraction first")
         raise HTTPException(400, "설정 추출을 먼저 실행하세요")
     try:
         result = memory.save_episode_memory(
@@ -249,6 +282,9 @@ def delete_entity_item(item_id: int,
     if not job or _work_of_job(conn, job) != row["work_id"]:
         raise HTTPException(404, f"item {item_id} not found")
     if job["state"] != "IN_REVIEW":
+        if _locale(conn, row["work_id"])[0] == "en-US":
+            raise HTTPException(
+                400, "entity editing is only allowed while in review")
         raise HTTPException(400, "설정 편집은 검토중 상태에서만 가능합니다")
     try:
         return memory.delete_pending_item(conn, item_id)
@@ -265,6 +301,9 @@ def delete_entity_event(episode_no: int, index: int, work: str,
     """임시 변경안의 사건 1건 삭제. 검토 단계의 pending 사건만 가능하다."""
     job = _job_or_404(conn, work, episode_no, author["id"])
     if job["state"] != "IN_REVIEW":
+        if _locale(conn, _work_of_job(conn, job))[0] == "en-US":
+            raise HTTPException(
+                400, "entity editing is only allowed while in review")
         raise HTTPException(400, "설정 편집은 검토중 상태에서만 가능합니다")
     work_id = _work_of_job(conn, job)
     pset = memory.latest_pending_set(conn, episode_no, work_id)
@@ -286,6 +325,9 @@ def delete_entity_event_participant(episode_no: int, index: int, pindex: int,
     """임시 변경안의 사건 참여자 1명 제외. 검토 단계의 pending만 가능하다."""
     job = _job_or_404(conn, work, episode_no, author["id"])
     if job["state"] != "IN_REVIEW":
+        if _locale(conn, _work_of_job(conn, job))[0] == "en-US":
+            raise HTTPException(
+                400, "entity editing is only allowed while in review")
         raise HTTPException(400, "설정 편집은 검토중 상태에서만 가능합니다")
     work_id = _work_of_job(conn, job)
     pset = memory.latest_pending_set(conn, episode_no, work_id)
@@ -320,6 +362,9 @@ def reset_entities(episode_no: int, work: str,
     """
     job = _job_or_404(conn, work, episode_no, author["id"])
     if job["state"] != "IN_REVIEW":
+        if _locale(conn, _work_of_job(conn, job))[0] == "en-US":
+            raise HTTPException(
+                400, "entity reset is only allowed while in review")
         raise HTTPException(400, "설정 초기화는 검토중 상태에서만 가능합니다")
     work_id = _work_of_job(conn, job)
     if work_id is None:
@@ -400,13 +445,17 @@ def resolve_alias(alias_id: int, body: AliasResolveIn,
                   author: dict = Depends(get_current_author)):
     """별명 후보 확정: 기존 Entity에 연결하거나(entity_id) 새 인물로
     등록한다(entity_id null)."""
-    _owned_alias(conn, alias_id, author["id"])
+    row = _owned_alias(conn, alias_id, author["id"])
     if body.entity_id is not None and not memory.get_entity(conn, body.entity_id):
         raise HTTPException(404, f"entity {body.entity_id} not found")
+    if _locale(conn, row["work_id"])[0] == "en-US":
+        default_basis = "author confirmed"
+    else:
+        default_basis = "작가 확정"
     try:
         return memory.resolve_alias(conn, alias_id,
                                     entity_id=body.entity_id,
-                                    basis=body.basis or "작가 확정")
+                                    basis=body.basis or default_basis)
     except KeyError as e:
         raise HTTPException(404, str(e))
 
@@ -416,5 +465,9 @@ def reject_alias(alias_id: int, body: AliasRejectIn,
                  conn: sqlite3.Connection = Depends(get_conn),
                  author: dict = Depends(get_current_author)):
     """별명 후보 기각(오탐)."""
-    _owned_alias(conn, alias_id, author["id"])
-    return memory.reject_alias(conn, alias_id, body.basis or "작가 기각")
+    row = _owned_alias(conn, alias_id, author["id"])
+    if _locale(conn, row["work_id"])[0] == "en-US":
+        default_basis = "author rejected"
+    else:
+        default_basis = "작가 기각"
+    return memory.reject_alias(conn, alias_id, body.basis or default_basis)

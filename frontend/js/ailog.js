@@ -1,14 +1,23 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
 import { getWork } from "./work.js";
+import { t } from "./i18n.js";
 
 // 상단 토큰 버튼 → 현재 소설의 AI 호출 로그 다이얼로그 (목록 + 상세).
+// 함수로 감싼다: 렌더 시점의 활성 로케일로 번역해야 하므로 모듈 로드 시 평가 금지.
 const ROLE = {
-  planning: "기획", drafting: "집필", entity: "추출", verify: "검증",
-  quality: "품질", idea_chat: "아이디어 대화", idea_extract: "아이디어 정리",
-  design_chat: "설계 파트너", design_expand: "설계 확장",
-  consistency: "일관성 분석", "consistency-chat": "일관성 대화",
+  planning: () => t("ailog.rolePlanning"), drafting: () => t("ailog.roleDrafting"),
+  entity: () => t("ailog.roleEntity"), verify: () => t("ailog.roleVerify"),
+  quality: () => t("ailog.roleQuality"), idea_chat: () => t("ailog.roleIdeaChat"),
+  idea_extract: () => t("ailog.roleIdeaExtract"),
+  design_chat: () => t("ailog.roleDesignChat"), design_expand: () => t("ailog.roleDesignExpand"),
+  consistency: () => t("ailog.roleConsistency"),
+  "consistency-chat": () => t("ailog.roleConsistencyChat"),
 };
+
+function roleLabel(bundle) {
+  return ROLE[bundle]?.() ?? bundle;
+}
 
 let calls = [];
 let selectedId = null;
@@ -26,14 +35,14 @@ function fmtTime(ts) {
 }
 
 function fmtDur(ms) {
-  return `${(Number(ms || 0) / 1000).toFixed(1)}초`;
+  return t("ailog.duration", { seconds: (Number(ms || 0) / 1000).toFixed(1) });
 }
 
 function listRowHtml(c) {
   const dot = c.ok ? "step-done" : "step-run";
-  const mark = c.ok ? "성공" : "실패";
+  const mark = c.ok ? t("ailog.success") : t("ailog.failed");
   return `<div class="ailog-item${c.id === selectedId ? " active" : ""}" data-log="${c.id}">
-    <div><b>${esc(ROLE[c.bundle] ?? c.bundle)}</b> <span class="${dot} small">${mark}</span></div>
+    <div><b>${esc(roleLabel(c.bundle))}</b> <span class="${dot} small">${mark}</span></div>
     <div class="small muted">${esc(fmtTime(c.ts))}</div>
     <div class="small muted">in ${esc(c.input_tokens)}/out ${esc(c.output_tokens)} · ${esc(fmtDur(c.latency_ms))}</div>
   </div>`;
@@ -93,41 +102,41 @@ function outlineHtml(o) {
     : [];
   return `<div><b>EP ${esc(o.episode_no ?? "?")} · ${esc(o.title ?? "")}</b></div>
     ${o.goal ? `<p class="small">${esc(o.goal)}</p>` : ""}
-    ${o.events?.length ? `<div class="small"><b>사건</b>${strList(o.events)}</div>` : ""}
-    ${o.char_changes?.length ? `<div class="small"><b>인물 변화</b>${strList(o.char_changes)}</div>` : ""}
-    ${o.foreshadowing?.length ? `<div class="small"><b>복선</b>${strList(o.foreshadowing)}</div>` : ""}
-    ${links.length ? `<div class="small"><b>전후 연결</b><ul class="alog-list">${links.map(([k, v]) => `<li><span class="mono">${esc(k)}</span>: ${esc(String(v))}</li>`).join("")}</ul></div>` : ""}
-    ${o.constraints?.length ? `<div class="small"><b>제약</b>${strList(o.constraints)}</div>` : ""}`;
+    ${o.events?.length ? `<div class="small"><b>${t("ailog.events")}</b>${strList(o.events)}</div>` : ""}
+    ${o.char_changes?.length ? `<div class="small"><b>${t("ailog.charChanges")}</b>${strList(o.char_changes)}</div>` : ""}
+    ${o.foreshadowing?.length ? `<div class="small"><b>${t("ailog.foreshadowing")}</b>${strList(o.foreshadowing)}</div>` : ""}
+    ${links.length ? `<div class="small"><b>${t("ailog.links")}</b><ul class="alog-list">${links.map(([k, v]) => `<li><span class="mono">${esc(k)}</span>: ${esc(String(v))}</li>`).join("")}</ul></div>` : ""}
+    ${o.constraints?.length ? `<div class="small"><b>${t("ailog.constraints")}</b>${strList(o.constraints)}</div>` : ""}`;
 }
 
 function styleHtml(s) {
   if (!s || typeof s !== "object") return "";
   const rows = [
-    ["프리셋", s.style_preset || "—"],
-    ["시점", s.pov || "—"],
-    ["문체", s.diction || "—"],
-    ["분량", s.length_target || "—"],
-    ["지침", s.feedback || "—"],
+    [t("ailog.stylePreset"), s.style_preset || "—"],
+    [t("ailog.stylePov"), s.pov || "—"],
+    [t("ailog.styleDiction"), s.diction || "—"],
+    [t("ailog.styleLength"), s.length_target || "—"],
+    [t("ailog.styleFeedback"), s.feedback || "—"],
   ];
   return `<dl class="kv">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd style="white-space:pre-wrap">${esc(String(v))}</dd>`).join("")}</dl>`;
 }
 
 function entityStatesHtml(states) {
-  if (!Array.isArray(states) || !states.length) return `<span class="muted small">없음</span>`;
+  if (!Array.isArray(states) || !states.length) return `<span class="muted small">${t("ailog.none")}</span>`;
   return `<ul class="alog-list">${states
     .map((e) => `<li><b>${esc(e?.name ?? e?.entity_id ?? "?")}</b>${e?.summary ? ` — ${esc(e.summary)}` : ""}${e?.state ? `<br><span class="muted">${esc(typeof e.state === "string" ? e.state : JSON.stringify(e.state))}</span>` : ""}</li>`)
     .join("")}</ul>`;
 }
 
 function lookupResultsHtml(items) {
-  if (!Array.isArray(items) || !items.length) return `<span class="muted small">없음</span>`;
+  if (!Array.isArray(items) || !items.length) return `<span class="muted small">${t("ailog.none")}</span>`;
   return `<ul class="alog-list">${items
     .map((r) => `<li><span class="chip mono">${esc(r?.kind ?? "?")}</span> ${esc(r?.summary ?? r?.text ?? JSON.stringify(r))}</li>`)
     .join("")}</ul>`;
 }
 
 function rawToggle(text) {
-  return `<details class="alog-raw"><summary class="small muted">원문 보기</summary><pre>${esc(text || "")}</pre></details>`;
+  return `<details class="alog-raw"><summary class="small muted">${t("ailog.showRaw")}</summary><pre>${esc(text || "")}</pre></details>`;
 }
 
 function userHtml(text) {
@@ -141,23 +150,23 @@ function userHtml(text) {
     return obj[key];
   };
   let html = head ? `<p class="small">${esc(head)}</p>` : "";
-  if (obj.episode_outline !== undefined) html += sec("회차 개요", outlineHtml(take("episode_outline")));
-  if (obj.entity_states !== undefined) html += sec("인물·장소 상태", entityStatesHtml(take("entity_states")));
-  if (obj.style_policy !== undefined) html += sec("문체 정책", styleHtml(take("style_policy")));
+  if (obj.episode_outline !== undefined) html += sec(t("ailog.episodeOutline"), outlineHtml(take("episode_outline")));
+  if (obj.entity_states !== undefined) html += sec(t("ailog.entityStates"), entityStatesHtml(take("entity_states")));
+  if (obj.style_policy !== undefined) html += sec(t("ailog.stylePolicy"), styleHtml(take("style_policy")));
   if (obj.manuscript_draft !== undefined) {
     const draft = take("manuscript_draft");
-    html += sec("이전 원고", draft
+    html += sec(t("ailog.prevManuscript"), draft
       ? `<div class="manuscript alog-scroll">${paragraphs(draft)}</div>`
-      : `<span class="muted small">없음 (새로 쓰기)</span>`);
+      : `<span class="muted small">${t("ailog.noneNew")}</span>`);
   }
   if (obj.author_instruction !== undefined) {
     const ins = take("author_instruction");
-    html += sec("작가 지시", ins ? `<div class="alog-callout">${esc(ins)}</div>` : `<span class="muted small">없음</span>`);
+    html += sec(t("ailog.authorInstruction"), ins ? `<div class="alog-callout">${esc(ins)}</div>` : `<span class="muted small">${t("ailog.none")}</span>`);
   }
-  if (obj.lookup_results !== undefined) html += sec("조회 결과", lookupResultsHtml(take("lookup_results")));
+  if (obj.lookup_results !== undefined) html += sec(t("ailog.lookupResults"), lookupResultsHtml(take("lookup_results")));
   if (obj.schema !== undefined) {
     take("schema");
-    html += `<details class="alog-raw"><summary class="small muted">스키마</summary><pre>${esc(typeof obj.schema === "string" ? obj.schema : JSON.stringify(obj.schema, null, 2))}</pre></details>`;
+    html += `<details class="alog-raw"><summary class="small muted">${t("ailog.schema")}</summary><pre>${esc(typeof obj.schema === "string" ? obj.schema : JSON.stringify(obj.schema, null, 2))}</pre></details>`;
   }
   for (const [k, v] of Object.entries(obj)) {
     if (!seen.has(k)) html += sec(k, `<pre class="alog-json">${highlightJson(v)}</pre>`);
@@ -178,15 +187,15 @@ function outputHtml(text) {
   let html = "";
   const rest = { ...obj };
   if (typeof rest.manuscript === "string") {
-    html += sec("원고", `<div class="manuscript alog-scroll">${paragraphs(rest.manuscript)}</div>`);
+    html += sec(t("ailog.manuscript"), `<div class="manuscript alog-scroll">${paragraphs(rest.manuscript)}</div>`);
     delete rest.manuscript;
   }
   if (rest.lookup_requests !== undefined) {
     const reqs = rest.lookup_requests;
     delete rest.lookup_requests;
-    html += sec("조회 요청", Array.isArray(reqs) && reqs.length
+    html += sec(t("ailog.lookupRequests"), Array.isArray(reqs) && reqs.length
       ? `<ul class="alog-list">${reqs.map((r) => `<li><span class="chip mono">${esc(r?.kind ?? "?")}</span> ${esc(r?.query ?? r?.entity_id ?? JSON.stringify(r))}</li>`).join("")}</ul>`
-      : `<span class="muted small">없음</span>`);
+      : `<span class="muted small">${t("ailog.none")}</span>`);
   }
   if (Object.keys(rest).length) html += `<pre class="alog-json">${highlightJson(rest)}</pre>`;
   return `${html}${rawToggle(text)}`;
@@ -194,20 +203,20 @@ function outputHtml(text) {
 
 function block(label, text, bodyHtml) {
   if (!text) return "";
-  return `<details class="ailog-block" open><summary>${label} <span class="muted small">(${(text ?? "").length}자)</span></summary>${bodyHtml}</details>`;
+  return `<details class="ailog-block" open><summary>${label} <span class="muted small">${t("ailog.charCount", { count: (text ?? "").length })}</span></summary>${bodyHtml}</details>`;
 }
 
 function detailHtml(c) {
-  const role = ROLE[c.bundle] ?? c.bundle;
+  const role = roleLabel(c.bundle);
   const ep = c.episode_no ?? "-";
   const ok = c.ok
-    ? `<span class="step-done">성공</span>`
-    : `<span class="step-run">${esc(c.error || "실패")}</span>`;
+    ? `<span class="step-done">${t("ailog.success")}</span>`
+    : `<span class="step-run">${esc(c.error || t("ailog.failed"))}</span>`;
   return `<div class="ailog-detail-head"><b>${esc(role)}</b> <span class="chip mono">${esc(c.bundle)}</span>
       <span class="muted small">${esc(fmtTime(c.ts))} · EP ${esc(ep)} · ${esc(fmtDur(c.latency_ms))} · in ${esc(c.input_tokens)}/out ${esc(c.output_tokens)}</span> ${ok}</div>
-    ${c.prompt_system ? `<details class="ailog-block" open><summary>입력 프롬프트 (system) <span class="muted small">(${c.prompt_system.length}자)</span></summary><pre>${esc(c.prompt_system)}</pre></details>` : ""}
-    ${block("입력 프롬프트 (user)", c.prompt_user, userHtml(c.prompt_user))}
-    ${block("출력 결과", c.output_text, outputHtml(c.output_text))}`;
+    ${c.prompt_system ? `<details class="ailog-block" open><summary>${t("ailog.promptSystem")} <span class="muted small">${t("ailog.charCount", { count: c.prompt_system.length })}</span></summary><pre>${esc(c.prompt_system)}</pre></details>` : ""}
+    ${block(t("ailog.promptUser"), c.prompt_user, userHtml(c.prompt_user))}
+    ${block(t("ailog.outputResult"), c.output_text, outputHtml(c.output_text))}`;
 }
 
 function renderList() {
@@ -225,7 +234,7 @@ function renderList() {
 function renderDetail() {
   const box = $("ailog-detail");
   const c = calls.find((x) => x.id === selectedId);
-  box.innerHTML = c ? detailHtml(c) : `<span class="muted">왼쪽 목록에서 호출을 선택하세요.</span>`;
+  box.innerHTML = c ? detailHtml(c) : `<span class="muted">${t("ailog.selectCall")}</span>`;
 }
 
 export async function openAiLog() {
@@ -236,17 +245,17 @@ export async function openAiLog() {
   if (!w) {
     $("ailog-sub").textContent = "";
     $("ailog-list").innerHTML = "";
-    $("ailog-detail").innerHTML = `<span class="muted">소설을 선택하면 해당 소설의 AI 로그를 봅니다.</span>`;
+    $("ailog-detail").innerHTML = `<span class="muted">${t("ailog.noWork")}</span>`;
   } else {
     $("ailog-sub").textContent = w.title;
-    $("ailog-list").innerHTML = `<span class="muted small">불러오는 중…</span>`;
+    $("ailog-list").innerHTML = `<span class="muted small">${t("ailog.loading")}</span>`;
     $("ailog-detail").innerHTML = "";
     try {
       const out = await api.aiLog(w.uid || w.id, 50);
       calls = out.calls ?? [];
       if (!calls.length) {
         $("ailog-list").innerHTML = "";
-        $("ailog-detail").innerHTML = `<span class="muted">기록이 없습니다. (이 기능 추가 전 호출은 소설별 기록이 없습니다)</span>`;
+        $("ailog-detail").innerHTML = `<span class="muted">${t("ailog.noRecords")}</span>`;
       } else {
         selectedId = calls[0].id;
         renderList();

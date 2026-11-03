@@ -1,15 +1,26 @@
 """Writing style presets: per-novel voice injected into drafting.
 
-Each preset fills the style_policies row (pov/diction/feedback), which the
-drafting prompt already follows as "문체 정책". Values stay short on purpose:
-they ride along on every drafting call.
+Market catalogs (plan §7). The KR catalog keeps the original keys
+(fusion-fantasy, romance, mystery, classic); the US catalog lives in a
+separate namespace so short IDs like "romance" never collide across
+markets. Each entry follows the contracts schema
+(docs/i18n-contracts.md §9): id/market/version/label/description plus
+the AI voice (pov/diction/feedback).
+
+Application snapshots the voice into style_policies (see drafting):
+later catalog edits never rewrite works already using a preset.
 """
 from __future__ import annotations
 
+from . import locales
+
 DEFAULT_PRESET = "fusion-fantasy"
 
-PRESETS: dict[str, dict[str, str]] = {
+PRESETS: dict[str, dict[str, object]] = {
     "fusion-fantasy": {
+        "id": "fusion-fantasy",
+        "market": "KR",
+        "version": 1,
         "label": "퓨전판타지 · 헌터물 (문피아형)",
         "description": "짧은 호흡·빠른 템포·사이다 전개. 모바일 연재 기본형.",
         "pov": "3인칭 관찰자 시점. 주인공의 판단과 이득 계산을 서술 중심에 둔다.",
@@ -27,6 +38,9 @@ PRESETS: dict[str, dict[str, str]] = {
         ),
     },
     "romance": {
+        "id": "romance",
+        "market": "KR",
+        "version": 1,
         "label": "로맨스 · 로맨스판타지",
         "description": "감정선 중심. 보여주기 묘사와 완급 조절, 관계 진전형 엔딩.",
         "pov": "3인칭 밀착 시점. 주인공의 감정 변화와 상대의 반응을 섬세하게 좇는다.",
@@ -41,6 +55,9 @@ PRESETS: dict[str, dict[str, str]] = {
         ),
     },
     "mystery": {
+        "id": "mystery",
+        "market": "KR",
+        "version": 1,
         "label": "미스터리 · 스릴러",
         "description": "정보 통제와 복선. 짧고 빠른 호흡, 매 회차 반전 훅.",
         "pov": "3인칭 제한 시점. 독자가 아는 것을 주인공이 아는 범위로 묶는다.",
@@ -56,6 +73,9 @@ PRESETS: dict[str, dict[str, str]] = {
         ),
     },
     "classic": {
+        "id": "classic",
+        "market": "KR",
+        "version": 1,
         "label": "정통 문학풍",
         "description": "보여주기 중심의 묘사와 문장 미학. 호흡 제한 없음.",
         "pov": "3인칭 전지적 시점. 인물의 내면과 세계를 깊이 있게 비춘다.",
@@ -71,18 +91,162 @@ PRESETS: dict[str, dict[str, str]] = {
     },
 }
 
+# US catalog (plan §7.2). Written in English — the catalog language, not
+# the UI language. Values stay short: they ride on every drafting call.
+US_PRESETS: dict[str, dict[str, object]] = {
+    "fantasy": {
+        "id": "fantasy",
+        "market": "US",
+        "version": 1,
+        "label": "Fantasy",
+        "description": "Otherworldly stakes, clear magic rules, propulsive quests.",
+        "pov": ("Third-person limited POV. Stay close to the protagonist's "
+                "judgment and desires."),
+        "diction": (
+            "Concrete sensory detail and plain strong verbs. Name each "
+            "magic's cost plainly. Start a new paragraph, separated by a "
+            "blank line, whenever the beat or focus shifts; never stack "
+            "lines without a blank line between paragraphs."
+        ),
+        "feedback": (
+            "Resolve each episode's crisis within one or two episodes and "
+            "pay off setup quickly. End on a hook: reward, danger, or "
+            "reversal."
+        ),
+    },
+    "romance": {
+        "id": "romance",
+        "market": "US",
+        "version": 1,
+        "label": "Romance",
+        "description": "Emotion-first arcs, earned intimacy, relationship momentum.",
+        "pov": ("Third-person close POV. Track the protagonist's shifting "
+                "feelings and the love interest's reactions."),
+        "diction": (
+            "Show emotion through expression, gesture, and dialogue subtext "
+            "more than direct statement. Vary rhythm: short bursts for "
+            "intensity, longer lines for tenderness. Separate paragraphs "
+            "with a blank line."
+        ),
+        "feedback": (
+            "Build conflict from values and circumstances, not "
+            "misunderstandings. End each episode on an emotional beat: "
+            "progress, tension, or confession."
+        ),
+    },
+    "mystery-thriller": {
+        "id": "mystery-thriller",
+        "market": "US",
+        "version": 1,
+        "label": "Mystery / Thriller",
+        "description": "Controlled information, planted clues, a twist every episode.",
+        "pov": ("Third-person limited POV. The reader knows only what the "
+                "protagonist knows."),
+        "diction": (
+            "Short paragraphs for pressure. Present clues without "
+            "explaining them; never state the truth outright. Separate "
+            "paragraphs with a blank line."
+        ),
+        "feedback": (
+            "Plant one clue and one misdirect per episode. Let the "
+            "protagonist voice deductions; the narrator never solves it "
+            "for them. End on a new question or an overturned clue."
+        ),
+    },
+    "science-fiction": {
+        "id": "science-fiction",
+        "market": "US",
+        "version": 1,
+        "label": "Science Fiction",
+        "description": "Plausible tech, idea-driven wonder, human consequences.",
+        "pov": ("Third-person limited POV. Filter strangeness through one "
+                "character's grounded viewpoint."),
+        "diction": (
+            "Explain new technology through use and consequence, not "
+            "lectures. Keep jargon light and consistent. Separate "
+            "paragraphs with a blank line."
+        ),
+        "feedback": (
+            "Give every wonder a cost and every choice a consequence. End "
+            "episodes on implication: what the new knowledge demands next."
+        ),
+    },
+    "literary-fiction": {
+        "id": "literary-fiction",
+        "market": "US",
+        "version": 1,
+        "label": "Literary Fiction",
+        "description": "Image-driven prose, interior depth, resonant endings.",
+        "pov": ("Third-person close POV. Render inner life and world with "
+                "equal care."),
+        "diction": (
+            "Prefer showing scenes fully over summarizing events. Long "
+            "sentences are allowed when the rhythm earns them; cut "
+            "ornament that adds nothing. Separate paragraphs with a "
+            "blank line."
+        ),
+        "feedback": (
+            "Motivate choices and show their costs. Close episodes on a "
+            "resonant image or line rather than a plot hook."
+        ),
+    },
+}
 
-def preset_list() -> list[dict[str, str]]:
-    """Selectable presets for the novel-info dialog (default first)."""
-    keys = [DEFAULT_PRESET] + [k for k in PRESETS if k != DEFAULT_PRESET]
-    return [{"key": k, "label": PRESETS[k]["label"],
-             "description": PRESETS[k]["description"],
-             "pov": PRESETS[k]["pov"], "diction": PRESETS[k]["diction"],
-             "feedback": PRESETS[k]["feedback"]} for k in keys]
+# preset_catalog name (locales.MARKETS[m]["preset_catalog"]) -> entries.
+CATALOGS: dict[str, dict[str, dict[str, object]]] = {
+    "kr": PRESETS,
+    "us": US_PRESETS,
+}
+
+DEFAULT_PRESETS: dict[str, str] = {
+    "KR": "fusion-fantasy",
+    "US": "fantasy",
+}
 
 
-def resolve_preset(key: str | None) -> tuple[str, dict[str, str]]:
-    """Unknown/empty keys fall back to the default (never an error)."""
-    if key in PRESETS:
-        return key, PRESETS[key]
-    return DEFAULT_PRESET, PRESETS[DEFAULT_PRESET]
+def catalog_for_market(market: str) -> dict[str, dict[str, object]]:
+    """Preset catalog for a market code (validates via the registry)."""
+    cfg = locales.market_config(market)  # raises ValueError when unknown
+    return CATALOGS[cfg["preset_catalog"]]
+
+
+def default_preset_for_market(market: str) -> str:
+    """Default preset key for a market (KR keeps the legacy default)."""
+    catalog_for_market(market)  # validate
+    return DEFAULT_PRESETS[locales.validate_market(market)]
+
+
+def _listed(catalog: dict[str, dict[str, object]],
+            keys: list[str]) -> list[dict[str, object]]:
+    return [{"key": k, "id": catalog[k]["id"], "market": catalog[k]["market"],
+             "version": catalog[k]["version"],
+             "label": catalog[k]["label"],
+             "description": catalog[k]["description"],
+             "pov": catalog[k]["pov"], "diction": catalog[k]["diction"],
+             "feedback": catalog[k]["feedback"]} for k in keys]
+
+
+def preset_list(market: str | None = None) -> list[dict[str, object]]:
+    """Selectable presets for the novel-info dialog (default first).
+
+    market=None preserves the legacy KR-only listing shape; pass a
+    market code for that market's catalog.
+    """
+    if market is None:
+        keys = [DEFAULT_PRESET] + [k for k in PRESETS
+                                   if k != DEFAULT_PRESET]
+        return _listed(PRESETS, keys)
+    catalog = catalog_for_market(market)
+    default = default_preset_for_market(market)
+    keys = [default] + [k for k in catalog if k != default]
+    return _listed(catalog, keys)
+
+
+def resolve_preset(key: str | None,
+                   market: str = "KR") -> tuple[str, dict[str, object]]:
+    """Unknown/empty keys fall back to the market default (never an error)."""
+    catalog = catalog_for_market(market)
+    if key in catalog:
+        return key, catalog[key]
+    default = default_preset_for_market(market)
+    return default, catalog[default]

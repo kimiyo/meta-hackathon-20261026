@@ -4,6 +4,8 @@
 
 "use strict";
 
+import { t, getLocale } from "./i18n.js";
+
 // ---------- §8.5 글자 수와 줄 수 ----------
 
 export function normNewlines(s) {
@@ -18,15 +20,21 @@ export function manuscriptCounts(text) {
   };
 }
 
+// 영어 단어 수: 서버 count_words와 동일 정의 (docs/i18n-contracts.md §8).
+// 빈 문자열·공백만 → 0, null/undefined → "" 정규화.
+export function countWords(text) {
+  return ((text ?? "").match(/\S+/g) || []).length;
+}
+
 // ---------- §8.1 비교 대상 결정 ----------
 
 export function selectComparison(doc, selectedId, editorText) {
   // editorText는 직접 수정 중에만 문자열로 전달한다.
   if (typeof editorText === "string" && selectedId !== "draft") {
-    throw new Error("직접 수정 전에 작업 초안으로 전환해야 합니다.");
+    throw new Error(t("manuscript.switchToDraftFirst"));
   }
   const index = doc.versions.findIndex((v) => v.id === selectedId);
-  if (selectedId !== "draft" && index < 0) throw new Error("없는 버전입니다.");
+  if (selectedId !== "draft" && index < 0) throw new Error(t("manuscript.unknownVersion"));
   const current = doc.versions.find((v) => v.id === doc.currentVersionId);
   return selectedId === "draft"
     ? { text: editorText ?? doc.draft, previous: current?.content ?? null }
@@ -140,8 +148,8 @@ export function renderManuscript(container, { text, previous, showDiff, matches,
     detail.className = "deleted-marker";
     const summary = document.createElement("summary");
     summary.textContent = pendingDeleted.length === 1
-      ? "− 직전 버전에서 삭제된 문장"
-      : `− 직전 버전에서 삭제된 문장 ${pendingDeleted.length}개`;
+      ? t("manuscript.deletedMarkerOne")
+      : t("manuscript.deletedMarkerMany", { count: pendingDeleted.length });
     detail.append(summary);
     for (const oldText of pendingDeleted) {
       const body = document.createElement("p");
@@ -267,7 +275,7 @@ function readerApply() {
   for (const name of ["size", "line", "spacing", "width"]) {
     readerDialog.querySelector(`[name="${name}"]`).value = readerSettings[name];
     readerDialog.querySelector(`[data-value="${name}"]`).textContent =
-      readerSettings[name] + (name === "line" ? "배" : "px");
+      readerSettings[name] + (name === "line" ? t("manuscript.readerLineUnit") : t("manuscript.readerPxUnit"));
   }
   readerDialog.querySelector('[name="font"]').value = readerSettings.font;
 }
@@ -278,15 +286,15 @@ function readerBuild() {
   readerDialog.className = "manuscript-reader";
   readerDialog.setAttribute("aria-labelledby", "reader-title");
   readerDialog.innerHTML =
-    `<header class="reader-header"><div><p class="eyebrow">STORY ATELIER / READING ROOM</p><h2 id="reader-title"></h2><p id="reader-version"></p></div><div class="reader-actions"><button type="button" id="reader-settings-toggle" aria-expanded="false" aria-controls="reader-settings">읽기 설정</button><button type="button" id="reader-close" autofocus aria-label="미리보기 닫기">닫기 <span aria-hidden="true">✕</span></button></div></header>
-    <dialog id="reader-settings" aria-labelledby="reader-settings-title"><header class="reader-settings-head"><h2 id="reader-settings-title">읽기 설정</h2><button type="button" id="reader-settings-close" aria-label="읽기 설정 닫기" autofocus>닫기 ✕</button></header>
-    <label>글꼴<select name="font" aria-label="미리보기 글꼴">${READER_FONTS.map((f) => `<option>${f[0]}</option>`).join("")}</select></label>
-    <label>글자 크기 <output data-value="size"></output><input name="size" aria-label="미리보기 글자 크기" type="range" min="14" max="40" step="1"></label>
-    <label>줄간격 <output data-value="line"></output><input name="line" aria-label="미리보기 줄간격" type="range" min="1.2" max="3" step="0.1"></label>
-    <label>자간 <output data-value="spacing"></output><input name="spacing" aria-label="미리보기 자간" type="range" min="-1" max="4" step="0.1"></label>
-    <label>본문 너비 <output data-value="width"></output><input name="width" aria-label="미리보기 본문 너비" type="range" min="480" max="1100" step="20"></label>
-    <button type="button" id="reader-reset">기본값으로</button><p class="reader-settings-note">설정은 이 브라우저에 자동으로 저장됩니다. 원고 내용에는 영향을 주지 않습니다.</p></dialog>
-    <div class="reader-scroll" tabindex="0" aria-label="원고 미리보기"><article></article><p class="reader-end">— 끝 —</p></div>`;
+    `<header class="reader-header"><div><p class="eyebrow">STORY ATELIER / READING ROOM</p><h2 id="reader-title"></h2><p id="reader-version"></p></div><div class="reader-actions"><button type="button" id="reader-settings-toggle" aria-expanded="false" aria-controls="reader-settings">${t("manuscript.readerSettings")}</button><button type="button" id="reader-close" autofocus aria-label="${t("manuscript.readerCloseLabel")}">${t("manuscript.readerClose")} <span aria-hidden="true">✕</span></button></div></header>
+    <dialog id="reader-settings" aria-labelledby="reader-settings-title"><header class="reader-settings-head"><h2 id="reader-settings-title">${t("manuscript.readerSettings")}</h2><button type="button" id="reader-settings-close" aria-label="${t("manuscript.readerSettingsCloseLabel")}" autofocus>${t("manuscript.readerClose")} ✕</button></header>
+    <label>${t("manuscript.readerFont")}<select name="font" aria-label="${t("manuscript.readerFontLabel")}">${READER_FONTS.map((f) => `<option>${f[0]}</option>`).join("")}</select></label>
+    <label>${t("manuscript.readerSize")} <output data-value="size"></output><input name="size" aria-label="${t("manuscript.readerSizeLabel")}" type="range" min="14" max="40" step="1"></label>
+    <label>${t("manuscript.readerLine")} <output data-value="line"></output><input name="line" aria-label="${t("manuscript.readerLineLabel")}" type="range" min="1.2" max="3" step="0.1"></label>
+    <label>${t("manuscript.readerSpacing")} <output data-value="spacing"></output><input name="spacing" aria-label="${t("manuscript.readerSpacingLabel")}" type="range" min="-1" max="4" step="0.1"></label>
+    <label>${t("manuscript.readerWidth")} <output data-value="width"></output><input name="width" aria-label="${t("manuscript.readerWidthLabel")}" type="range" min="480" max="1100" step="20"></label>
+    <button type="button" id="reader-reset">${t("manuscript.readerReset")}</button><p class="reader-settings-note">${t("manuscript.readerNote")}</p></dialog>
+    <div class="reader-scroll" tabindex="0" aria-label="${t("manuscript.readerPreviewLabel")}"><article></article><p class="reader-end">${t("manuscript.readerEnd")}</p></div>`;
   document.body.append(readerDialog);
   readerDialog.querySelector("#reader-close").onclick = () => readerDialog.close();
   readerDialog.querySelector("#reader-settings-toggle").onclick = (e) => {
@@ -328,10 +336,10 @@ export function openReader({ text, title, version }) {
   if (readerDialog.open) return;
   readerSettings = readerLoad();
   readerApply();
-  readerDialog.querySelector("#reader-title").textContent = title || "원고 미리보기";
+  readerDialog.querySelector("#reader-title").textContent = title || t("manuscript.previewTitleDefault");
   readerDialog.querySelector("#reader-version").textContent = version || "";
   // Plain text preserves manuscript line breaks and keeps generated HTML inert.
-  readerDialog.querySelector("article").textContent = text || "아직 작성된 원고가 없습니다.";
+  readerDialog.querySelector("article").textContent = text || t("manuscript.emptyPreview");
   if (readerDialog.querySelector("#reader-settings").open) readerDialog.querySelector("#reader-settings").close();
   readerDialog.querySelector("#reader-settings-toggle").setAttribute("aria-expanded", "false");
   readerPreviousFocus = document.activeElement;
@@ -352,7 +360,7 @@ export function openReader({ text, title, version }) {
 
 export function connectReader(button, readCurrentText, readEpisodeTitle, readVersionLabel) {
   button.innerHTML = readerIcon;
-  button.setAttribute("aria-label", "전체화면 미리보기");
+  button.setAttribute("aria-label", t("manuscript.fullscreenPreview"));
   button.addEventListener("click", () => openReader({
     text: readCurrentText(),
     title: readEpisodeTitle(),
@@ -364,7 +372,7 @@ export function connectReader(button, readCurrentText, readEpisodeTitle, readVer
 
 export function createDraftRecovery(episodeId, onWarning) {
   const key = "storywrite.draft:" + episodeId;
-  const warn = () => onWarning("브라우저 복구본을 저장하지 못했습니다. 현재 입력을 복사해 보관하세요.");
+  const warn = () => onWarning(t("manuscript.recoverySaveFailed"));
   return {
     read() {
       try {
@@ -388,12 +396,12 @@ export function createDraftRecovery(episodeId, onWarning) {
 
 const LOCKED_STATES = ["approved", "publication_ready", "published"];
 
-function stateLabelKo(doc, readOnly) {
-  if (doc.state === "approved") return "발간중";
-  if (doc.state === "publication_ready") return "발간 준비 중";
-  if (doc.state === "published") return "발간됨";
-  if (readOnly) return "작가 검토중";
-  return doc.draft.trim() ? "집필중" : "집필 전";
+function stateLabel(doc, readOnly) {
+  if (doc.state === "approved") return t("manuscript.statePublishing");
+  if (doc.state === "publication_ready") return t("manuscript.statePubReady");
+  if (doc.state === "published") return t("manuscript.statePublished");
+  if (readOnly) return t("manuscript.stateInReview");
+  return doc.draft.trim() ? t("manuscript.stateWriting") : t("manuscript.stateNotStarted");
 }
 
 function initialSelection(doc) {
@@ -434,45 +442,45 @@ export function mountManuscriptPanel(root, options) {
 
   const roHidden = readOnly ? " hidden" : "";
   root.innerHTML =
-    `<section class="ms-panel" aria-label="원고">` +
-    `<div class="ms-head"><b>원고</b> <span class="chip" data-ui="state"></span> ` +
-    `<label class="small"${roHidden}><input type="checkbox" data-ui="include" checked> AI 요청에 작업 초안 포함</label></div>` +
+    `<section class="ms-panel" aria-label="${t("manuscript.panelLabel")}">` +
+    `<div class="ms-head"><b>${t("manuscript.panelLabel")}</b> <span class="chip" data-ui="state"></span> ` +
+    `<label class="small"${roHidden}><input type="checkbox" data-ui="include" checked> ${t("manuscript.includeDraft")}</label></div>` +
     `<div class="ms-toolbar">` +
-    `<label class="small">버전 <select data-ui="versions" data-role="${roles.versionSelect}"></select></label>` +
+    `<label class="small">${t("manuscript.version")} <select data-ui="versions" data-role="${roles.versionSelect}"></select></label>` +
     `<form data-ui="search" role="search" class="ms-search">` +
-    `<input data-ui="query" type="search" aria-label="본문 검색" placeholder="본문 검색">` +
-    `<button class="btn sm">검색</button> <output data-ui="count" aria-live="polite"></output> ` +
-    `<button type="button" class="btn sm" data-ui="prev">이전 결과</button>` +
-    `<button type="button" class="btn sm" data-ui="next">다음 결과</button></form>` +
-    `<button type="button" class="btn sm" data-ui="edit"${roHidden}>직접 수정</button>` +
-    `<button type="button" class="btn sm" data-ui="save"${roHidden}>버전 저장</button>` +
-    `<button type="button" class="btn sm" data-ui="restore"${roHidden}>이 버전 복원</button>` +
-    `<button type="button" class="btn sm" data-ui="reader">전체화면</button>` +
-    `<span class="ms-copywrap"><button type="button" class="btn sm" data-ui="copy" aria-label="본문 복사"></button>` +
+    `<input data-ui="query" type="search" aria-label="${t("manuscript.searchPlaceholder")}" placeholder="${t("manuscript.searchPlaceholder")}">` +
+    `<button class="btn sm">${t("manuscript.search")}</button> <output data-ui="count" aria-live="polite"></output> ` +
+    `<button type="button" class="btn sm" data-ui="prev">${t("manuscript.prevMatch")}</button>` +
+    `<button type="button" class="btn sm" data-ui="next">${t("manuscript.nextMatch")}</button></form>` +
+    `<button type="button" class="btn sm" data-ui="edit"${roHidden}>${t("manuscript.editDirectly")}</button>` +
+    `<button type="button" class="btn sm" data-ui="save"${roHidden}>${t("manuscript.saveVersion")}</button>` +
+    `<button type="button" class="btn sm" data-ui="restore"${roHidden}>${t("manuscript.restoreVersion")}</button>` +
+    `<button type="button" class="btn sm" data-ui="reader">${t("manuscript.fullscreen")}</button>` +
+    `<span class="ms-copywrap"><button type="button" class="btn sm" data-ui="copy" aria-label="${t("manuscript.copyLabel")}"></button>` +
     `<span class="ms-tip" data-ui="copy-tip" role="status" hidden></span></span></div>` +
-    `<div class="ms-sub"><label class="small"><input type="checkbox" data-ui="diff" data-role="${roles.diffCheckbox}"> 직전 버전과 차이 강조</label> ` +
+    `<div class="ms-sub"><label class="small"><input type="checkbox" data-ui="diff" data-role="${roles.diffCheckbox}"> ${t("manuscript.diffLabel")}</label> ` +
     `<output data-ui="summary" aria-live="polite" class="small muted"></output></div>` +
     `<p data-ui="meta" class="small muted"></p>` +
     `<div data-ui="body" class="manuscript-body" data-role="${roles.body}" tabindex="0"></div>` +
-    `<textarea data-ui="editor" class="manuscript-editor" aria-label="원고 직접 수정" hidden></textarea>` +
+    `<textarea data-ui="editor" class="manuscript-editor" aria-label="${t("manuscript.editorLabel")}" hidden></textarea>` +
     `<div data-ui="recovery" class="ms-recovery" hidden>` +
     `<p data-ui="rec-msg" class="small"></p>` +
     `<div class="btn-row">` +
-    `<button type="button" class="btn sm" data-ui="rec-show">내용 비교 보기</button>` +
-    `<button type="button" class="btn sm" data-ui="rec-fetch">최신 원고 확인</button>` +
-    `<button type="button" class="btn sm" data-ui="rec-retry">보류 요청 다시 시도</button>` +
-    `<button type="button" class="btn sm" data-ui="rec-copy">입력 복사</button>` +
-    `<button type="button" class="btn sm" data-ui="rec-download">입력 다운로드</button></div>` +
+    `<button type="button" class="btn sm" data-ui="rec-show">${t("manuscript.recCompare")}</button>` +
+    `<button type="button" class="btn sm" data-ui="rec-fetch">${t("manuscript.recFetch")}</button>` +
+    `<button type="button" class="btn sm" data-ui="rec-retry">${t("manuscript.recRetry")}</button>` +
+    `<button type="button" class="btn sm" data-ui="rec-copy">${t("manuscript.recCopy")}</button>` +
+    `<button type="button" class="btn sm" data-ui="rec-download">${t("manuscript.recDownload")}</button></div>` +
     `<div data-ui="rec-compare" hidden>` +
-    `<div class="ms-compare"><div><h4>내 입력</h4><pre data-ui="rec-local"></pre></div>` +
-    `<div><h4>서버 원고</h4><pre data-ui="rec-server"></pre></div></div>` +
+    `<div class="ms-compare"><div><h4>${t("manuscript.recLocal")}</h4><pre data-ui="rec-local"></pre></div>` +
+    `<div><h4>${t("manuscript.recServer")}</h4><pre data-ui="rec-server"></pre></div></div>` +
     `<div class="btn-row">` +
-    `<button type="button" class="btn sm primary" data-ui="rec-use-local">내 입력을 새 초안으로 저장</button>` +
-    `<button type="button" class="btn sm" data-ui="rec-use-server">서버 내용 사용</button></div>` +
+    `<button type="button" class="btn sm primary" data-ui="rec-use-local">${t("manuscript.recUseLocal")}</button>` +
+    `<button type="button" class="btn sm" data-ui="rec-use-server">${t("manuscript.recUseServer")}</button></div>` +
     `</div></div>` +
     `<div class="ms-foot small"><span data-ui="lines" class="muted"></span> ` +
-    `<button type="button" class="btn sm" data-ui="quote"${roHidden}>선택한 줄을 채팅에 포함</button> ` +
-    `<button type="button" class="btn sm" data-ui="clear"${roHidden}>원고 비우기</button></div>` +
+    `<button type="button" class="btn sm" data-ui="quote"${roHidden}>${t("manuscript.quoteToChat")}</button> ` +
+    `<button type="button" class="btn sm" data-ui="clear"${roHidden}>${t("manuscript.clearDraft")}</button></div>` +
     `<p data-ui="status" role="status" class="small muted"></p></section>`;
 
   const ui = (name) => root.querySelector(`[data-ui="${name}"]`);
@@ -484,23 +492,28 @@ export function mountManuscriptPanel(root, options) {
   const locked = () => LOCKED_STATES.includes(doc.state);
   const text = () => selectComparison(doc, selected, editing ? ui("editor").value : undefined).text;
   const dirty = () => editing && ui("editor").value !== doc.draft;
-  const label = () => selected === "draft" ? "작업 초안 · 자동 저장"
-    : "v" + doc.versions.find((v) => v.id === selected).number;
+  const label = () => selected === "draft" ? t("manuscript.draftLabel")
+    : t("manuscript.versionShort", { number: doc.versions.find((v) => v.id === selected).number });
 
   function currentVersionLabel() {
     const v = doc.versions.find((x) => x.id === selected);
-    return selected === "draft" ? "작업 초안 · 자동 저장"
-      : `v${v.number} · ${v.label}${v.id === doc.approvedVersionId ? " · 확정" : ""}`;
+    if (selected === "draft") return t("manuscript.draftLabel");
+    if (v.id === doc.approvedVersionId) {
+      return t("manuscript.versionLabelApproved", { number: v.number, label: v.label });
+    }
+    return t("manuscript.versionLabel", { number: v.number, label: v.label });
   }
 
   function render() {
     const pair = selectComparison(doc, selected, editing ? ui("editor").value : undefined);
     ui("versions").replaceChildren();
-    for (const v of [{ id: "draft", label: "작업 초안 · 자동 저장" }, ...doc.versions.slice().reverse()]) {
+    for (const v of [{ id: "draft", label: t("manuscript.draftLabel") }, ...doc.versions.slice().reverse()]) {
       const option = document.createElement("option");
       option.value = v.id;
       option.textContent = v.id === "draft" ? v.label
-        : `v${v.number} · ${v.label}${v.id === doc.approvedVersionId ? " · 확정" : ""}`;
+        : v.id === doc.approvedVersionId
+          ? t("manuscript.versionLabelApproved", { number: v.number, label: v.label })
+          : t("manuscript.versionLabel", { number: v.number, label: v.label });
       ui("versions").append(option);
     }
     ui("versions").value = selected;
@@ -513,18 +526,18 @@ export function mountManuscriptPanel(root, options) {
     ui("count").textContent = query ? `${index < 0 ? 0 : index + 1} / ${matches.length}` : "";
     for (const name of ["prev", "next"]) { ui(name).hidden = !query; ui(name).disabled = !matches.length; }
     const counts = manuscriptCounts(pair.text);
-    ui("summary").textContent = `${counts.withSpaces}자(공백 제외 ${counts.withoutSpaces}자) · ` +
-      (r.compared ? `+${r.stats.added} / −${r.stats.removed} · 수정 ${r.stats.changed}줄`
-        : pair.previous === null ? "첫 버전 · 비교 기준 없음" : "강조 끔");
-    ui("lines").textContent = `${counts.lines}줄`;
+    ui("summary").textContent = t("manuscript.countSummary", { withSpaces: counts.withSpaces, withoutSpaces: counts.withoutSpaces }) + " · " +
+      (r.compared ? t("manuscript.diffStats", { added: r.stats.added, removed: r.stats.removed, changed: r.stats.changed })
+        : pair.previous === null ? t("manuscript.firstVersion") : t("manuscript.diffOff"));
+    ui("lines").textContent = t("manuscript.lineCount", { lines: counts.lines });
     const pos = doc.versions.findIndex((v) => v.id === selected), version = doc.versions[pos];
     const base = selected === "draft" ? doc.versions.find((v) => v.id === doc.currentVersionId)
       : doc.versions[pos - 1];
-    ui("meta").textContent = `${currentVersionLabel()} · ${base ? `v${base.number}와 비교` : "비교 기준 없음"}` +
-      (version ? ` · ${version.label} · ${new Date(version.createdAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} · 읽기 전용` : "") +
-      (selected === doc.approvedVersionId ? " · 확정 원고" : "");
-    ui("state").textContent = stateLabelKo(doc, readOnly);
-    ui("edit").textContent = editing ? "원고 보기" : "직접 수정";
+    ui("meta").textContent = `${currentVersionLabel()} · ${base ? t("manuscript.compareWith", { number: base.number }) : t("manuscript.noCompareBase")}` +
+      (version ? ` · ${version.label} · ${new Date(version.createdAt).toLocaleString(getLocale())} · ${t("manuscript.readOnlyTag")}` : "") +
+      (selected === doc.approvedVersionId ? ` · ${t("manuscript.approvedTag")}` : "");
+    ui("state").textContent = stateLabel(doc, readOnly);
+    ui("edit").textContent = editing ? t("manuscript.viewManuscript") : t("manuscript.editDirectly");
     ui("edit").disabled = busy || halted || locked() || (selected !== "draft" && selected !== doc.currentVersionId);
     ui("save").hidden = readOnly || selected !== "draft";
     ui("restore").hidden = readOnly || selected === "draft" || selected === doc.currentVersionId;
@@ -555,9 +568,9 @@ export function mountManuscriptPanel(root, options) {
   }
 
   async function write(operation, payload) {
-    if (readOnly) throw new Error("읽기 전용입니다.");
-    if (busy) throw new Error("저장 중입니다.");
-    if (halted) throw new Error("최신 원고 확인 또는 보류 요청 재시도가 필요합니다.");
+    if (readOnly) throw new Error(t("manuscript.readOnlyError"));
+    if (busy) throw new Error(t("manuscript.savingNow"));
+    if (halted) throw new Error(t("manuscript.resolveConflictFirst"));
     const signature = JSON.stringify({ operation, expectedRevision: doc.revision, ...payload });
     if (pendingRequest?.signature !== signature) {
       pendingRequest = { signature,
@@ -566,7 +579,7 @@ export function mountManuscriptPanel(root, options) {
     }
     busy = true;
     render();
-    ui("status").textContent = "저장 중…";
+    ui("status").textContent = t("manuscript.saving");
     try {
       activeWrite = persist(pendingRequest.request);
       const result = await activeWrite;
@@ -575,18 +588,18 @@ export function mountManuscriptPanel(root, options) {
       pendingRequest = null;
       failedOperation = null;
       retryForbidden = false;
-      ui("status").textContent = "저장됨";
+      ui("status").textContent = t("manuscript.saved");
       return result;
     } catch (error) {
       halted = error.status === 409 || error.status === 423 || error.uncertain === true;
       failedOperation = operation;
       retryForbidden = error.status === 409 || error.status === 423;
-      ui("status").textContent = error.message + " · 입력은 유지됩니다.";
+      ui("status").textContent = error.message + " · " + t("manuscript.inputKept");
       if (halted) {
         ui("rec-msg").textContent = error.status === 409
-          ? `저장 충돌(서버 revision ${error.latestRevision ?? "?"}). 내 입력은 유지됩니다. 비교 후 선택하세요.`
-          : error.status === 423 ? "확정되어 잠긴 원고입니다. 입력은 유지됩니다."
-          : "저장 응답을 확인하지 못했습니다. 입력은 유지됩니다. 최신 원고를 확인하거나 보류 요청을 다시 시도하세요.";
+          ? t("manuscript.conflictMsg", { revision: error.latestRevision ?? "?" })
+          : error.status === 423 ? t("manuscript.lockedMsg")
+          : t("manuscript.uncertainMsg");
       }
       throw error;
     } finally {
@@ -599,7 +612,7 @@ export function mountManuscriptPanel(root, options) {
   async function flush() {
     clearTimeout(timer);
     if (activeWrite) await activeWrite;
-    if (editorComposing) throw new Error("한글 입력을 완료한 뒤 다시 시도해 주세요.");
+    if (editorComposing) throw new Error(t("manuscript.finishComposing"));
     if (dirty()) await write("draft", { content: ui("editor").value });
   }
 
@@ -611,7 +624,7 @@ export function mountManuscriptPanel(root, options) {
 
   const act = (fn) => async (event) => {
     try { await fn(event); }
-    catch (error) { ui("status").textContent = error.message + " · 입력은 유지됩니다."; }
+    catch (error) { ui("status").textContent = error.message + " · " + t("manuscript.inputKept"); }
   };
 
   ui("versions").onchange = act(async () => {
@@ -667,7 +680,7 @@ export function mountManuscriptPanel(root, options) {
 
   ui("save").onclick = act(async () => {
     await flush();
-    await write("version", { content: doc.draft, label: "수동 저장" });
+    await write("version", { content: doc.draft, label: t("manuscript.manualSaveLabel") });
     selected = doc.currentVersionId;
     editing = false;
     render();
@@ -680,7 +693,7 @@ export function mountManuscriptPanel(root, options) {
     render();
   });
   ui("clear").onclick = act(async () => {
-    if (!window.confirm("작업 초안을 비우시겠습니까? 저장된 버전은 남습니다.")) return;
+    if (!window.confirm(t("manuscript.clearConfirm"))) return;
     await flush();
     await write("draft", { content: "" });
     selected = "draft";
@@ -716,7 +729,7 @@ export function mountManuscriptPanel(root, options) {
     if (busy || halted) return;
     const lines = editing ? editorSelectionLines() : viewSelectionLines();
     if (!lines) {
-      onHint("먼저 본문에서 줄을 선택하세요.");
+      onHint(t("manuscript.selectLinesFirst"));
       return;
     }
     onQuoteToChat({ versionId: selected, startLine: lines[0], endLine: lines[1] });
@@ -741,7 +754,7 @@ export function mountManuscriptPanel(root, options) {
     ui("rec-compare").hidden = false;
     ui("rec-local").textContent = localInput();
     ui("rec-server").textContent = doc.draft;
-    ui("rec-msg").textContent = "최신 원고를 가져왔습니다. 비교 후 내 입력 저장 또는 서버 내용 사용을 선택하세요.";
+    ui("rec-msg").textContent = t("manuscript.fetchedLatest");
     render();
   });
   ui("rec-retry").onclick = act(async () => {
@@ -751,9 +764,9 @@ export function mountManuscriptPanel(root, options) {
     const input = localInput();
     try {
       await navigator.clipboard.writeText(input);
-      ui("status").textContent = "입력을 클립보드에 복사했습니다.";
+      ui("status").textContent = t("manuscript.inputCopied");
     } catch {
-      window.prompt("복사할 입력을 확인하세요.", input);
+      window.prompt(t("manuscript.copyPrompt"), input);
     }
   });
   ui("rec-download").onclick = () => {
@@ -773,7 +786,7 @@ export function mountManuscriptPanel(root, options) {
     ui("rec-compare").hidden = true;
   });
 
-  connectReader(ui("reader"), text, () => doc.title || "원고", currentVersionLabel);
+  connectReader(ui("reader"), text, () => doc.title || t("manuscript.panelLabel"), currentVersionLabel);
 
   let tipTimer;
   ui("copy").innerHTML = copyIcon;
@@ -804,9 +817,9 @@ export function mountManuscriptPanel(root, options) {
   ui("copy").onclick = async () => {
     try {
       await copyText(text());
-      showTip("복사되었습니다.");
+      showTip(t("manuscript.copied"));
     } catch {
-      showTip("복사에 실패했습니다.");
+      showTip(t("manuscript.copyFailed"));
     }
   };
 
@@ -819,7 +832,7 @@ export function mountManuscriptPanel(root, options) {
     failedOperation = null;
     retryForbidden = false;
     if (useLocal) {
-      if (locked()) { halted = true; render(); throw new Error("잠긴 원고에는 복구할 수 없습니다."); }
+      if (locked()) { halted = true; render(); throw new Error(t("manuscript.cannotRestoreLocked")); }
       selected = "draft";
       editing = true;
       ui("editor").value = local;
@@ -836,7 +849,7 @@ export function mountManuscriptPanel(root, options) {
 
   async function api_retryPending() {
     if (!pendingRequest) return;
-    if (retryForbidden) throw new Error("최신 원고 확인이 필요합니다.");
+    if (retryForbidden) throw new Error(t("manuscript.needLatestFirst"));
     const request = pendingRequest.request;
     // 같은 signature이므로 write가 같은 requestId를 재사용한다.
     halted = false;
@@ -886,8 +899,8 @@ export function mountManuscriptPanel(root, options) {
     ui("rec-compare").hidden = false;
     ui("rec-local").textContent = recovered.content;
     ui("rec-server").textContent = doc.draft;
-    ui("rec-msg").textContent = "브라우저에 복구할 입력이 있습니다. 비교 후 내용을 선택해 주세요.";
-    ui("status").textContent = "브라우저에 복구할 입력이 있습니다. 복구 비교 후 내용을 선택해 주세요.";
+    ui("rec-msg").textContent = t("manuscript.browserRecovery");
+    ui("status").textContent = t("manuscript.browserRecoveryStatus");
   }
 
   const beforeLeave = (event) => {

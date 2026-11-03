@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS works (
   publish_blurb TEXT NOT NULL DEFAULT '',
   cover_path TEXT NOT NULL DEFAULT '',
   platform TEXT NOT NULL DEFAULT '문피아',
+  market TEXT NOT NULL DEFAULT 'KR',
+  writing_locale TEXT NOT NULL DEFAULT 'ko-KR',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
 );
@@ -356,7 +358,13 @@ CREATE TABLE IF NOT EXISTS llm_calls (
   prompt_user TEXT NOT NULL DEFAULT '',
   output_text TEXT NOT NULL DEFAULT '',
   finish_reason TEXT NOT NULL DEFAULT '',
-  reasoning_tokens INTEGER DEFAULT 0
+  reasoning_tokens INTEGER DEFAULT 0,
+  market TEXT NOT NULL DEFAULT '',
+  writing_locale TEXT NOT NULL DEFAULT '',
+  prompt_feature TEXT NOT NULL DEFAULT '',
+  prompt_version TEXT NOT NULL DEFAULT '',
+  preset_id TEXT NOT NULL DEFAULT '',
+  preset_version TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS style_policies (
   id INTEGER PRIMARY KEY,
@@ -703,6 +711,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
   "ALTER TABLE episode_jobs ADD COLUMN published_date TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE episode_jobs ADD COLUMN published_note TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE episode_jobs ADD COLUMN published_platform TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE works ADD COLUMN market TEXT NOT NULL DEFAULT 'KR'",
+  "ALTER TABLE works ADD COLUMN writing_locale TEXT NOT NULL DEFAULT 'ko-KR'",
+  "ALTER TABLE llm_calls ADD COLUMN market TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE llm_calls ADD COLUMN writing_locale TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE llm_calls ADD COLUMN prompt_feature TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE llm_calls ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE llm_calls ADD COLUMN preset_id TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE llm_calls ADD COLUMN preset_version TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(sql)

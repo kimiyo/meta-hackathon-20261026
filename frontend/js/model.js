@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
+import { t } from "./i18n.js";
 
 // 상단 모델 칩 + 모델 변경 다이얼로그.
 let presets = [];
@@ -14,7 +15,7 @@ function renderList() {
           p.id === current ? " checked" : ""
         }>
         <span><span class="t">${esc(p.label)}</span>${
-          p.id === current ? ' <span class="chip">사용 중</span>' : ""
+          p.id === current ? ` <span class="chip">${t("model.inUse")}</span>` : ""
         }<br>
         <span class="id">${esc(p.id)}</span><br>
         <span class="d">${esc(p.desc ?? "")}</span></span>
@@ -69,11 +70,11 @@ async function apply() {
   if (btn.disabled) return;
   const id = picked();
   if (!id) {
-    showError("model-error", "모델을 선택하거나 ID를 입력하세요.");
+    showError("model-error", t("model.selectRequired"));
     return;
   }
   btn.disabled = true;
-  btn.textContent = "확인 중…";
+  btn.textContent = t("model.checking");
   showError("model-error", "");
   try {
     const token = $("model-token").value.trim();
@@ -84,7 +85,7 @@ async function apply() {
     showError("model-error", String(e));
   } finally {
     btn.disabled = false;
-    btn.textContent = "변경하기";
+    btn.textContent = t("model.apply");
   }
 }
 
@@ -112,5 +113,16 @@ export function initModel() {
     if ($("model-backdrop").style.display === "none") return;
     if (e.key === "Escape") close();
     if (e.key === "Enter") apply();
+  });
+  // 화면 언어 전환: 선택·입력값은 그대로 두고 목록 칩만 다시 그린다.
+  document.addEventListener("locale-changed", () => {
+    if ($("model-backdrop").style.display === "none") return;
+    const sel = document.querySelector('input[name="model-pick"]:checked')?.value ?? "";
+    renderList();
+    if (sel) {
+      for (const r of document.querySelectorAll('input[name="model-pick"]')) {
+        r.checked = r.value === sel;
+      }
+    }
   });
 }

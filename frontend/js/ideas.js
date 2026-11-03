@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { t } from "./i18n.js";
 import { $, esc, showError } from "./util.js";
 import { getWork } from "./work.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
@@ -31,8 +32,18 @@ const EPISODE_LIMIT = 300;
 
 const CATEGORIES = ["character", "world", "event", "part", "misc"];
 const CAT_LABEL = {
-  character: "인물", world: "세계관", event: "사건", part: "Part 이야기", misc: "기타",
+  character: "ideas.cat.character", world: "ideas.cat.world", event: "ideas.cat.event",
+  part: "ideas.cat.part", misc: "ideas.cat.misc",
 };
+
+function catLabel(c) {
+  const key = CAT_LABEL[c];
+  return key ? t(key) : c;
+}
+
+function useWord(on) {
+  return t(on ? "ideas.structure.useOn" : "ideas.structure.useOff");
+}
 
 function mode() {
   return localStorage.getItem("ideas-mode") || "one";
@@ -82,10 +93,10 @@ export async function enterIdeas() {
     expandedParts = new Set();
   }
   await run(async () => {
-    const t = await api.threads(w.uid || w.id);
-    threads = t.threads ?? [];
+    const res = await api.threads(w.uid || w.id);
+    threads = res.threads ?? [];
     if (!threads.length && !locked()) {
-      const nt = await api.createThread(w.uid || w.id, "대화 1");
+      const nt = await api.createThread(w.uid || w.id, t("ideas.thread.title", { n: 1 }));
       threads = [nt];
     }
     if (!threads.length) {
@@ -145,8 +156,8 @@ function renderAll() {
 
 function renderThreads() {
   const sel = $("thread-select");
-  sel.innerHTML = threads.map((t) =>
-    `<option value="${t.id}"${t.id === threadId ? " selected" : ""}>${esc(t.title || `대화 ${t.id}`)}</option>`).join("");
+  sel.innerHTML = threads.map((th) =>
+    `<option value="${th.id}"${th.id === threadId ? " selected" : ""}>${esc(th.title || t("ideas.thread.title", { n: th.id }))}</option>`).join("");
 }
 
 function normCategory(c) {
@@ -157,7 +168,7 @@ function propTitle(p) {
   const t = (p.title || "").trim();
   if (t) return t;
   const head = (p.summary || "").trim().split("\n")[0].slice(0, 30).trim();
-  return head || "무제";
+  return head || t("ideas.untitled");
 }
 
 // 제안의 code(D번호)가 있으면 그 항목, 없으면 분류+제목이 같은 항목을 수정 대상으로 본다.
@@ -182,8 +193,8 @@ function pendingMerge(m) {
 }
 
 function tipAttr(text) {
-  const t = ((text || "").trim() || "(내용 없음)").slice(0, 300);
-  return ` data-tip="${esc(t).replace(/\n/g, "&#10;")}"`;
+  const s = ((text || "").trim() || t("ideas.tip.empty")).slice(0, 300);
+  return ` data-tip="${esc(s).replace(/\n/g, "&#10;")}"`;
 }
 
 function isSynApplied(proposal) {
@@ -199,32 +210,34 @@ function proposalsHtml(m) {
     .some((k) => st[k] !== null && st[k] !== undefined);
   const merges = props.merge_from ?? [];
   const blockedNote = props.synopsis_blocked
-    ? `<div class="small muted" style="margin-top:6px">줄거리 개정안은 보류했습니다. 줄거리가 대화에 포함되지 않았거나 일부만 전달되어, 반영하면 기존 내용이 사라질 수 있습니다. 줄거리를 포함해 다시 요청하세요.</div>`
+    ? `<div class="small muted" style="margin-top:6px">${t("ideas.chat.synopsisBlocked")}</div>`
     : "";
   if (!sps.length && !syn && !hasStruct && !merges.length) return blockedNote;
   const settingBtns = sps.map((p, i) => {
     const title = propTitle(p);
-    const cat = CAT_LABEL[normCategory(p.category)];
+    const cat = catLabel(normCategory(p.category));
     const tip = tipAttr(`${p.summary || ""}\n${p.detail || ""}`);
     const s = findSetting(p);
     if (!s) {
       return `<button class="btn sm proposal-btn" data-msg="${m.id}" data-sp="${i}" data-role="ideas.chat.proposal-apply"${tip}>＋ [${esc(cat)}] ${esc(title)}</button>`;
     }
     if (sameContent(s, p)) {
-      return `<button class="btn sm proposal-btn" data-msg="${m.id}" data-sp="${i}" data-role="ideas.chat.proposal-apply" disabled>✓ 반영됨</button>`;
+      return `<button class="btn sm proposal-btn" data-msg="${m.id}" data-sp="${i}" data-role="ideas.chat.proposal-apply" disabled>${t("ideas.chat.proposalApplied")}</button>`;
     }
-    const label = s.title === title ? `'${esc(title)}' 수정 반영` : `${esc(s.code || s.title)} → '${esc(title)}' 수정 반영`;
+    const label = s.title === title
+      ? t("ideas.chat.proposalUpdateTitle", { title: esc(title) })
+      : t("ideas.chat.proposalUpdateCode", { code: esc(s.code || s.title), title: esc(title) });
     return `<button class="btn sm proposal-btn" data-msg="${m.id}" data-sp="${i}" data-role="ideas.chat.proposal-apply"${tip}>${label}</button>`;
   }).join("");
   const mergeLeft = pendingMerge(m);
   const mergeBtn = merges.length
-    ? `<button class="btn sm proposal-btn" data-msg="${m.id}" data-merge="1" data-role="ideas.chat.proposal-merge"${mergeLeft.length ? tipAttr(`통합되어 삭제할 원본:\n${mergeLeft.map((x) => `${x.code} [${CAT_LABEL[normCategory(x.category)]}] ${x.title}`).join("\n")}`) : " disabled"}>${mergeLeft.length ? `통합 원본 삭제 (${mergeLeft.map((x) => esc(x.code)).join("·")})` : "✓ 통합 정리됨"}</button>`
+    ? `<button class="btn sm proposal-btn" data-msg="${m.id}" data-merge="1" data-role="ideas.chat.proposal-merge"${mergeLeft.length ? tipAttr(`${t("ideas.chat.mergeTipHeader")}\n${mergeLeft.map((x) => `${x.code} [${catLabel(normCategory(x.category))}] ${x.title}`).join("\n")}`) : " disabled"}>${mergeLeft.length ? t("ideas.chat.mergeDelete", { codes: mergeLeft.map((x) => esc(x.code)).join("·") }) : t("ideas.chat.mergeDone")}</button>`
     : "";
   const synBtn = syn
-    ? `<button class="btn sm proposal-btn syn" data-msg="${m.id}" data-syn="1" data-role="ideas.chat.proposal-synopsis"${isSynApplied(syn) ? " disabled" : ""}${isSynApplied(syn) ? "" : tipAttr(syn)}>${isSynApplied(syn) ? "✓ 줄거리 반영됨" : "줄거리 변경 반영"}</button>`
+    ? `<button class="btn sm proposal-btn syn" data-msg="${m.id}" data-syn="1" data-role="ideas.chat.proposal-synopsis"${isSynApplied(syn) ? " disabled" : ""}${isSynApplied(syn) ? "" : tipAttr(syn)}>${isSynApplied(syn) ? t("ideas.chat.synopsisApplied") : t("ideas.chat.synopsisApply")}</button>`
     : "";
   const structBtn = hasStruct
-    ? `<button class="btn sm proposal-btn" data-msg="${m.id}" data-struct="1" data-role="ideas.chat.proposal-structure"${isStructApplied(st) ? " disabled" : ""}${isStructApplied(st) ? "" : structTip(st)}>${isStructApplied(st) ? "✓ 구조 반영됨" : `구조에 반영 (${structBits(st).join("·")})`}</button>`
+    ? `<button class="btn sm proposal-btn" data-msg="${m.id}" data-struct="1" data-role="ideas.chat.proposal-structure"${isStructApplied(st) ? " disabled" : ""}${isStructApplied(st) ? "" : structTip(st)}>${isStructApplied(st) ? t("ideas.chat.structureApplied") : t("ideas.chat.structureApply", { bits: structBits(st).join("·") })}</button>`
     : "";
   const pendingSettings = sps.some((p) => {
     const s = findSetting(p);
@@ -233,8 +246,8 @@ function proposalsHtml(m) {
   const pendingSyn = !!syn && !isSynApplied(syn);
   const pendingStruct = !!hasStruct && !isStructApplied(st);
   const allDone = !pendingSettings && !pendingSyn && !pendingStruct;
-  const allBtn = `<button class="btn sm proposal-btn" data-msg="${m.id}" data-apply-all data-role="ideas.chat.proposal-apply-all" title="설정·줄거리·구조 제안을 한꺼번에 적용합니다 (AI 호출 없음)"${allDone ? " disabled" : ""}>${allDone ? "✓ 모두 반영됨" : "모두 반영"}</button>`;
-  return `<div class="proposals"><div class="proposals-head"><span class="small muted"><b>바로 반영</b></span>${allBtn}</div>
+  const allBtn = `<button class="btn sm proposal-btn" data-msg="${m.id}" data-apply-all data-role="ideas.chat.proposal-apply-all" title="${t("ideas.chat.applyAllTip")}"${allDone ? " disabled" : ""}>${allDone ? t("ideas.chat.applyAllDone") : t("ideas.chat.applyAll")}</button>`;
+  return `<div class="proposals"><div class="proposals-head"><span class="small muted"><b>${t("ideas.chat.applyNow")}</b></span>${allBtn}</div>
     <div class="btn-row" style="margin-top:6px">${settingBtns}${synBtn}${structBtn}${mergeBtn}</div>${blockedNote}</div>`;
 }
 
@@ -270,10 +283,10 @@ function renderChat() {
   hideTip();
   const box = $("chat-messages");
   if (!messages.length) {
-    box.innerHTML = `<span class="muted small">AI에게 소재·줄거리·설정을 물어보세요. 예: “달빛 서점을 배경으로 한 추리물을 구상 중이야.”</span>`;
+    box.innerHTML = `<span class="muted small">${t("ideas.chat.empty")}</span>`;
   } else {
     box.innerHTML = messages.map((m) => {
-      const chk = `<input type="checkbox" class="inc" data-inc-msg="${m.id}" data-role="ideas.chat.include-checkbox"${includedMessages.has(m.id) ? " checked" : ""} title="대화를 메시지에 포함">`;
+      const chk = `<input type="checkbox" class="inc" data-inc-msg="${m.id}" data-role="ideas.chat.include-checkbox"${includedMessages.has(m.id) ? " checked" : ""} title="${t("ideas.includeInMessage")}">`;
       if (m.role !== "assistant") {
         return `<div class="msg user">${chk}<div class="bubble">${esc(m.content).replace(/\n/g, "<br>")}</div></div>`;
       }
@@ -282,7 +295,7 @@ function renderChat() {
   }
   if (sending) {
     box.insertAdjacentHTML("beforeend",
-      `<div class="msg assistant"><div class="typing" aria-label="AI 답변 생성 중"><span></span><span></span><span></span></div></div>`);
+      `<div class="msg assistant"><div class="typing" aria-label="${t("ideas.chat.typingLabel")}"><span></span><span></span><span></span></div></div>`);
   }
   box.scrollTop = box.scrollHeight;
   box.querySelectorAll("[data-inc-msg]").forEach((c) => {
@@ -314,7 +327,7 @@ function renderChat() {
   const choices = (last && last.id === messages[messages.length - 1]?.id)
     ? (last.choices ?? []) : [];
   $("choice-row").innerHTML = choices.length
-    ? `<div class="small muted" style="width:100%"><b>대화 이어가기</b> — 누르면 AI에게 전송됩니다</div>` + choices.map((c, i) =>
+    ? `<div class="small muted" style="width:100%">${t("ideas.chat.followupHead")}</div>` + choices.map((c, i) =>
       `<button class="btn sm" data-choice="${i}" data-role="ideas.chat.choice-btn">${esc(c)}</button>`).join("")
     : "";
   $("choice-row").querySelectorAll("[data-choice]").forEach((b) => {
@@ -348,7 +361,7 @@ async function sendChat() {
   renderChat();
   const send = $("btn-chat-send");
   const orig = send.textContent;
-  send.textContent = "처리 중…";
+  send.textContent = t("ideas.chat.sending");
   await run(async () => {
     const out = await api.postMessage(sentTid, content, parseMentions(content), null, {
       include_synopsis: $("syn-include").checked,
@@ -414,7 +427,7 @@ async function applyMergeProposal(msgId) {
   const left = m ? pendingMerge(m) : [];
   if (!left.length) return;
   const names = left.map((x) => `${x.code} ${x.title}`).join(", ");
-  if (!confirm(`통합된 원본 설정 ${left.length}개를 삭제합니다: ${names}\n통합 항목을 먼저 반영했는지 확인하세요. 계속할까요?`)) return;
+  if (!confirm(t("ideas.chat.mergeConfirm", { count: left.length, names }))) return;
   await run(async () => {
     for (const s of left) await api.deleteSetting(s.id);
     settings = (await api.settings(getWork().uid || getWork().id)).settings ?? [];
@@ -451,7 +464,7 @@ function renderSynopsis() {
     ta.id = "synopsis-edit";
     ta.dataset.role = "ideas.synopsis.edit-input";
     ta.value = synDraft;
-    ta.placeholder = "전체 줄거리를 입력하세요.";
+    ta.placeholder = t("ideas.synopsis.placeholder");
     const autoresize = () => {
       ta.style.height = "auto";
       ta.style.height = `${ta.scrollHeight}px`;
@@ -473,7 +486,7 @@ function renderSynopsis() {
     view.appendChild(ta);
     const sub = document.createElement("div");
     sub.className = "small muted synopsis-hint";
-    sub.textContent = synSaving ? "저장 중…" : "편집 후 다른 곳을 클릭하면 자동 저장됩니다 (Esc: 취소)";
+    sub.textContent = synSaving ? t("ideas.synopsis.saving") : t("ideas.synopsis.editHint");
     view.appendChild(sub);
     autoresize();
     if (document.activeElement !== ta) {
@@ -485,11 +498,11 @@ function renderSynopsis() {
   view.classList.remove("editing");
   const canEdit = !locked();
   view.classList.toggle("editable", canEdit);
-  if (canEdit) view.title = "클릭하여 편집";
+  if (canEdit) view.title = t("ideas.synopsis.clickToEdit");
   else view.removeAttribute("title");
   view.innerHTML = synopsis.content
     ? esc(synopsis.content).replace(/\n/g, "<br>")
-    : `<span class="muted">아직 줄거리가 없습니다. 클릭하여 직접 쓰거나, AI와 대화한 뒤 제안 버튼을 눌러 반영하세요.</span>`;
+    : `<span class="muted">${t("ideas.synopsis.empty")}</span>`;
 }
 
 function enterSynopsisEdit() {
@@ -511,7 +524,7 @@ async function saveSynopsisEdit() {
   const key = getWork().uid || getWork().id;
   synSaving = true;
   const sub = document.querySelector("#synopsis-view .synopsis-hint");
-  if (sub) sub.textContent = "저장 중…";
+  if (sub) sub.textContent = t("ideas.synopsis.saving");
   try {
     showError("ideas-error", "");
     for (;;) {
@@ -537,9 +550,9 @@ async function saveSynopsisEdit() {
 // ---- 작품 구조 ----
 
 const ST_LEVELS = {
-  part: { label: "Part 사용", use_part: true, use_chapter: true },
-  chapter: { label: "Chapter만 사용", use_part: false, use_chapter: true },
-  none: { label: "구조 미사용", use_part: false, use_chapter: false },
+  part: { key: "ideas.structure.level.part", use_part: true, use_chapter: true },
+  chapter: { key: "ideas.structure.level.chapter", use_part: false, use_chapter: true },
+  none: { key: "ideas.structure.level.none", use_part: false, use_chapter: false },
 };
 
 function levelOf(s) {
@@ -572,7 +585,8 @@ function updateStructSummary() {
   const lv = ST_LEVELS[levelOf(structure)];
   const n = (structure.parts ?? []).length;
   $("struct-summary").textContent =
-    `${lv.label}, ${structure.total_episodes ?? 25}화${n ? ` · Part ${n}개` : ""}`;
+    t("ideas.structure.summary", { label: t(lv.key), total: structure.total_episodes ?? 25 })
+    + (n ? t("ideas.structure.summaryParts", { n }) : "");
 }
 
 function isStructCollapsed() {
@@ -583,12 +597,12 @@ function applyStructCollapsed() {
   const collapsed = isStructCollapsed();
   $("struct-body").style.display = collapsed ? "none" : "";
   $("struct-summary").style.display = collapsed ? "" : "none";
-  $("struct-toggle").textContent = `${collapsed ? "▸" : "▾"} 작품 구조`;
+  $("struct-toggle").textContent = t("ideas.structure.toggle", { arrow: collapsed ? "▸" : "▾" });
   const cp = $("struct-collapsed-parts");
   if (collapsed) {
     cp.style.display = "";
     cp.innerHTML = (structure.parts ?? []).map((p, i) =>
-      `<div class="cpart"><span class="pnum">${i + 1}</span> <b>${esc(p.title || "무제")}</b> - ${esc(p.summary || "")}</div>`).join("");
+      `<div class="cpart"><span class="pnum">${i + 1}</span> <b>${esc(p.title || t("ideas.untitled"))}</b> - ${esc(p.summary || "")}</div>`).join("");
   } else {
     cp.style.display = "none";
     cp.innerHTML = "";
@@ -598,7 +612,7 @@ function applyStructCollapsed() {
 function partRowHtml(p, i) {
   const m = partMode();
   const expanded = m !== "full" && expandedParts.has(i);
-  const title = (p.title || "").trim() || "무제";
+  const title = (p.title || "").trim() || t("ideas.untitled");
   if (m === "one" && !expanded) {
     return `<div class="part one-line" data-part="${i}"><span class="pnum">${i + 1}</span><span class="pline"><b>${esc(title)}</b> ${esc(p.summary || "")}</span></div>`;
   }
@@ -609,9 +623,9 @@ function partRowHtml(p, i) {
     </div>`;
   }
   return `<div class="part editing" data-part="${i}">
-    <div class="part-title-row"><span class="pnum">${i + 1}</span><input type="text" data-f="title" value="${esc(p.title || "")}" placeholder="Part 제목" data-role="ideas.structure.part-title-input"></div>
-    <textarea data-f="summary" rows="3" placeholder="개략 요약" data-role="ideas.structure.part-summary-input">${esc(p.summary || "")}</textarea>
-    <div class="btn-row"><button class="btn sm" data-del data-role="ideas.structure.part-delete-btn">삭제</button>${expanded ? `<button class="btn sm" data-collapse data-role="ideas.structure.part-collapse-btn">접기</button>` : ""}</div>
+    <div class="part-title-row"><span class="pnum">${i + 1}</span><input type="text" data-f="title" value="${esc(p.title || "")}" placeholder="${t("ideas.structure.partTitlePlaceholder")}" data-role="ideas.structure.part-title-input"></div>
+    <textarea data-f="summary" rows="3" placeholder="${t("ideas.structure.partSummaryPlaceholder")}" data-role="ideas.structure.part-summary-input">${esc(p.summary || "")}</textarea>
+    <div class="btn-row"><button class="btn sm" data-del data-role="ideas.structure.part-delete-btn">${t("ideas.structure.partDelete")}</button>${expanded ? `<button class="btn sm" data-collapse data-role="ideas.structure.part-collapse-btn">${t("ideas.structure.partCollapse")}</button>` : ""}</div>
   </div>`;
 }
 
@@ -621,7 +635,7 @@ function renderParts() {
   const box = $("part-list");
   box.dataset.mode = partMode();
   const parts = structure.parts ?? [];
-  box.innerHTML = parts.map(partRowHtml).join("") || `<span class="muted small">Part 없음</span>`;
+  box.innerHTML = parts.map(partRowHtml).join("") || `<span class="muted small">${t("ideas.structure.noParts")}</span>`;
   box.querySelectorAll("[data-part]").forEach((row) => {
     const i = Number(row.dataset.part);
     row.querySelector("[data-del]")?.addEventListener("click", () => deletePart(i));
@@ -691,10 +705,10 @@ function collectStructure() {
 
 function totalError(total, where) {
   if (!Number.isInteger(total) || total < 1) {
-    return `총 화수는 1~${EPISODE_LIMIT} 사이의 정수여야 합니다 (${where}: ${total}).`;
+    return t("ideas.structure.totalNotInteger", { limit: EPISODE_LIMIT, where, total });
   }
   if (total > EPISODE_LIMIT) {
-    return `총 화수 상한(${EPISODE_LIMIT}화)을 초과했습니다 (${where}: ${total}화).`;
+    return t("ideas.structure.totalOverLimit", { limit: EPISODE_LIMIT, where, total });
   }
   return "";
 }
@@ -705,7 +719,7 @@ const STRUCT_SAVE_DELAY = 700;
 
 function scheduleStructureSave() {
   if (locked()) return;
-  $("struct-info").textContent = "입력 중…";
+  $("struct-info").textContent = t("ideas.structure.typing");
   clearTimeout(structSaveTimer);
   structSaveTimer = setTimeout(flushStructureSave, STRUCT_SAVE_DELAY);
 }
@@ -719,13 +733,13 @@ async function flushStructureSave() {
     return;
   }
   const body = collectStructure();
-  const err = totalError(body.total_episodes, "입력값");
+  const err = totalError(body.total_episodes, t("ideas.structure.whereInput"));
   if (err) {
-    $("struct-info").textContent = `${err} ${EPISODE_LIMIT}화 이하로 입력하세요.`;
+    $("struct-info").textContent = `${err} ${t("ideas.structure.enterUnderLimit", { limit: EPISODE_LIMIT })}`;
     return;
   }
   const seq = ++structSaveSeq;
-  $("struct-info").textContent = "저장 중…";
+  $("struct-info").textContent = t("ideas.structure.saving");
   await run(async () => {
     const auto = normalizeStructure(body);
     const saved = await api.putStructure(getWork().uid || getWork().id, body);
@@ -734,7 +748,7 @@ async function flushStructureSave() {
     setControlValues();
     updateStructSummary();
     applyStructCollapsed();
-    $("struct-info").textContent = auto ? "저장됨 (Part 사용을 함께 켰습니다)" : "저장됨";
+    $("struct-info").textContent = auto ? t("ideas.structure.savedAuto") : t("ideas.structure.saved");
   });
 }
 
@@ -768,16 +782,16 @@ function isStructApplied(prop) {
 function structBits(prop) {
   const bits = [];
   if (prop.use_part !== null && prop.use_part !== undefined) {
-    bits.push(`Part${prop.use_part ? "사용" : "미사용"}`);
+    bits.push(t("ideas.structure.bitPart", { state: useWord(prop.use_part) }));
   }
   if (prop.use_chapter !== null && prop.use_chapter !== undefined) {
-    bits.push(`Chapter${prop.use_chapter ? "사용" : "미사용"}`);
+    bits.push(t("ideas.structure.bitChapter", { state: useWord(prop.use_chapter) }));
   }
   if (prop.total_episodes !== null && prop.total_episodes !== undefined) {
-    bits.push(`${prop.total_episodes}화`);
+    bits.push(t("ideas.structure.bitEpisodes", { n: prop.total_episodes }));
   }
   if (prop.parts !== null && prop.parts !== undefined) {
-    bits.push(`P${prop.parts.length}개`);
+    bits.push(t("ideas.structure.bitParts", { n: prop.parts.length }));
   }
   return bits;
 }
@@ -785,17 +799,17 @@ function structBits(prop) {
 function structTip(prop) {
   const bits = [];
   if (prop.use_part !== null && prop.use_part !== undefined) {
-    bits.push(`Part ${prop.use_part ? "사용" : "미사용"}`);
+    bits.push(t("ideas.structure.tipPart", { state: useWord(prop.use_part) }));
   }
   if (prop.use_chapter !== null && prop.use_chapter !== undefined) {
-    bits.push(`Chapter ${prop.use_chapter ? "사용" : "미사용"}`);
+    bits.push(t("ideas.structure.tipChapter", { state: useWord(prop.use_chapter) }));
   }
   if (prop.total_episodes !== null && prop.total_episodes !== undefined) {
-    bits.push(`총 ${prop.total_episodes}화`);
+    bits.push(t("ideas.structure.tipTotal", { n: prop.total_episodes }));
   }
   if (prop.parts !== null && prop.parts !== undefined) {
-    bits.push(`Part ${prop.parts.length}개`);
-    prop.parts.forEach((p) => bits.push(`- ${p.title || "무제"}: ${p.summary || ""}`));
+    bits.push(t("ideas.structure.tipParts", { n: prop.parts.length }));
+    prop.parts.forEach((p) => bits.push(`- ${p.title || t("ideas.untitled")}: ${p.summary || ""}`));
   }
   return tipAttr(bits.join("\n"));
 }
@@ -807,16 +821,16 @@ async function applyStructProposal(msgId) {
   await run(async () => {
     const merged = mergeStructure(prop);
     const auto = normalizeStructure(merged);
-    const err = totalError(merged.total_episodes, "AI 제안");
+    const err = totalError(merged.total_episodes, t("ideas.structure.whereAi"));
     if (err) {
-      showError("ideas-error", `${err} AI에게 ${EPISODE_LIMIT}화 이하로 다시 제안해 달라고 물어보세요.`);
+      showError("ideas-error", `${err} ${t("ideas.structure.askUnderLimit", { limit: EPISODE_LIMIT })}`);
       return;
     }
     structure = await api.putStructure(getWork().uid || getWork().id, merged);
     expandedParts = new Set();
     renderStructure();
     renderChat();
-    if (auto) $("struct-info").textContent = "반영됨 (Part 사용을 함께 켰습니다)";
+    if (auto) $("struct-info").textContent = t("ideas.structure.appliedAuto");
   });
 }
 
@@ -836,17 +850,17 @@ export async function exportIdeasMarkdown() {
   const key = w.uid || w.id;
   const [syn, st, struct] = await Promise.all(
     [api.synopsis(key), api.settings(key), api.getStructure(key)]);
-  const lines = [`# ${w.title} — 아이디어 정리`, ""];
-  lines.push("## 전체 줄거리", "", syn.content || "(없음)", "");
-  lines.push("## 작품 구조", "",
-    `Part ${struct.use_part ? "사용" : "미사용"} · Chapter ${struct.use_chapter ? "사용" : "미사용"} · 총 ${struct.total_episodes}화`, "");
+  const lines = [t("ideas.export.title", { title: w.title }), ""];
+  lines.push(t("ideas.export.synopsis"), "", syn.content || t("ideas.export.none"), "");
+  lines.push(t("ideas.export.structure"), "",
+    `${t("ideas.structure.tipPart", { state: useWord(struct.use_part) })} · ${t("ideas.structure.tipChapter", { state: useWord(struct.use_chapter) })} · ${t("ideas.structure.tipTotal", { n: struct.total_episodes })}`, "");
   for (const p of struct.parts ?? []) {
     lines.push(`- ${p.title}: ${p.summary}`);
   }
   if ((struct.parts ?? []).length) lines.push("");
-  lines.push("## 설정정보", "");
+  lines.push(t("ideas.export.settings"), "");
   for (const s of st.settings ?? []) {
-    lines.push(`### [${CAT_LABEL[s.category] ?? s.category}] ${s.title}`,
+    lines.push(`### [${catLabel(s.category)}] ${s.title}`,
       "", s.summary || "", "", s.detail || "", "");
   }
   const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
@@ -862,9 +876,9 @@ export async function exportIdeasMarkdown() {
 function settingRowHtml(s) {
   const m = mode();
   const expanded = m !== "full" && expandedSettings.has(s.id);
-  const inc = `<input type="checkbox" class="inc" data-inc-setting="${s.id}" data-role="ideas.settings.item-checkbox"${includedSettings.has(s.id) ? " checked" : ""} title="대화를 메시지에 포함">`;
-  const codeChip = s.code ? `<span class="chip mono"${expanded ? ' data-collapse-chip title="클릭하면 원래 보기(한줄·이어서)로 접기"' : ""}>${esc(s.code)}</span>` : "";
-  const chips = `${codeChip}<span class="chip">${esc(CAT_LABEL[s.category] ?? s.category)}</span>`;
+  const inc = `<input type="checkbox" class="inc" data-inc-setting="${s.id}" data-role="ideas.settings.item-checkbox"${includedSettings.has(s.id) ? " checked" : ""} title="${t("ideas.includeInMessage")}">`;
+  const codeChip = s.code ? `<span class="chip mono"${expanded ? ` data-collapse-chip title="${t("ideas.settings.collapseChipTip")}"` : ""}>${esc(s.code)}</span>` : "";
+  const chips = `${codeChip}<span class="chip">${esc(catLabel(s.category))}</span>`;
   if (m === "one" && !expanded) {
     const text = s.summary || (s.detail || "").split("\n")[0] || "";
     return `<div class="setting one-line" data-setting="${s.id}">${inc}${chips}<span class="sline"><b>${esc(s.title)}</b> ${esc(text)}</span></div>`;
@@ -881,8 +895,8 @@ function settingRowHtml(s) {
     ${s.summary ? `<div class="small">${esc(s.summary).replace(/\n/g, "<br>")}</div>` : ""}
     ${s.detail ? `<div class="small muted">${esc(s.detail).replace(/\n/g, "<br>")}</div>` : ""}
     <div class="btn-row">
-      <button class="btn sm" data-edit data-role="ideas.settings.edit-btn">편집</button>
-      <button class="btn sm" data-del data-role="ideas.settings.delete-btn">삭제</button>
+      <button class="btn sm" data-edit data-role="ideas.settings.edit-btn">${t("ideas.settings.edit")}</button>
+      <button class="btn sm" data-del data-role="ideas.settings.delete-btn">${t("ideas.settings.delete")}</button>
     </div>
     <div class="setting-edit"></div>
   </div>`;
@@ -901,7 +915,7 @@ function renderSettings() {
   const box = $("setting-list");
   box.dataset.mode = mode();
   if (!settings.length) {
-    box.innerHTML = `<span class="muted small">설정이 없습니다. AI와 대화한 뒤 제안 버튼을 눌러 반영하세요.</span>`;
+    box.innerHTML = `<span class="muted small">${t("ideas.settings.empty")}</span>`;
     syncSettingAll();
     return;
   }
@@ -924,7 +938,7 @@ function renderSettings() {
           expandedSettings.delete(id);
           renderSettings();
         });
-        el.querySelector(".btn-row")?.insertAdjacentHTML("beforeend", `<button class="btn sm" data-collapse data-role="ideas.settings.collapse-btn">접기</button>`);
+        el.querySelector(".btn-row")?.insertAdjacentHTML("beforeend", `<button class="btn sm" data-collapse data-role="ideas.settings.collapse-btn">${t("ideas.settings.collapse")}</button>`);
         el.querySelector("[data-collapse]")?.addEventListener("click", () => {
           expandedSettings.delete(id);
           renderSettings();
@@ -945,14 +959,14 @@ function renderSettings() {
 function openSettingEditor(el, s) {
   const box = el.querySelector(".setting-edit");
   box.innerHTML = `
-    <label class="f">분류</label>
+    <label class="f">${t("ideas.settings.formCategory")}</label>
     <select data-f="category" data-role="ideas.settings.edit-category-select">${CATEGORIES.map((c) =>
-      `<option value="${c}"${s.category === c ? " selected" : ""}>${CAT_LABEL[c]}</option>`).join("")}</select>
-    <label class="f">제목</label><input type="text" data-f="title" value="${esc(s.title)}" data-role="ideas.settings.edit-title-input">
-    <label class="f">요약</label><textarea data-f="summary" data-role="ideas.settings.edit-summary-input">${esc(s.summary)}</textarea>
-    <label class="f">상세</label><textarea data-f="detail" data-role="ideas.settings.edit-detail-input">${esc(s.detail)}</textarea>
-    <div class="btn-row"><button class="btn sm primary" data-save data-role="ideas.settings.edit-save-btn">저장</button>
-    <button class="btn sm" data-cancel data-role="ideas.settings.edit-cancel-btn">취소</button></div>`;
+      `<option value="${c}"${s.category === c ? " selected" : ""}>${t(CAT_LABEL[c])}</option>`).join("")}</select>
+    <label class="f">${t("ideas.settings.formTitle")}</label><input type="text" data-f="title" value="${esc(s.title)}" data-role="ideas.settings.edit-title-input">
+    <label class="f">${t("ideas.settings.formSummary")}</label><textarea data-f="summary" data-role="ideas.settings.edit-summary-input">${esc(s.summary)}</textarea>
+    <label class="f">${t("ideas.settings.formDetail")}</label><textarea data-f="detail" data-role="ideas.settings.edit-detail-input">${esc(s.detail)}</textarea>
+    <div class="btn-row"><button class="btn sm primary" data-save data-role="ideas.settings.edit-save-btn">${t("ideas.settings.save")}</button>
+    <button class="btn sm" data-cancel data-role="ideas.settings.edit-cancel-btn">${t("ideas.settings.cancel")}</button></div>`;
   box.querySelector("[data-cancel]").addEventListener("click", () => { box.innerHTML = ""; });
   box.querySelector("[data-save]").addEventListener("click", () => run(async () => {
     const data = {
@@ -980,15 +994,15 @@ async function deleteSettingFlow(s) {
 // ---- 인계 ----
 
 function renderHandoff() {
-  $("btn-handoff").textContent = "아이디어 마무리 → 소설 설계로";
+  $("btn-handoff").textContent = t("ideas.handoff.button");
 }
 
 function handoffTreeHtml(nodes) {
   return `<ul class="ho-tree small">` + nodes.map((n) => {
     let label;
     if (n.kind === "episode") {
-      label = `${n.episode_no}화 ${esc(n.title)}` +
-        (n.stub ? ` <span class="muted">(빈 회차로 자동 생성)</span>`
+      label = t("ideas.handoff.episodeLabel", { no: n.episode_no, title: esc(n.title) }) +
+        (n.stub ? ` <span class="muted">${t("ideas.handoff.stubNote")}</span>`
           : (n.summary ? ` — ${esc(n.summary)}` : ""));
     } else {
       const lv = n.kind === "part" ? "Part" : "Chapter";
@@ -1004,15 +1018,15 @@ function handoffPreviewHtml(p) {
   const counts = p.counts ?? {};
   const aiEps = (counts.episodes ?? 0) - (counts.stub_episodes ?? 0);
   const bits = [];
-  if (counts.parts) bits.push(`Part ${counts.parts}개`);
-  if (counts.chapters) bits.push(`Chapter ${counts.chapters}개`);
-  bits.push(`Episode ${counts.episodes ?? 0}화`);
+  if (counts.parts) bits.push(t("ideas.structure.tipParts", { n: counts.parts }));
+  if (counts.chapters) bits.push(t("ideas.handoff.chapters", { n: counts.chapters }));
+  bits.push(t("ideas.handoff.episodes", { n: counts.episodes ?? 0 }));
   const attached = (p.settings ?? []).map((s) =>
     `<span class="chip mono">${esc(s.code || "")}</span> ${esc(s.title)}`).join(" · ");
   return `
-    <p class="small">AI가 다음과 같이 설계로 옮깁니다. 확정하면 그대로 생성되며, 인계 후 이 아이디어 화면은 <b>읽기 전용</b>이 됩니다.</p>
-    <p class="small"><b>설계 v${p.design_version}</b> · ${esc((p.levels ?? []).join(" → "))} · ${bits.join(" · ")} (AI 작성 ${aiEps}화 · 빈 회차 ${counts.stub_episodes ?? 0}화)</p>
-    <p class="small"><b>작품(최상위) 노드에 함께 저장</b> — 전체 줄거리 전문(${(p.synopsis_chars ?? 0).toLocaleString()}자) · 설정 ${(p.settings ?? []).length}개${attached ? `<br>${attached}` : ""}</p>
+    <p class="small">${t("ideas.handoff.intro")}</p>
+    <p class="small">${t("ideas.handoff.meta", { version: p.design_version, levels: esc((p.levels ?? []).join(" → ")), bits: bits.join(" · "), ai: aiEps, stub: counts.stub_episodes ?? 0 })}</p>
+    <p class="small">${t("ideas.handoff.stored", { chars: (p.synopsis_chars ?? 0).toLocaleString(), count: (p.settings ?? []).length, attached: attached ? `<br>${attached}` : "" })}</p>
     ${handoffTreeHtml(p.tree ?? [])}`;
 }
 
@@ -1020,7 +1034,7 @@ async function handoffFlow() {
   const key = getWork().uid || getWork().id;
   const btn = $("btn-handoff");
   btn.disabled = true;
-  btn.textContent = "AI가 인계 계획 생성 중…";
+  btn.textContent = t("ideas.handoff.planning");
   try {
     await run(async () => {
       const p = await api.handoffPreview(key);
@@ -1042,7 +1056,7 @@ function closeHandoffDialog() {
 async function confirmHandoff() {
   const btn = $("btn-handoff-confirm");
   btn.disabled = true;
-  btn.textContent = "AI가 설계로 옮기는 중…";
+  btn.textContent = t("ideas.handoff.moving");
   try {
     const key = getWork().uid || getWork().id;
     await api.handoff(key, pendingHandoffPlan ?? { tree: [] });
@@ -1056,7 +1070,7 @@ async function confirmHandoff() {
     showError("handoff-dialog-error", String(e));
   } finally {
     btn.disabled = false;
-    btn.textContent = "AI로 옮기고 인계하기";
+    btn.textContent = t("ideas.handoff.confirm");
   }
 }
 
@@ -1073,7 +1087,7 @@ export function initIdeas() {
   });
   $("btn-thread-new").addEventListener("click", () => run(async () => {
     const key = getWork().uid || getWork().id;
-    const nt = await api.createThread(key, `대화 ${threads.length + 1}`);
+    const nt = await api.createThread(key, t("ideas.thread.title", { n: threads.length + 1 }));
     threads.push(nt);
     threadId = nt.id;
     messages = [];

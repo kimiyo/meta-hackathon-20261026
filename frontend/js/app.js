@@ -1,5 +1,6 @@
 import { api, getToken, setToken } from "./api.js";
 import { $, esc, showError } from "./util.js";
+import { getLocale, setLocale, storedLocale, t } from "./i18n.js";
 import { clearWorkSelection, initWork, refreshWorkPill, selectWorkByUid } from "./work.js";
 import { initMonitor, refreshBudgetChips } from "./monitor.js";
 import { initReview } from "./review.js";
@@ -141,11 +142,11 @@ async function submitRename() {
   const penName = $("rename-pen-name").value.trim();
   const password = $("rename-password").value;
   if (!penName) {
-    showError("rename-error", "새 필명을 입력하세요.");
+    showError("rename-error", t("common.renamePenNameRequired"));
     return;
   }
   if (!password) {
-    showError("rename-error", "비밀번호를 입력하세요.");
+    showError("rename-error", t("common.renamePasswordRequired"));
     return;
   }
   btn.disabled = true;
@@ -195,13 +196,97 @@ async function refreshTopbar() {
     const h = await api.health();
     const ok = h.db === "ok";
     healthChip.innerHTML = ok
-      ? `<i></i> healthy · ${esc(h.model ?? "?")}`
-      : `<i style="background:#d4695e"></i> DB 오류`;
+      ? `<i></i> ${t("common.healthHealthy", { model: esc(h.model ?? "?") })}`
+      : `<i style="background:#d4695e"></i> ${t("common.healthDbError")}`;
     if (modelInfo) modelInfo.textContent = `${h.model ?? "?"} · ${h.mode ?? ""}`;
   } catch (e) {
-    healthChip.innerHTML = `<i style="background:#d4695e"></i> 연결 실패`;
+    healthChip.innerHTML = `<i style="background:#d4695e"></i> ${t("common.healthOffline")}`;
     if (modelInfo) modelInfo.textContent = String(e).slice(0, 80);
   }
+}
+
+// 정적 HTML의 data-i18n(*) 속성을 현재 화면 언어로 반영한다.
+// 번역 누락 키는 원본 HTML(한국어)을 그대로 둔다.
+export function applyI18n(root = document) {
+  for (const el of root.querySelectorAll("[data-i18n]")) {
+    const key = el.getAttribute("data-i18n");
+    const value = t(key);
+    if (value !== key) el.textContent = value;
+  }
+  for (const el of root.querySelectorAll("[data-i18n-placeholder]")) {
+    const key = el.getAttribute("data-i18n-placeholder");
+    const value = t(key);
+    if (value !== key) el.setAttribute("placeholder", value);
+  }
+  for (const el of root.querySelectorAll("[data-i18n-title]")) {
+    const key = el.getAttribute("data-i18n-title");
+    const value = t(key);
+    if (value !== key) el.setAttribute("title", value);
+  }
+  for (const el of root.querySelectorAll("[data-i18n-aria-label]")) {
+    const key = el.getAttribute("data-i18n-aria-label");
+    const value = t(key);
+    if (value !== key) el.setAttribute("aria-label", value);
+  }
+  for (const el of root.querySelectorAll("[data-i18n-content]")) {
+    const key = el.getAttribute("data-i18n-content");
+    const value = t(key);
+    if (value !== key) el.setAttribute("content", value);
+  }
+}
+
+function syncLocaleDocument() {
+  document.documentElement.lang = getLocale() === "en-US" ? "en" : "ko";
+  const sel = $("locale-select");
+  if (sel) sel.value = getLocale();
+}
+
+// 언어 전환 전후로 입력값을 보존한다. 다시 그려진 노드는 id 기준으로 복원.
+function snapshotInputs() {
+  const snap = [];
+  document.querySelectorAll("input, textarea, select").forEach((el) => {
+    if (el.type === "file") return;
+    snap.push({
+      el,
+      id: el.id || "",
+      checked: el.type === "checkbox" || el.type === "radio" ? el.checked : null,
+      value: el.value,
+    });
+  });
+  return snap;
+}
+
+function restoreInputs(snap) {
+  for (const s of snap) {
+    const target = s.el.isConnected
+      ? s.el
+      : (s.id && document.getElementById(s.id)) || null;
+    if (!target) continue;
+    if (target.type === "checkbox" || target.type === "radio") {
+      if (s.checked !== null) target.checked = s.checked;
+    } else if ("value" in target) {
+      target.value = s.value;
+    }
+  }
+}
+
+function initLocaleSelect() {
+  const sel = $("locale-select");
+  if (!sel) return;
+  sel.value = storedLocale() || "ko-KR";
+  sel.addEventListener("change", async () => {
+    const next = sel.value;
+    if (next === getLocale()) return;
+    const snap = snapshotInputs();
+    try {
+      await setLocale(next);
+    } catch (e) {
+      console.error("locale switch failed", e);
+      sel.value = getLocale();
+    } finally {
+      restoreInputs(snap);
+    }
+  });
 }
 
 // 각 탭 초기화 + 라우터 시작
@@ -227,10 +312,28 @@ $("rename-password").addEventListener("keydown", (ev) => {
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && $("rename-backdrop").style.display !== "none") closeRename();
 });
-refreshTopbar();
-refreshBudgetChips();
-api.authStatus()
-  .then((st) => updateAuthChip(st.logged_in ? st : null))
-  .catch(() => updateAuthChip(null));
-onChange(() => route());
-route();
+// 화면 언어 전환: 셸 정적 문구·문서 언어·상단 상태를 다시 그린다.
+// 각 화면의 동적 문구는 해당 모듈의 locale-changed 리스너가 담당한다.
+document.addEventListener("locale-changed", () => {
+  syncLocaleDocument();
+  applyI18n();
+  refreshTopbar();
+});
+async function boot() {
+  initLocaleSelect();
+  try {
+    await setLocale(storedLocale() || "ko-KR");
+  } catch (e) {
+    console.error("locale unavailable, staying with built-in Korean", e);
+  }
+  syncLocaleDocument();
+  applyI18n();
+  refreshTopbar();
+  refreshBudgetChips();
+  api.authStatus()
+    .then((st) => updateAuthChip(st.logged_in ? st : null))
+    .catch(() => updateAuthChip(null));
+  onChange(() => route());
+  route();
+}
+boot();

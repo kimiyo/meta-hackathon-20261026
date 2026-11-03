@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import design_nodes, design_threads
+from .. import meta_client as metac
+from .. import prompt_loader
 from ..errors import LLMStepError
 from ..schemas import ideas as sch
 from .deps import (get_conn, get_current_author, require_design,
@@ -91,23 +93,39 @@ def post_message(thread_id: int, body: ThreadMessageIn,
         msgs = [m for m in design_threads.list_messages(conn, thread_id, 10000)
                 if m["id"] in want and m["id"] != user_msg["id"]]
         history = design_threads.history_lines(msgs)
-    extra = f"작가 요청: {content}\n참조: {', '.join(body.refs) or '(없음)'}"
-    if body.refs:
-        extra += "\n참조 해석:\n" + "\n".join(
-            design_threads.ref_lines(conn, node["design_id"], body.refs))
     design = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
                           (node["design_id"],)).fetchone()
+    work_id = design["work_id"] if design else None
+    market, writing_locale = metac.work_locale(conn, work_id)
+    en = writing_locale == "en-US"
+    if en:
+        refs_txt = ", ".join(body.refs) or "(none)"
+        extra = f"Author request: {content}\nRefs: {refs_txt}"
+    else:
+        extra = f"작가 요청: {content}\n참조: {', '.join(body.refs) or '(없음)'}"
+    if body.refs:
+        extra += ("\nRef notes:\n" if en else "\n참조 해석:\n") + "\n".join(
+            design_threads.ref_lines(conn, node["design_id"], body.refs))
     try:
-        out = meta.chat_json(
-            bundle="design_chat", episode=None, system=CHAT_PROMPT,
+        system = prompt_loader.load(
+            "design_chat", writing_locale, market).text
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
+    try:
+        out = metac.chat_with_provenance(
+            meta, bundle="design_chat", episode=None, system=system,
             user=design_threads.node_context(conn, node, extra,
                                              history=history),
             schema=sch.DesignChatOut, max_tokens=8000,
-            work_id=design["work_id"] if design else None)
+            work_id=work_id, writing_locale=writing_locale, market=market,
+            prompt_feature="design_chat",
+            preset_id=preset_id, preset_version=preset_version)
     except LLMStepError as e:
         raise HTTPException(502, f"design_chat failed: {e.reason} {e.detail}")
     assistant = design_threads.add_message(
-        conn, thread_id, "assistant", out.get("reply") or "(빈 응답)",
+        conn, thread_id, "assistant",
+        out.get("reply") or ("(empty response)" if en else "(빈 응답)"),
         proposals={"children": out.get("proposed_children") or [],
                    "patch": design_threads.sanitize_patch(
                        out.get("proposed_patch") or {})})

@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StorySpine</title>
-<meta name="description" content="StorySpine은 아이디어를 작품 구조로 발전시키고, 회차별 집필과 설정 검토를 연결하는 AI 소설 창작 스튜디오입니다.">
+<meta name="description" data-i18n-content="common.metaDescription" content="StorySpine은 아이디어를 작품 구조로 발전시키고, 회차별 집필과 설정 검토를 연결하는 AI 소설 창작 스튜디오입니다.">
 <meta property="og:title" content="StorySpine">
-<meta property="og:description" content="이야기의 뼈대를 세우고, 완결까지 함께.">
+<meta property="og:description" data-i18n-content="home.tagline" content="이야기의 뼈대를 세우고, 완결까지 함께.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#214E40">
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
@@ -17,27 +17,28 @@
 <body>
 
 <header class="topbar" data-role="shell.topbar">
-  <div class="logo"><img class="brand-mark" src="./assets/symbol-paper.svg" alt="" width="22" height="22">StorySpine <span class="brand-sub">AI Novel Studio</span> <button class="model-chip" id="model-info" data-role="shell.topbar.model-chip" title="모델 변경">연결 확인 중…</button></div>
-  <button class="btn sm" id="btn-home" data-role="shell.topbar.home-btn" style="display:none;background:transparent;border-color:#4a524c;color:#e8e4d8;white-space:nowrap">← 작품 목록</button>
+  <div class="logo"><img class="brand-mark" src="./assets/symbol-paper.svg" alt="" width="22" height="22">StorySpine <span class="brand-sub">AI Novel Studio</span> <button class="model-chip" id="model-info" data-role="shell.topbar.model-chip" data-i18n-title="model.title" title="모델 변경">연결 확인 중…</button></div>
+  <button class="btn sm" id="btn-home" data-role="shell.topbar.home-btn" data-i18n="nav.home" style="display:none;background:transparent;border-color:#4a524c;color:#e8e4d8;white-space:nowrap">← 작품 목록</button>
   <div class="work-pill" id="work-pill" data-role="shell.topbar.work-pill" title="클릭하여 소설 정보 수정" style="cursor:pointer">작품 없음</div>
   <div class="spacer"></div>
   <div class="ops-strip">
     <span class="health-dot ops-chip" id="health-chip" data-role="shell.topbar.health-chip"><i></i> 확인 중…</span>
     <button class="ops-chip" id="budget-chip" data-role="shell.topbar.budget-chip" title="AI 호출 로그 보기">토큰 —</button>
-    <span class="ops-chip" id="user-chip" data-role="shell.topbar.user-chip" style="display:none;cursor:pointer" title="작가명 수정"></span>
-    <button class="ops-chip" id="btn-logout" data-role="shell.topbar.logout-btn" style="display:none">로그아웃</button>
+    <span class="ops-chip" id="user-chip" data-role="shell.topbar.user-chip" style="display:none;cursor:pointer" data-i18n-title="common.renameTitle" title="작가명 수정"></span>
+    <select class="ops-chip" id="locale-select" data-role="shell.topbar.locale-select" data-i18n-title="common.localeTitle" data-i18n-aria-label="common.localeTitle" title="화면 언어" aria-label="화면 언어" style="cursor:pointer;color:#e8e4d8;width:auto"><option value="ko-KR">한국어</option><option value="en-US">English</option></select>
+    <button class="ops-chip" id="btn-logout" data-role="shell.topbar.logout-btn" data-i18n="common.logout" style="display:none">로그아웃</button>
   </div>
 </header>
 
 <nav class="tabs" id="tabs" data-role="shell.tabs">
-  <button data-screen="ideas" class="active" data-role="shell.tabs.tab-ideas"><span class="n">1</span>아이디어</button>
-  <button data-screen="sdesign" data-role="shell.tabs.tab-design"><span class="n">2</span>소설 설계</button>
-  <button data-screen="s2" data-role="shell.tabs.tab-writing"><span class="n">3</span>집필</button>
-  <button data-screen="s3" data-role="shell.tabs.tab-review"><span class="n">4</span>작가 검토</button>
-  <button data-screen="s5" data-role="shell.tabs.tab-publish"><span class="n">5</span>발간중</button>
-  <button data-screen="s4" data-role="shell.tabs.tab-entities"><span class="n">6</span>설정</button>
+  <button data-screen="ideas" class="active" data-role="shell.tabs.tab-ideas"><span class="n">1</span><span data-i18n="nav.ideas">아이디어</span></button>
+  <button data-screen="sdesign" data-role="shell.tabs.tab-design"><span class="n">2</span><span data-i18n="nav.design">소설 설계</span></button>
+  <button data-screen="s2" data-role="shell.tabs.tab-writing"><span class="n">3</span><span data-i18n="nav.writing">집필</span></button>
+  <button data-screen="s3" data-role="shell.tabs.tab-review"><span class="n">4</span><span data-i18n="nav.review">작가 검토</span></button>
+  <button data-screen="s5" data-role="shell.tabs.tab-publish"><span class="n">5</span><span data-i18n="nav.publish">발간중</span></button>
+  <button data-screen="s4" data-role="shell.tabs.tab-entities"><span class="n">6</span><span data-i18n="nav.entities">설정</span></button>
   <span class="tabs-spacer"></span>
-  <button id="btn-export" data-role="shell.tabs.export-btn" style="display:none">내보내기</button>
+  <button id="btn-export" data-role="shell.tabs.export-btn" data-i18n="common.export" style="display:none">내보내기</button>
 </nav>
 
 <main>
@@ -47,20 +48,20 @@
   <div class="brand-band">
     <img class="brand-band-mark" src="./assets/symbol.svg" alt="" width="34" height="34">
     <div>
-      <h2>이야기의 뼈대를 세우고, 완결까지 함께.</h2>
-      <p>아이디어를 설계하고, AI와 집필하고, 앞선 설정과의 연결을 검토하세요.</p>
+      <h2 data-i18n="home.tagline">이야기의 뼈대를 세우고, 완결까지 함께.</h2>
+      <p data-i18n="home.lead">아이디어를 설계하고, AI와 집필하고, 앞선 설정과의 연결을 검토하세요.</p>
     </div>
   </div>
   <div class="card" id="auth-gate" data-role="home.auth.panel" style="display:none">
     <h3 id="auth-title">저자 등록</h3>
     <p class="muted small" id="auth-desc">처음 이용하시면 저자를 등록하세요. 아이디·필명·비밀번호로 등록합니다.</p>
-    <label class="f">아이디</label>
+    <label class="f" data-i18n="home.authLoginId">아이디</label>
     <input type="text" id="auth-login-id" data-role="home.auth.login-id-input" autocomplete="username" style="margin-bottom:8px">
     <div id="auth-penname-row">
-      <label class="f">필명</label>
+      <label class="f" data-i18n="home.authPenName">필명</label>
       <input type="text" id="auth-pen-name" data-role="home.auth.pen-name-input" style="margin-bottom:8px">
     </div>
-    <label class="f">비밀번호</label>
+    <label class="f" data-i18n="home.authPassword">비밀번호</label>
     <input type="password" id="auth-password" data-role="home.auth.password-input" autocomplete="current-password" style="margin-bottom:8px">
     <div class="btn-row">
       <button class="btn primary" id="btn-auth-submit" data-role="home.auth.submit-btn">등록</button>
@@ -68,15 +69,15 @@
     </div>
   </div>
   <div class="card" data-role="home.create.panel">
-    <h3>새 소설 만들기</h3>
-    <p class="muted small">첫 아이디어에 이야기의 뼈대를 세워 보세요. 제목을 입력하면 새 소설을 만들고 아이디어 화면으로 들어갑니다.</p>
+    <h3 data-i18n="home.createTitle">새 소설 만들기</h3>
+    <p class="muted small" data-i18n="home.createDesc">첫 아이디어에 이야기의 뼈대를 세워 보세요. 제목을 입력하면 새 소설을 만들고 아이디어 화면으로 들어갑니다.</p>
     <div class="btn-row">
-      <button class="btn primary" id="btn-home-create" data-role="home.create.start-btn">새 소설 시작하기</button>
+      <button class="btn primary" id="btn-home-create" data-role="home.create.start-btn" data-i18n="home.createStart">새 소설 시작하기</button>
     </div>
   </div>
   <div class="card" data-role="home.list.panel">
-    <h3>내 소설 목록 <span class="hint" id="home-count"></span></h3>
-    <input type="text" id="home-search" data-role="home.list.search-input" placeholder="제목 검색" style="margin-bottom:10px">
+    <h3><span data-i18n="home.listTitle">내 소설 목록</span> <span class="hint" id="home-count"></span></h3>
+    <input type="text" id="home-search" data-role="home.list.search-input" data-i18n-placeholder="home.searchPlaceholder" placeholder="제목 검색" style="margin-bottom:10px">
     <div id="home-list" data-role="home.list.grid" class="home-grid">
       <span class="muted small">불러오는 중…</span>
     </div>
@@ -253,40 +254,40 @@
 <!-- ════════════ 화면 3 · 집필 ════════════ -->
 <section class="screen" id="s2" data-role="writing.screen">
   <div id="monitor-error"></div>
-  <div class="screen-lead"><b>집필중</b>원고 수정은 여기서만 합니다. 다 쓰면 검토를 요청하세요.</div>
+  <div class="screen-lead"><b data-i18n="monitor.leadTitle">집필중</b><span data-i18n="monitor.leadText">원고 수정은 여기서만 합니다. 다 쓰면 검토를 요청하세요.</span></div>
   <div class="grid-monitor">
     <div class="card" id="pane-progress" data-role="writing.progress.panel">
-      <button class="pane-expand" id="btn-progress-expand" data-role="writing.progress.expand-btn" title="회차별 진행 펼치기"><span>▶</span><span class="vlabel">회차별 진행</span></button>
+      <button class="pane-expand" id="btn-progress-expand" data-role="writing.progress.expand-btn" data-i18n-title="monitor.progressExpandTitle" title="회차별 진행 펼치기"><span>▶</span><span class="vlabel" data-i18n="monitor.progressTitle">회차별 진행</span></button>
       <div class="progress-main">
-      <h3 class="split"><span>회차별 진행</span><button class="btn sm" id="btn-progress-collapse" data-role="writing.progress.collapse-btn" title="회차별 진행 접기">◀</button></h3>
-      <details class="small" style="margin-bottom:4px"><summary class="muted">설계 직접 지정</summary>
-        <label class="f">설계 ID</label>
+      <h3 class="split"><span data-i18n="monitor.progressTitle">회차별 진행</span><button class="btn sm" id="btn-progress-collapse" data-role="writing.progress.collapse-btn" data-i18n-title="monitor.progressCollapseTitle" title="회차별 진행 접기">◀</button></h3>
+      <details class="small" style="margin-bottom:4px"><summary class="muted" data-i18n="monitor.designOverride">설계 직접 지정</summary>
+        <label class="f" data-i18n="monitor.designIdLabel">설계 ID</label>
         <div style="display:flex;gap:8px">
-          <input type="text" id="monitor-design-id" data-role="writing.progress.design-id-input" placeholder="설계 ID">
-          <button class="btn sm" id="btn-monitor-load" data-role="writing.progress.load-btn" style="white-space:nowrap">불러오기</button>
+          <input type="text" id="monitor-design-id" data-role="writing.progress.design-id-input" data-i18n-placeholder="monitor.designIdLabel" placeholder="설계 ID">
+          <button class="btn sm" id="btn-monitor-load" data-role="writing.progress.load-btn" data-i18n="monitor.loadBtn" style="white-space:nowrap">불러오기</button>
         </div>
       </details>
       <div class="small muted" id="monitor-budget" style="margin-top:10px">토큰 —</div>
       <div class="progress-10" id="monitor-progress" style="display:none"><i style="width:0%"></i></div>
       <table class="tbl" style="margin-top:10px">
-        <thead><tr><th>회차</th><th>상태</th><th></th></tr></thead>
-        <tbody id="ep-rows" data-role="writing.progress.episode-rows"><tr><td colspan="3"><span class="muted small">설계를 불러오세요.</span></td></tr></tbody>
+        <thead><tr><th data-i18n="monitor.colEpisode">회차</th><th data-i18n="monitor.colState">상태</th><th></th></tr></thead>
+        <tbody id="ep-rows" data-role="writing.progress.episode-rows"><tr><td colspan="3"><span class="muted small" data-i18n="monitor.loadDesignFirst">설계를 불러오세요.</span></td></tr></tbody>
       </table>
       </div>
     </div>
     <div class="col-resizer" id="writing-resizer" data-role="writing.screen.col-resizer" title="드래그하여 너비 조절"></div>
     <div class="center-col">
-      <div class="card" id="ep-detail" data-role="writing.episode.panel"><h3>회차 상세</h3><span class="muted">회차를 선택하면 상세 정보가 표시됩니다.</span></div>
+      <div class="card" id="ep-detail" data-role="writing.episode.panel"><h3 data-i18n="monitor.detailTitle">회차 상세</h3><span class="muted" data-i18n="monitor.detailEmpty">회차를 선택하면 상세 정보가 표시됩니다.</span></div>
     </div>
     <div class="col-resizer" id="writing-resizer-right" data-role="writing.screen.col-resizer-right" title="드래그하여 너비 조절"></div>
     <div class="card" id="pane-writing-chat" data-role="writing.chat.panel">
-      <button class="pane-expand" id="btn-writing-chat-expand" data-role="writing.chat.expand-btn" title="AI 채팅 펼치기"><span>◀</span><span class="vlabel">AI 채팅</span></button>
+      <button class="pane-expand" id="btn-writing-chat-expand" data-role="writing.chat.expand-btn" data-i18n-title="monitor.chatExpandTitle" title="AI 채팅 펼치기"><span>◀</span><span class="vlabel" data-i18n="monitor.chatTitle">AI 채팅</span></button>
       <div class="writing-chat-main">
-        <h3 class="split"><span>AI 채팅 수정 <span class="hint">지시대로 고쳐 새 버전 저장</span></span><button class="btn sm" id="btn-writing-chat-collapse" data-role="writing.chat.collapse-btn" title="AI 채팅 접기">▶</button></h3>
+        <h3 class="split"><span><span data-i18n="monitor.chatEditTitle">AI 채팅 수정</span> <span class="hint" data-i18n="monitor.chatEditHint">지시대로 고쳐 새 버전 저장</span></span><button class="btn sm" id="btn-writing-chat-collapse" data-role="writing.chat.collapse-btn" data-i18n-title="monitor.chatCollapseTitle" title="AI 채팅 접기">▶</button></h3>
         <div id="writing-chat-messages" data-role="writing.chat.messages" class="chat-box"></div>
         <div id="writing-chat-hint" data-role="writing.chat.hint" class="small muted" style="margin-bottom:6px"></div>
-        <textarea id="writing-chat-input" data-role="writing.chat.input" placeholder="예: @L12 대사를 더 짧게 고쳐줘 (Enter 전송)"></textarea>
-        <div class="btn-row"><button class="btn primary sm" id="btn-writing-chat-send" data-role="writing.chat.send-btn">전송</button></div>
+        <textarea id="writing-chat-input" data-role="writing.chat.input" data-i18n-placeholder="monitor.chatPlaceholder" placeholder="예: @L12 대사를 더 짧게 고쳐줘 (Enter 전송)"></textarea>
+        <div class="btn-row"><button class="btn primary sm" id="btn-writing-chat-send" data-role="writing.chat.send-btn" data-i18n="monitor.send">전송</button></div>
       </div>
     </div>
   </div>
@@ -446,88 +447,88 @@
 </section>
 </main>
 
-<div class="footer-note">StorySpine · AI Novel Studio — API 키 입력란 없음 · <a href="./manual.html">사용 설명서</a> · Built with Meta Model API and Muse Spark.</div>
+<div class="footer-note">StorySpine · AI Novel Studio — <span data-i18n="common.footerNoApiKey">API 키 입력란 없음</span> · <a href="./manual.html" data-i18n="manual.link">사용 설명서</a> · Built with Meta Model API and Muse Spark.</div>
 
 <div id="novel-dialog-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-dialog-title" data-role="home.novel-create.dialog">
-    <h3 id="novel-dialog-title">새 소설 만들기</h3>
+    <h3 id="novel-dialog-title" data-i18n="home.createTitle">새 소설 만들기</h3>
     <div id="novel-dialog-error"></div>
-    <label class="f">소설 제목 (필수, 최대 80자)</label>
-    <input type="text" id="novel-dialog-title-input" data-role="home.novel-create.title-input" placeholder="새 소설 제목" maxlength="80">
+    <label class="f" data-i18n="home.dialogTitleLabel">소설 제목 (필수, 최대 80자)</label>
+    <input type="text" id="novel-dialog-title-input" data-role="home.novel-create.title-input" data-i18n-placeholder="home.dialogTitlePlaceholder" placeholder="새 소설 제목" maxlength="80">
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-novel-dialog-cancel" data-role="home.novel-create.cancel-btn">취소</button>
-      <button class="btn primary" id="btn-novel-dialog-confirm" data-role="home.novel-create.confirm-btn">만들기 · 시작</button>
+      <button class="btn ghost" id="btn-novel-dialog-cancel" data-role="home.novel-create.cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn primary" id="btn-novel-dialog-confirm" data-role="home.novel-create.confirm-btn" data-i18n="home.createConfirm">만들기 · 시작</button>
     </div>
   </div>
 </div>
 
 <div id="novel-delete-dialog-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="novel-delete-dialog-title" data-role="home.novel-delete.dialog">
-    <h3 id="novel-delete-dialog-title">소설 삭제</h3>
+    <h3 id="novel-delete-dialog-title" data-i18n="home.deleteTitle">소설 삭제</h3>
     <div id="novel-delete-dialog-error"></div>
-    <p class="small">‘<b id="novel-delete-name"></b>’을(를) 영구 삭제합니다. 계속하려면 제목을 동일하게 입력하세요. AI 사용 기록은 유지됩니다.</p>
-    <label class="f">소설 제목 확인</label>
-    <input type="text" id="novel-delete-title-input" data-role="home.novel-delete.title-input" placeholder="소설 제목 입력">
+    <p class="small"><span data-i18n="home.deleteQuoteOpen">‘</span><b id="novel-delete-name"></b><span data-i18n="home.deleteDesc">’을(를) 영구 삭제합니다. 계속하려면 제목을 동일하게 입력하세요. AI 사용 기록은 유지됩니다.</span></p>
+    <label class="f" data-i18n="home.deleteTitleLabel">소설 제목 확인</label>
+    <input type="text" id="novel-delete-title-input" data-role="home.novel-delete.title-input" data-i18n-placeholder="home.deleteTitlePlaceholder" placeholder="소설 제목 입력">
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-novel-delete-cancel" data-role="home.novel-delete.cancel-btn">취소</button>
-      <button class="btn danger" id="btn-novel-delete-confirm" data-role="home.novel-delete.confirm-btn">영구 삭제</button>
+      <button class="btn ghost" id="btn-novel-delete-cancel" data-role="home.novel-delete.cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn danger" id="btn-novel-delete-confirm" data-role="home.novel-delete.confirm-btn" data-i18n="home.deleteConfirm">영구 삭제</button>
     </div>
   </div>
 </div>
 
 <div id="novel-info-dialog-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal modal-full" role="dialog" aria-modal="true" aria-labelledby="novel-info-dialog-title" data-role="home.novel-info.dialog">
-    <h3 id="novel-info-dialog-title">소설 정보 수정</h3>
+    <h3 id="novel-info-dialog-title" data-i18n="home.infoTitle">소설 정보 수정</h3>
     <div id="novel-info-dialog-error"></div>
     <div class="novel-body">
-    <nav class="novel-side" role="tablist" aria-label="소설 정보">
+    <nav class="novel-side" role="tablist" data-i18n-aria-label="home.infoNavLabel" aria-label="소설 정보">
       <button type="button" role="tab" aria-selected="true" id="novel-tab-general"
-        data-role="home.novel-info.tab-general" aria-controls="novel-panel-general">일반</button>
+        data-role="home.novel-info.tab-general" data-i18n="home.infoTabGeneral" aria-controls="novel-panel-general">일반</button>
       <button type="button" role="tab" aria-selected="false" id="novel-tab-style"
-        data-role="home.novel-info.tab-style" aria-controls="novel-panel-style">글쓰기 스타일</button>
+        data-role="home.novel-info.tab-style" data-i18n="home.infoTabStyle" aria-controls="novel-panel-style">글쓰기 스타일</button>
     </nav>
     <div class="novel-content">
     <div id="novel-panel-general" role="tabpanel" aria-labelledby="novel-tab-general">
-      <label class="f">소설 제목 (최대 80자)</label>
-      <input type="text" id="novel-info-title-input" data-role="home.novel-info.title-input" placeholder="소설 제목" maxlength="80">
-      <label class="f">회차 목표 분량 (자 · 최소 ~ 최대, 최대 10000)</label>
+      <label class="f" data-i18n="home.infoTitleLabel">소설 제목 (최대 80자)</label>
+      <input type="text" id="novel-info-title-input" data-role="home.novel-info.title-input" data-i18n-placeholder="home.infoTitlePlaceholder" placeholder="소설 제목" maxlength="80">
+      <label class="f" data-i18n="home.infoLengthLabel">회차 목표 분량 (자 · 최소 ~ 최대, 최대 10000)</label>
       <div style="display:flex;gap:8px;align-items:center">
         <input type="number" id="novel-info-length-min" data-role="home.novel-info.length-min-input" min="1" max="10000" step="100" style="width:130px">
         <span class="muted">~</span>
         <input type="number" id="novel-info-length-max" data-role="home.novel-info.length-max-input" min="1" max="10000" step="100" style="width:130px">
         <span class="small muted" id="novel-info-length-hint"></span>
       </div>
-      <div class="small muted" style="margin-top:4px">저장 이후에 시작하는 집필부터 적용되며, 기존 원고에는 소급 적용되지 않습니다.</div>
+      <div class="small muted" style="margin-top:4px" data-i18n="home.infoLengthNote">저장 이후에 시작하는 집필부터 적용되며, 기존 원고에는 소급 적용되지 않습니다.</div>
     </div>
     <div id="novel-panel-style" role="tabpanel" aria-labelledby="novel-tab-style" hidden>
-      <div class="small" style="margin-bottom:6px">사용 중: <b id="novel-style-current" data-role="home.novel-info.style-current">-</b></div>
-      <label class="f">스타일 선택</label>
+      <div class="small" style="margin-bottom:6px"><span data-i18n="home.styleInUse">사용 중: </span><b id="novel-style-current" data-role="home.novel-info.style-current">-</b></div>
+      <label class="f" data-i18n="home.styleSelectLabel">스타일 선택</label>
       <select id="novel-info-preset-select" data-role="home.novel-info.preset-select"></select>
       <div class="small muted" id="novel-info-preset-desc" style="margin:4px 0 8px"></div>
-      <label class="f">내 스타일 이름 (최대 40자)</label>
-      <input type="text" id="novel-style-name" data-role="home.novel-info.style-name-input" placeholder="예: 나의 사이다체" maxlength="40">
+      <label class="f" data-i18n="home.styleNameLabel">내 스타일 이름 (최대 40자)</label>
+      <input type="text" id="novel-style-name" data-role="home.novel-info.style-name-input" data-i18n-placeholder="home.styleNamePlaceholder" placeholder="예: 나의 사이다체" maxlength="40">
       <div class="style-grid">
-        <div><label class="f">시점</label>
+        <div><label class="f" data-i18n="home.stylePov">시점</label>
           <textarea id="novel-style-pov" data-role="home.novel-info.style-pov-input" rows="3"></textarea></div>
-        <div><label class="f">문체</label>
+        <div><label class="f" data-i18n="home.styleDiction">문체</label>
           <textarea id="novel-style-diction" data-role="home.novel-info.style-diction-input" rows="3"></textarea></div>
-        <div><label class="f">전개</label>
+        <div><label class="f" data-i18n="home.styleFeedback">전개</label>
           <textarea id="novel-style-feedback" data-role="home.novel-info.style-feedback-input" rows="3"></textarea></div>
       </div>
-      <div class="small muted" style="margin-top:4px">시스템 스타일은 읽기 전용입니다. 고쳐서 새 이름으로 저장하면 내 스타일이 됩니다. 저장한 스타일만 이 소설에 사용할 수 있습니다.</div>
+      <div class="small muted" style="margin-top:4px" data-i18n="home.styleNote">시스템 스타일은 읽기 전용입니다. 고쳐서 새 이름으로 저장하면 내 스타일이 됩니다. 저장한 스타일만 이 소설에 사용할 수 있습니다.</div>
       <div class="btn-row" style="margin-top:8px">
-        <button type="button" class="btn sm" id="btn-style-save-new" data-role="home.novel-info.style-save-new-btn">새 이름으로 저장</button>
-        <button type="button" class="btn sm" id="btn-style-update" data-role="home.novel-info.style-update-btn">수정 내용 저장</button>
-        <button type="button" class="btn sm danger" id="btn-style-delete" data-role="home.novel-info.style-delete-btn">삭제</button>
-        <button type="button" class="btn sm primary" id="btn-style-use" data-role="home.novel-info.style-use-btn">이 스타일로 사용</button>
+        <button type="button" class="btn sm" id="btn-style-save-new" data-role="home.novel-info.style-save-new-btn" data-i18n="home.styleSaveNew">새 이름으로 저장</button>
+        <button type="button" class="btn sm" id="btn-style-update" data-role="home.novel-info.style-update-btn" data-i18n="home.styleUpdate">수정 내용 저장</button>
+        <button type="button" class="btn sm danger" id="btn-style-delete" data-role="home.novel-info.style-delete-btn" data-i18n="common.delete">삭제</button>
+        <button type="button" class="btn sm primary" id="btn-style-use" data-role="home.novel-info.style-use-btn" data-i18n="home.styleUse">이 스타일로 사용</button>
         <span class="small" id="novel-style-hint" data-role="home.novel-info.style-hint"></span>
       </div>
     </div>
     </div>
     </div>
     <div class="btn-row" style="justify-content:flex-end;margin-top:12px">
-      <button class="btn ghost" id="btn-novel-info-cancel" data-role="home.novel-info.cancel-btn">취소</button>
-      <button class="btn primary" id="btn-novel-info-save" data-role="home.novel-info.save-btn">저장</button>
+      <button class="btn ghost" id="btn-novel-info-cancel" data-role="home.novel-info.cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn primary" id="btn-novel-info-save" data-role="home.novel-info.save-btn" data-i18n="common.save">저장</button>
     </div>
   </div>
 </div>
@@ -548,7 +549,7 @@
   <div class="modal fullscreen" role="dialog" aria-modal="true" aria-labelledby="ailog-title" data-role="shell.ailog.dialog">
     <div class="ailog-head-row">
       <h3 id="ailog-title">AI 호출 로그 <span class="chip" id="ailog-sub"></span></h3>
-      <button class="btn sm" id="btn-ailog-close" data-role="shell.ailog.close-btn">닫기</button>
+      <button class="btn sm" id="btn-ailog-close" data-role="shell.ailog.close-btn" data-i18n="common.close">닫기</button>
     </div>
     <div id="ailog-error"></div>
     <div class="ailog-grid">
@@ -560,18 +561,18 @@
 
 <div id="model-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="model-title" data-role="shell.model.dialog">
-    <h3 id="model-title">모델 변경</h3>
+    <h3 id="model-title" data-i18n="model.title">모델 변경</h3>
     <div id="model-error"></div>
     <div id="model-list" data-role="shell.model.list"></div>
-    <label class="f">다른 모델 ID (향후 버전 직접 입력)</label>
-    <input type="text" id="model-custom" data-role="shell.model.custom-input" placeholder="예: muse-spark-1.4" maxlength="128" autocomplete="off" spellcheck="false">
-    <div class="notice warn small" id="model-contrib-warn" style="display:none">contributor 모드는 전송한 콘텐츠가 학습에 사용될 수 있습니다.</div>
-    <label class="f">관리자 토큰 (서버에 설정된 경우에만)</label>
+    <label class="f" data-i18n="model.customLabel">다른 모델 ID (향후 버전 직접 입력)</label>
+    <input type="text" id="model-custom" data-role="shell.model.custom-input" data-i18n-placeholder="model.customPlaceholder" placeholder="예: muse-spark-1.4" maxlength="128" autocomplete="off" spellcheck="false">
+    <div class="notice warn small" id="model-contrib-warn" data-i18n="model.contribWarn" style="display:none">contributor 모드는 전송한 콘텐츠가 학습에 사용될 수 있습니다.</div>
+    <label class="f" data-i18n="model.tokenLabel">관리자 토큰 (서버에 설정된 경우에만)</label>
     <input type="password" id="model-token" data-role="shell.model.token-input" placeholder="ADMIN_TOKEN" autocomplete="off">
-    <p class="muted small" style="margin-top:8px">변경 전 연결을 확인합니다. 서버를 다시 시작하면 .env의 MODEL_TEXT_ID로 돌아갑니다.</p>
+    <p class="muted small" style="margin-top:8px" data-i18n="model.note">변경 전 연결을 확인합니다. 서버를 다시 시작하면 .env의 MODEL_TEXT_ID로 돌아갑니다.</p>
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-model-cancel" data-role="shell.model.cancel-btn">취소</button>
-      <button class="btn primary" id="btn-model-apply" data-role="shell.model.apply-btn">변경하기</button>
+      <button class="btn ghost" id="btn-model-cancel" data-role="shell.model.cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn primary" id="btn-model-apply" data-role="shell.model.apply-btn" data-i18n="model.apply">변경하기</button>
     </div>
   </div>
 </div>
@@ -589,15 +590,15 @@
 </div>
 <div id="rename-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rename-title" data-role="shell.auth.rename-dialog">
-    <h3 id="rename-title">작가명 수정</h3>
+    <h3 id="rename-title" data-i18n="common.renameTitle">작가명 수정</h3>
     <div id="rename-error"></div>
-    <label class="f">새 필명 (최대 40자)</label>
-    <input type="text" id="rename-pen-name" data-role="shell.auth.rename-pen-name-input" placeholder="새 필명" maxlength="40" autocomplete="off">
-    <label class="f">비밀번호 확인</label>
-    <input type="password" id="rename-password" data-role="shell.auth.rename-password-input" placeholder="현재 비밀번호" autocomplete="current-password">
+    <label class="f" data-i18n="common.renamePenName">새 필명 (최대 40자)</label>
+    <input type="text" id="rename-pen-name" data-role="shell.auth.rename-pen-name-input" data-i18n-placeholder="common.renamePenNamePlaceholder" placeholder="새 필명" maxlength="40" autocomplete="off">
+    <label class="f" data-i18n="common.renamePassword">비밀번호 확인</label>
+    <input type="password" id="rename-password" data-role="shell.auth.rename-password-input" data-i18n-placeholder="common.renamePasswordPlaceholder" placeholder="현재 비밀번호" autocomplete="current-password">
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-rename-cancel" data-role="shell.auth.rename-cancel-btn">취소</button>
-      <button class="btn primary" id="btn-rename-confirm" data-role="shell.auth.rename-confirm-btn">수정</button>
+      <button class="btn ghost" id="btn-rename-cancel" data-role="shell.auth.rename-cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn primary" id="btn-rename-confirm" data-role="shell.auth.rename-confirm-btn" data-i18n="common.renameConfirm">수정</button>
     </div>
   </div>
 </div>

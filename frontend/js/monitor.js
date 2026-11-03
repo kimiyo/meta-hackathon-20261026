@@ -4,6 +4,7 @@ import { getWork } from "./work.js";
 import { go, novelPath } from "./router.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
 import { mountManuscriptPanel } from "./manuscript.js";
+import { t } from "./i18n.js";
 
 const WRITING_RESIZER = { resizerId: "writing-resizer", varName: "--writing-left-w",
   storageKey: "writing-left-w", side: "left", min: 260, reserve: 320 };
@@ -42,7 +43,7 @@ function canStart(ep) {
 }
 
 function gateHint(ep) {
-  return `EP ${ep - 1} 발간 후 시작할 수 있습니다`;
+  return t("monitor.gateHint", { prev: ep - 1 });
 }
 
 function applyStartGate() {
@@ -76,34 +77,34 @@ async function run(fn) {
 
 function stateLabel(state, needsAttention) {
   if (!state) return "-";
-  const flag = needsAttention ? ` <span class="chip warn">확인 필요</span>` : "";
+  const flag = needsAttention ? ` <span class="chip warn">${t("monitor.attention")}</span>` : "";
   return `<span class="st-${esc(state)} state-label">${esc(stateKo(state))}</span>${flag}`;
 }
 
 function epSubHtml(ep) {
   const { node, scenes } = designEp(ep);
   const goal = node
-    ? `<div><span class="chip mono">${esc(node.code ?? "")}</span> <span class="small">${esc(node.logline || "(줄거리 없음)")}</span></div>`
-    : `<span class="muted small">연결된 설계 노드가 없습니다.</span>`;
+    ? `<div><span class="chip mono">${esc(node.code ?? "")}</span> <span class="small">${esc(node.logline || t("monitor.noLogline"))}</span></div>`
+    : `<span class="muted small">${t("monitor.noLinkedNode")}</span>`;
   const sc = scenes.length
     ? `<ul class="ep-scenes">${scenes
         .map((s) => `<li><span class="chip mono">${esc(s.code ?? "")}</span> <b>${esc(s.title)}</b>${s.logline ? ` <span class="small muted">${esc(s.logline)}</span>` : ""}</li>`)
         .join("")}</ul>`
     : "";
-  return `<div class="small"><b>설계 줄거리</b></div>${goal}`
-    + (scenes.length ? `<div class="small" style="margin-top:6px"><b>장면 (${scenes.length})</b></div>${sc}` : "");
+  return `<div class="small"><b>${t("monitor.designLogline")}</b></div>${goal}`
+    + (scenes.length ? `<div class="small" style="margin-top:6px"><b>${t("monitor.scenes", { count: scenes.length })}</b></div>${sc}` : "");
 }
 
 function rowActionLabel(row) {
-  if (!row?.job) return "집필 시작";
-  if (row.job.state === "WRITING") return "검토 요청";
-  return "검토로 이동";
+  if (!row?.job) return t("monitor.rowStart");
+  if (row.job.state === "WRITING") return t("monitor.submitReview");
+  return t("monitor.rowGotoReview");
 }
 
 function renderRows() {
   const tb = $("ep-rows");
   if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="3"><span class="muted small">회차가 없습니다.</span></td></tr>`;
+    tb.innerHTML = `<tr><td colspan="3"><span class="muted small">${t("monitor.noEpisodes")}</span></td></tr>`;
     return;
   }
   tb.innerHTML = rows
@@ -112,7 +113,7 @@ function renderRows() {
         <td><span class="exp">${r.episode_no === expandedEp ? "▾" : "▸"}</span> <b>EP ${esc(r.episode_no)}</b><br><span class="muted small">${esc(r.title)}</span></td>
         <td>${stateLabel(r.job?.state, r.job?.needs_attention)}</td>
         <td style="white-space:nowrap">
-          ${r.job ? `<button class="btn sm" data-detail data-role="writing.progress.row-detail-btn">상세</button> ` : ""}
+          ${r.job ? `<button class="btn sm" data-detail data-role="writing.progress.row-detail-btn">${t("monitor.rowDetail")}</button> ` : ""}
           <button class="btn sm" data-row-action data-role="writing.progress.row-action-btn"${!r.job && !canStart(r.episode_no) ? " disabled" : ""}${!r.job && !canStart(r.episode_no) ? ` title="${gateHint(r.episode_no)}"` : ""}>${rowActionLabel(r)}</button>
         </td>
       </tr>
@@ -172,7 +173,7 @@ function manuscriptPersist(ep) {
     if (operation === "draft") return (await api.saveManuscriptDraft(ep, body, wk)).document;
     if (operation === "version") return (await api.createManuscriptVersion(ep, body, wk)).document;
     if (operation === "restore") return (await api.restoreManuscriptVersion(ep, body, wk)).document;
-    throw new Error("지원하지 않는 저장 동작입니다.");
+    throw new Error(t("monitor.unsupportedOp"));
   };
 }
 
@@ -205,7 +206,7 @@ async function disposePanelOrAbort() {
   try {
     await msPanel.flush();
   } catch (e) {
-    showError("monitor-error", `원고 저장 실패: ${e.message} · 입력은 유지됩니다.`);
+    showError("monitor-error", t("monitor.saveFailed", { message: e.message }));
     return false;
   }
   msPanel.dispose();
@@ -216,28 +217,28 @@ async function disposePanelOrAbort() {
 function renderDetail() {
   const box = $("ep-detail");
   if (!detail) {
-    box.innerHTML = `<h3>회차 상세</h3><span class="muted">회차를 선택하면 상세 정보가 표시됩니다.</span>`;
+    box.innerHTML = `<h3>${t("monitor.detailTitle")}</h3><span class="muted">${t("monitor.detailEmpty")}</span>`;
     return;
   }
   const d = detail;
   const notices = [];
   if (d.hasJob && d.needs_attention) {
-    notices.push(`<div class="notice err"><b>확인 필요</b> — ${esc(d.last_error || "오류가 발생했습니다. 다시 시도하세요.")}</div>`);
+    notices.push(`<div class="notice err"><b>${t("monitor.attention")}</b> — ${esc(d.last_error || t("monitor.genericError"))}</div>`);
   }
   if (d.hasJob && d.state === "WRITING" && d.return_reason) {
-    notices.push(`<div class="notice warn"><b>검토에서 돌아옴</b> — ${esc(d.return_reason)}</div>`);
+    notices.push(`<div class="notice warn"><b>${t("monitor.returnedFromReview")}</b> — ${esc(d.return_reason)}</div>`);
   }
   box.innerHTML = `
-    <h3>EP ${esc(d.ep)} · ${esc(d.title || "")} ${d.hasJob ? stateLabel(d.state, d.needs_attention) : `<span class="muted small">미시작</span>`}</h3>
+    <h3>EP ${esc(d.ep)} · ${esc(d.title || "")} ${d.hasJob ? stateLabel(d.state, d.needs_attention) : `<span class="muted small">${t("monitor.notStarted")}</span>`}</h3>
     ${notices.join("")}
-    ${d.hasJob ? "" : `<div class="btn-row"><button class="btn primary" data-start data-role="writing.episode.start-btn"${canStart(d.ep) ? "" : " disabled"}${canStart(d.ep) ? "" : ` title="${gateHint(d.ep)}"`}>이 화 집필 시작</button>${canStart(d.ep) ? "" : `<span class="small muted">${gateHint(d.ep)}</span>`}</div>`}
-    ${d.hasJob ? `<div id="ms-mount"></div>` : `<span class="muted small">집필을 시작하면 AI 초안이 생성됩니다.</span>`}
+    ${d.hasJob ? "" : `<div class="btn-row"><button class="btn primary" data-start data-role="writing.episode.start-btn"${canStart(d.ep) ? "" : " disabled"}${canStart(d.ep) ? "" : ` title="${gateHint(d.ep)}"`}>${t("monitor.startEpisode")}</button>${canStart(d.ep) ? "" : `<span class="small muted">${gateHint(d.ep)}</span>`}</div>`}
+    ${d.hasJob ? `<div id="ms-mount"></div>` : `<span class="muted small">${t("monitor.startHint")}</span>`}
     <div class="btn-row" style="margin-top:10px">
-      ${d.hasJob && d.state === "WRITING" ? `<button class="btn primary" data-submit data-role="writing.episode.submit-btn">검토 요청</button>` : ""}
-      ${d.hasJob && d.state === "WRITING" ? `<button class="btn" data-redraft data-role="writing.episode.redraft-btn">AI로 다시 쓰기</button>` : ""}
-      ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">작가 검토로 이동 →</button>` : ""}
+      ${d.hasJob && d.state === "WRITING" ? `<button class="btn primary" data-submit data-role="writing.episode.submit-btn">${t("monitor.submitReview")}</button>` : ""}
+      ${d.hasJob && d.state === "WRITING" ? `<button class="btn" data-redraft data-role="writing.episode.redraft-btn">${t("monitor.redraft")}</button>` : ""}
+      ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">${t("monitor.gotoReview")}</button>` : ""}
     </div>
-    ${d.hasJob && d.state !== "WRITING" ? `<div class="small muted" style="margin-top:6px">※ 이 회차는 ${esc(stateKo(d.state))} 상태라 여기서 수정할 수 없습니다.</div>` : ""}`;
+    ${d.hasJob && d.state !== "WRITING" ? `<div class="small muted" style="margin-top:6px">${t("monitor.readonlyInState", { state: esc(stateKo(d.state)) })}</div>` : ""}`;
   box.querySelector("[data-start]")?.addEventListener("click", (e) =>
     startCurrent(e.currentTarget));
   box.querySelector("[data-submit]")?.addEventListener("click", (e) =>
@@ -258,14 +259,14 @@ function renderWritingChat() {
   if (input) input.disabled = !usable;
   if (send) send.disabled = !usable;
   if (!usable) {
-    box.innerHTML = `<span class="muted small">집필중 회차에서 사용할 수 있습니다.</span>`;
+    box.innerHTML = `<span class="muted small">${t("monitor.chatOnlyWriting")}</span>`;
     return;
   }
   box.innerHTML = writingChat.length
     ? writingChat.map((m) =>
         `<div class="msg ${m.role === "user" ? "user" : "assistant"}"><div class="bubble">${esc(m.content)}</div></div>`
       ).join("")
-    : `<span class="muted small">고칠 내용을 지시하세요. 원고에서 줄을 선택한 뒤 '선택한 줄을 채팅에 포함'을 누르면 줄 번호가 들어갑니다.</span>`;
+    : `<span class="muted small">${t("monitor.chatHint")}</span>`;
   box.scrollTop = box.scrollHeight;
 }
 
@@ -298,7 +299,7 @@ async function sendWritingChat() {
     const out = await api.writingChat(detail.ep, text, include, currentWorkKey());
     writingChat.push({ role: "user", content: text });
     writingChat.push({ role: "assistant",
-      content: `새 버전으로 저장했습니다 (v${out.revision.version} · AI 채팅 수정)` });
+      content: t("monitor.chatSaved", { version: out.revision.version }) });
   });
 }
 
@@ -357,13 +358,13 @@ function openDetail(ep) {
 
 async function withPanelSaved(btn, fn) {
   if (msPanel?.isHalted()) {
-    showError("monitor-error", "원고 저장 문제를 먼저 해결하세요. 입력은 유지됩니다.");
+    showError("monitor-error", t("monitor.fixSaveFirst"));
     return;
   }
   await run(async () => {
     if (!(await disposePanelOrAbort())) return;
     const label = btn.textContent;
-    btn.textContent = "실행 중…";
+    btn.textContent = t("monitor.running");
     try {
       await fn();
       await load(currentDesignId());
@@ -431,7 +432,8 @@ function goReview(ep) {
 export async function refreshBudgetChips() {
   try {
     const b = await api.opsBudget();
-    const text = `오늘 토큰 ${b.total_tokens} / ${b.budget} (잔여 ${b.remaining})`;
+    const text = t("monitor.budget",
+      { total: b.total_tokens, budget: b.budget, remaining: b.remaining });
     const chip = $("budget-chip");
     if (chip) chip.textContent = text;
     const line = $("monitor-budget");
@@ -441,7 +443,36 @@ export async function refreshBudgetChips() {
   }
 }
 
+// 화면 언어 전환: 작업 중이면 건드리지 않고, 원고 패널이 있으면
+// 저장에 성공할 때만 다시 그린다(실패 시 기존 DOM·입력 유지).
+async function relocalize() {
+  refreshBudgetChips();
+  if (busy) return;
+  renderRows();
+  renderWritingChat();
+  if (!detail) {
+    renderDetail();
+    return;
+  }
+  if (!msPanel) {
+    renderDetail();
+    return;
+  }
+  msPanelUiState = msPanel.getUiState();
+  try {
+    await msPanel.flush();
+  } catch {
+    return;
+  }
+  msPanel.dispose();
+  msPanel = null;
+  renderDetail();
+}
+
 export function initMonitor() {
+  document.addEventListener("locale-changed", () => {
+    relocalize();
+  });
   initColResizer(WRITING_RESIZER);
   initColResizer(WRITING_RESIZER_RIGHT);
   setProgressCollapsed(localStorage.getItem("writing-progress-collapsed") === "1");

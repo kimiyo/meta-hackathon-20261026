@@ -111,13 +111,15 @@ def prev_manuscript(conn: sqlite3.Connection, episode_no: int,
 
 
 def homonym_candidates(conn: sqlite3.Connection, work_id: int,
-                       pending_items: list[dict]) -> list[dict]:
+                       pending_items: list[dict],
+                       writing_locale: str = "ko-KR") -> list[dict]:
     """미해결 후보명이 기존 이름·확정 별명과 겹치면 동명이인 의심 후보.
 
     자동 합치지 않고 작가 판단을 묻는다.
     """
     out = []
     seen: set[str] = set()
+    en = writing_locale == "en-US"
     for it in pending_items or []:
         if it.get("entity_id"):
             continue
@@ -130,11 +132,18 @@ def homonym_candidates(conn: sqlite3.Connection, work_id: int,
             continue
         who = ", ".join(f"{m['canonical_name']}({m['entity_id']})"
                         for m in matches[:3])
+        if en:
+            title = f"Possible homonym: {name}"
+            detail = (f"'{name}' overlaps the existing name {who}."
+                      " Confirm whether it is the same person, a different"
+                      " person, or an alias")
+        else:
+            title = f"동명이인 의심: {name}"
+            detail = (f"'{name}'이(가) 기존 {who}와(과) 이름이 겹친다."
+                      " 같은 인물인지, 다른 인물인지, 별명인지 확정 필요")
         out.append({
             "check": "homonym", "severity": "major",
-            "title": f"동명이인 의심: {name}",
-            "detail": f"'{name}'이(가) 기존 {who}와(과) 이름이 겹친다."
-                      " 같은 인물인지, 다른 인물인지, 별명인지 확정 필요",
+            "title": title, "detail": detail,
             "verdict": "uncertain", "entity_id": "",
             "fact_refs": [],
             "manuscript_quote": it.get("evidence_quote", "") or "",
@@ -365,29 +374,45 @@ def reset_episode_review(conn: sqlite3.Connection, episode_no: int,
     return {"issues": issues, "analyses": analyses}
 
 
-def _line_span(text: str, start: int | None, end: int | None) -> str:
+def _line_span(text: str, start: int | None, end: int | None,
+               writing_locale: str = "ko-KR") -> str:
     if start is None:
         return ""
     first = text.count("\n", 0, start) + 1
     last = text.count("\n", 0, end) + 1 if end is not None else first
+    if writing_locale == "en-US":
+        return f"L{first}" if first == last else f"L{first}-L{last}"
     return f"{first}행" if first == last else f"{first}~{last}행"
 
 
 def fix_manuscript_issues(meta, conn: sqlite3.Connection, *, episode_no: int,
                           work_id: int, issue_ids: list[int],
-                          max_tokens: int = 16000) -> dict:
+                          max_tokens: int = 16000,
+                          writing_locale: str | None = None,
+                          market: str | None = None) -> dict:
     """선택된 열린 이슈를 AI가 고친 새 원고 버전으로 저장한다.
 
     AI 호출에 먼저 성공해야 상태 전환·버전 저장·마감을 하므로, AI가
     실패하면 아무것도 바뀌지 않고 그대로 재시도할 수 있다.
     """
+    from . import meta_client as metac
+
+    _prompt, writing_locale, market = metac.feature_prompt(
+        conn, work_id, "manuscript_fix", writing_locale, market)
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
+    en = writing_locale == "en-US"
     job = state_machine.get_job(conn, work_id, episode_no)
     if not job:
         raise KeyError(f"episode {episode_no} has no job")
     if job["state"] != "IN_REVIEW":
+        if en:
+            raise ValueError(
+                "manuscript fixes are only allowed while in review")
         raise ValueError("원고 수정은 검토중 상태에서만 가능합니다")
     ids = [int(i) for i in (issue_ids or [])]
     if not ids:
+        if en:
+            raise ValueError("no issues selected")
         raise ValueError("선택된 이슈가 없습니다")
     rows = {r["issue_id"]: dict(r) for r in conn.execute(
         f"SELECT * FROM consistency_issues WHERE work_id=? AND episode_no=?"
@@ -398,6 +423,8 @@ def fix_manuscript_issues(meta, conn: sqlite3.Connection, *, episode_no: int,
         raise KeyError(f"issue {missing[0]} not found")
     targets = [rows[i] for i in ids if rows[i]["status"] == "open"]
     if not targets:
+        if en:
+            raise ValueError("no open issues selected")
         raise ValueError("선택된 열린 이슈가 없습니다")
     current_rev = job["manuscript_revision_id"]
     manuscript = _current_manuscript(conn, episode_no, current_rev, work_id)
@@ -406,32 +433,53 @@ def fix_manuscript_issues(meta, conn: sqlite3.Connection, *, episode_no: int,
     for t in targets:
         rid = t["manuscript_revision_id"]
         if rid is not None and rid != current_rev:
+            if en:
+                raise ValueError(
+                    "manuscript changed; re-analysis is required")
             raise ValueError("원고가 바뀌어 재분석이 필요합니다")
     items = [{
         "title": t["title"], "detail": t["detail"],
         "verdict": t["verdict"], "quote": t["manuscript_quote"],
         "lines": _line_span(manuscript, t["manuscript_start"],
-                            t["manuscript_end"]),
+                            t["manuscript_end"], writing_locale),
         "evidence_episode": t["evidence_episode"],
         "evidence_quote": t["evidence_quote"],
         "entity_id": t["entity_id"],
     } for t in targets]
-    out = meta.chat_json(
-        bundle="manuscript-fix", episode=episode_no, system=FIX_PROMPT,
-        work_id=work_id,
-        user="현재 원고와 고칠 모순 목록이다. 스켈레톤: "
-             '{"manuscript": str}\n'
-             + json.dumps({"episode_no": episode_no, "manuscript": manuscript,
-                           "issues": items}, ensure_ascii=False),
-        schema=sch.ManuscriptFixOutput, max_tokens=max_tokens)
+    if en:
+        directive = ("Current manuscript and the contradictions to fix."
+                     " Skeleton: "
+                     '{"manuscript": str}\n')
+    else:
+        directive = ("현재 원고와 고칠 모순 목록이다. 스켈레톤: "
+                     '{"manuscript": str}\n')
+    out = metac.chat_with_provenance(
+        meta, bundle="manuscript-fix", episode=episode_no,
+        system=_prompt.text, work_id=work_id,
+        user=directive + json.dumps(
+            {"episode_no": episode_no, "manuscript": manuscript,
+             "issues": items}, ensure_ascii=False),
+        schema=sch.ManuscriptFixOutput, max_tokens=max_tokens,
+        writing_locale=writing_locale, market=market,
+        prompt_feature="manuscript_fix",
+        preset_id=preset_id, preset_version=preset_version)
     revised = out.get("manuscript") or ""
     if not revised.strip():
+        if en:
+            raise LLMStepError("manuscript-fix", episode_no, "empty",
+                               "The model returned an empty manuscript")
         raise LLMStepError("manuscript-fix", episode_no, "empty",
                            "AI가 빈 원고를 반환했습니다")
     if not len(manuscript) * 0.3 <= len(revised) <= len(manuscript) * 3:
+        if en:
+            raise LLMStepError("manuscript-fix", episode_no, "truncated",
+                               "The revised manuscript has an abnormal length")
         raise LLMStepError("manuscript-fix", episode_no, "truncated",
                            "AI 수정본 길이가 비정상적입니다")
-    label = f"일관성 {len(targets)}건 AI 수정"
+    if en:
+        label = f"Consistency AI fix ({len(targets)})"
+    else:
+        label = f"일관성 {len(targets)}건 AI 수정"
     reason = label + ": " + ", ".join(t["title"] for t in targets)
     state_machine.back_to_writing(conn, work_id, episode_no, reason)
     job = state_machine.get_job(conn, work_id, episode_no)
@@ -454,7 +502,9 @@ def fix_manuscript_issues(meta, conn: sqlite3.Connection, *, episode_no: int,
 
 def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
                     revision_id: int | None, work_id: int,
-                    max_tokens: int = 8000) -> dict:
+                    max_tokens: int = 8000,
+                    writing_locale: str | None = None,
+                    market: str | None = None) -> dict:
     """원고 전체를 이전 기억과 대조해 일관성 이슈 목록을 만든다.
 
     1단계(넓은 읽기): 직전화 원문 + 그 이전 확정 기억을 현재 원고와 대조.
@@ -464,6 +514,12 @@ def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
     AI 호출이 실패해도 확정 검사 결과는 저장하고 분석을 partial로
     기록한다. 실패를 '이상 없음'으로 표시하지 않는다.
     """
+    from . import meta_client as metac
+
+    _prompt, writing_locale, market = metac.feature_prompt(
+        conn, work_id, "consistency", writing_locale, market)
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
+    en = writing_locale == "en-US"
     manuscript = _current_manuscript(conn, episode_no, revision_id, work_id)
     if not manuscript.strip():
         raise ValueError("no manuscript to analyze")
@@ -476,20 +532,20 @@ def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
             conn, work_id=work_id, episode_no=episode_no,
             revision_id=revision_id, base_version=base, status="skipped",
             coverage={"manuscript_chars": len(manuscript),
-                      "reason": "이전 기억 없음"},
+                      "reason": ("no prior memory" if en else "이전 기억 없음")},
             counts={"saved": 0})
         return {"episode_no": episode_no, "issues": [], "skipped": True,
                 "analysis": analysis}
     pset = memory.latest_pending_set(conn, episode_no, work_id)
     det = checks.run_deterministic_checks(
         conn, work_id, episode_no,
-        pset["proposal_set_id"] if pset else None)
+        pset["proposal_set_id"] if pset else None, writing_locale)
     pend_items = [i for i in memory.get_proposals(conn, episode_no, work_id)
                   if pset and i["proposal_set_id"] == pset["proposal_set_id"]]
     pend_events = memory.get_proposal_events(
         conn, pset["proposal_set_id"]) if pset else []
     det_candidates = list(det["candidates"]) + homonym_candidates(
-        conn, work_id, pend_items)
+        conn, work_id, pend_items, writing_locale)
     groups = entity_groups(conn, episode_no, work_id, pend_items, pend_events) \
         if pset else []
     coverage = {
@@ -505,18 +561,31 @@ def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
                   "prev_manuscript": prev["text"] if prev else "",
                   "prev_episode_no": prev["episode_no"] if prev else None,
                   "memory": mem, "entity_groups": groups}
+    if en:
+        directive = ("Compare the current manuscript against the previous"
+                     " episode and committed memory to find consistency"
+                     " errors. Skeleton: "
+                     '{"issues": [{"severity": str, "title": str, '
+                     '"detail": str, "verdict": str, "manuscript_quote": str, '
+                     '"evidence_episode": int|null, "evidence_quote": str, '
+                     '"entity_id": str, "fact_refs": [int]}]}\n')
+    else:
+        directive = ("현재 원고를 직전화·확정 기억과 대조해 일관성 오류를 찾아라. "
+                     "스켈레톤: "
+                     '{"issues": [{"severity": str, "title": str, '
+                     '"detail": str, "verdict": str, "manuscript_quote": str, '
+                     '"evidence_episode": int|null, "evidence_quote": str, '
+                     '"entity_id": str, "fact_refs": [int]}]}\n')
     try:
-        out = meta.chat_json(
-            bundle="consistency", episode=episode_no, system=PROMPT,
-            work_id=work_id,
-            user="현재 원고를 직전화·확정 기억과 대조해 일관성 오류를 찾아라. "
-                 "스켈레톤: "
-                 '{"issues": [{"severity": str, "title": str, "detail": str, '
-                 '"verdict": str, "manuscript_quote": str, '
-                 '"evidence_episode": int|null, "evidence_quote": str, '
-                 '"entity_id": str, "fact_refs": [int]}]}\n'
-                 + json.dumps(ai_payload, ensure_ascii=False),
-            schema=sch.ConsistencyOutput, max_tokens=max_tokens)
+        out = metac.chat_with_provenance(
+            meta, bundle="consistency", episode=episode_no,
+            system=_prompt.text, work_id=work_id,
+            user=directive + json.dumps(ai_payload, ensure_ascii=False),
+            schema=sch.ConsistencyOutput, max_tokens=max_tokens,
+            writing_locale=writing_locale, market=market,
+            prompt_feature="consistency",
+            prompt_version=PROMPT_VERSION,
+            preset_id=preset_id, preset_version=preset_version)
     except LLMStepError as e:
         kept = add_issues(conn, episode_no, det_candidates, work_id,
                           revision_id, manuscript, base)
@@ -557,8 +626,15 @@ def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
 
 def chat(meta, conn: sqlite3.Connection, *, episode_no: int,
          revision_id: int | None, message: str, work_id: int,
-         max_tokens: int = 4000) -> dict:
+         max_tokens: int = 4000,
+         writing_locale: str | None = None,
+         market: str | None = None) -> dict:
     """도우미 대화 1턴. 답변과 함께 새로 찾은 이슈를 등록한다."""
+    from . import meta_client as metac
+
+    _prompt, writing_locale, market = metac.feature_prompt(
+        conn, work_id, "consistency", writing_locale, market)
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
     message = (message or "").strip()
     if not message:
         raise ValueError("message must not be blank")
@@ -567,21 +643,34 @@ def chat(meta, conn: sqlite3.Connection, *, episode_no: int,
     history = [{"role": m["role"], "content": m["content"]}
                for m in list_messages(conn, episode_no, limit=10,
                                       work_id=work_id)]
-    out = meta.chat_json(
-        bundle="consistency-chat", episode=episode_no, system=PROMPT,
-        work_id=work_id,
-        user="작가의 질문에 답하고, 새로 발견한 일관성 오류가 있으면 issues에"
-             " 등록하라. 스켈레톤: "
-             '{"reply": str, "issues": [{"severity": str, "title": str, '
-             '"detail": str, "verdict": str, "manuscript_quote": str, '
-             '"evidence_episode": int|null, "evidence_quote": str, '
-             '"entity_id": str, "fact_refs": [int]}]}\n'
-             + json.dumps({"episode_no": episode_no, "question": message,
-                           "history": history, "manuscript": manuscript,
-                           "memory": _memory_context(conn, episode_no,
-                                                     work_id)},
-                          ensure_ascii=False),
-        schema=sch.ConsistencyChatOutput, max_tokens=max_tokens)
+    if writing_locale == "en-US":
+        directive = ("Answer the author's question, and register any newly"
+                     " found consistency errors in issues. Skeleton: "
+                     '{"reply": str, "issues": [{"severity": str, '
+                     '"title": str, "detail": str, "verdict": str, '
+                     '"manuscript_quote": str, "evidence_episode": int|null, '
+                     '"evidence_quote": str, "entity_id": str, '
+                     '"fact_refs": [int]}]}\n')
+    else:
+        directive = ("작가의 질문에 답하고, 새로 발견한 일관성 오류가 있으면"
+                     " issues에 등록하라. 스켈레톤: "
+                     '{"reply": str, "issues": [{"severity": str, '
+                     '"title": str, "detail": str, "verdict": str, '
+                     '"manuscript_quote": str, "evidence_episode": int|null, '
+                     '"evidence_quote": str, "entity_id": str, '
+                     '"fact_refs": [int]}]}\n')
+    out = metac.chat_with_provenance(
+        meta, bundle="consistency-chat", episode=episode_no,
+        system=_prompt.text, work_id=work_id,
+        user=directive + json.dumps(
+            {"episode_no": episode_no, "question": message,
+             "history": history, "manuscript": manuscript,
+             "memory": _memory_context(conn, episode_no, work_id)},
+            ensure_ascii=False),
+        schema=sch.ConsistencyChatOutput, max_tokens=max_tokens,
+        writing_locale=writing_locale, market=market,
+        prompt_feature="consistency", prompt_version=PROMPT_VERSION,
+        preset_id=preset_id, preset_version=preset_version)
     _add_message(conn, episode_no, "user", message, work_id)
     _add_message(conn, episode_no, "assistant", out.get("reply", ""), work_id)
     kept = add_issues(conn, episode_no, out.get("issues", []), work_id,

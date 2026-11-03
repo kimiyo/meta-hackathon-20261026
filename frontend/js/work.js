@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { $, esc, showError } from "./util.js";
+import { t } from "./i18n.js";
 
 // 현재 작업 중인 작품 컨텍스트. 라우터가 uid로 지정한다.
 let work = null;
@@ -30,7 +31,7 @@ export function clearWorkSelection() {
 export function refreshWorkPill() {
   const pill = $("work-pill");
   if (!pill) return;
-  pill.textContent = work ? work.title : "작품 없음";
+  pill.textContent = work ? work.title : t("work.noWork");
 }
 
 function setNovelTab(style) {
@@ -95,8 +96,8 @@ function renderStyleList(keepValue) {
     .map((p) => `<option value="s:${esc(p.key)}">${esc(p.label)}</option>`).join("");
   const own = (workStyle?.custom_styles ?? [])
     .map((s) => `<option value="c:${s.id}">${esc(s.name)}</option>`).join("");
-  sel.innerHTML = `<optgroup label="시스템 스타일">${sys}</optgroup>` +
-    (own ? `<optgroup label="내 스타일">${own}</optgroup>` : "");
+  sel.innerHTML = `<optgroup label="${t("work.styleGroupSystem")}">${sys}</optgroup>` +
+    (own ? `<optgroup label="${t("work.styleGroupCustom")}">${own}</optgroup>` : "");
   const current = workStyle?.custom_style_id != null
     ? `c:${workStyle.custom_style_id}` : `s:${workStyle?.preset}`;
   sel.value = [...sel.options].some((o) => o.value === keepValue) ? keepValue
@@ -128,7 +129,7 @@ function fillStyleEditor() {
 
 function renderStyleCurrent() {
   $("novel-style-current").textContent = workStyle?.custom_style_id != null
-    ? (workStyle.custom_style_name ?? "(삭제됨)") + " (내 스타일)"
+    ? t("work.styleCustomLabel", { name: workStyle.custom_style_name ?? t("work.styleDeletedName") })
     : (workStyle?.presets ?? []).find((p) => p.key === workStyle?.preset)?.label
       ?? workStyle?.preset ?? "-";
 }
@@ -138,36 +139,36 @@ async function loadNovelStyle(keepValue) {
   workStyle = null;
   $("novel-info-length-min").value = "";
   $("novel-info-length-max").value = "";
-  $("novel-info-length-hint").textContent = "불러오는 중…";
+  $("novel-info-length-hint").textContent = t("work.lengthLoading");
   $("novel-info-preset-select").innerHTML = "";
   $("novel-info-preset-desc").textContent = "";
   try {
     workStyle = await api.workStyle(work.uid || work.id);
     $("novel-info-length-min").value = workStyle.length_min;
     $("novel-info-length-max").value = workStyle.length_max;
-    $("novel-info-length-hint").textContent = workStyle.is_default ? "(기본값)" : "";
+    $("novel-info-length-hint").textContent = workStyle.is_default ? t("work.lengthDefault") : "";
     renderStyleList(keep);
     renderStyleCurrent();
   } catch (e) {
     $("novel-info-length-hint").textContent = "";
-    showError("novel-info-dialog-error", `소설 설정을 불러오지 못했습니다: ${e}`);
+    showError("novel-info-dialog-error", t("work.styleLoadFailed", { error: e }));
   }
 }
 
 async function saveCustomStyleAsNew() {
   const name = $("novel-style-name").value.trim();
   if (!name) {
-    setStyleHint("새 스타일 이름을 입력하세요.");
+    setStyleHint(t("work.styleNameRequiredNew"));
     $("novel-style-name").focus();
     return;
   }
-  setStyleHint("저장 중…");
+  setStyleHint(t("work.saving"));
   try {
     const row = await api.createStyleCustom({ name, ...editorVoice() });
-    setStyleHint(`'${row.name}' 저장됨.`);
+    setStyleHint(t("work.styleSaved", { name: row.name }));
     await loadNovelStyle(`c:${row.id}`);
   } catch (e) {
-    setStyleHint(`저장 실패: ${e.message ?? e}`);
+    setStyleHint(t("work.saveFailed", { error: e.message ?? e }));
   }
 }
 
@@ -176,33 +177,33 @@ async function updateCustomStyle() {
   if (p?.kind !== "custom") return;
   const name = $("novel-style-name").value.trim();
   if (!name) {
-    setStyleHint("스타일 이름을 입력하세요.");
+    setStyleHint(t("work.styleNameRequired"));
     return;
   }
-  setStyleHint("저장 중…");
+  setStyleHint(t("work.saving"));
   try {
     const row = await api.patchStyleCustom(p.id, { name, ...editorVoice() });
-    setStyleHint(`'${row.name}' 저장됨.`);
+    setStyleHint(t("work.styleSaved", { name: row.name }));
     await loadNovelStyle(`c:${row.id}`);
   } catch (e) {
-    setStyleHint(`저장 실패: ${e.message ?? e}`);
+    setStyleHint(t("work.saveFailed", { error: e.message ?? e }));
   }
 }
 
 async function deleteCustomStyle() {
   const p = selectedStyle();
   if (p?.kind !== "custom") return;
-  if (!window.confirm(`'${p.label}' 스타일을 삭제할까요? 사용 중인 소설은 기본 스타일로 바뀝니다.`)) return;
-  setStyleHint("삭제 중…");
+  if (!window.confirm(t("work.styleDeleteConfirm", { name: p.label }))) return;
+  setStyleHint(t("work.deleting"));
   try {
     const out = await api.deleteStyleCustom(p.id);
     const wasInUse = workStyle?.custom_style_id === p.id;
     await loadNovelStyle();
     setStyleHint(wasInUse || (out.works_reset ?? 0) > 0
-      ? `'${p.label}' 삭제됨. 사용 중이던 소설은 기본 스타일로 바뀌었습니다.`
-      : `'${p.label}' 삭제됨.`);
+      ? t("work.styleDeletedWithReset", { name: p.label })
+      : t("work.styleDeleted", { name: p.label }));
   } catch (e) {
-    setStyleHint(`삭제 실패: ${e.message ?? e}`);
+    setStyleHint(t("work.deleteFailed", { error: e.message ?? e }));
   }
 }
 
@@ -210,19 +211,19 @@ async function useSelectedStyle() {
   const p = selectedStyle();
   if (!p) return;
   if (editorDirty()) {
-    setStyleHint("수정 내용을 먼저 저장하세요.");
+    setStyleHint(t("work.saveEditsFirst"));
     return;
   }
-  setStyleHint("적용 중…");
+  setStyleHint(t("work.applying"));
   try {
     workStyle = p.kind === "custom"
       ? await api.patchWorkStyle(work.uid || work.id, { custom_style_id: p.id })
       : await api.patchWorkStyle(work.uid || work.id, { preset: p.key });
     renderStyleList(styleValue(p));
     renderStyleCurrent();
-    setStyleHint(`'${p.label}' 사용 중.`);
+    setStyleHint(t("work.styleInUse", { name: p.label }));
   } catch (e) {
-    setStyleHint(`적용 실패: ${e.message ?? e}`);
+    setStyleHint(t("work.applyFailed", { error: e.message ?? e }));
   }
 }
 
@@ -234,12 +235,12 @@ async function saveNovelInfo() {
   if (!work) return;
   const title = $("novel-info-title-input").value.trim();
   if (!title) {
-    showError("novel-info-dialog-error", "소설 제목을 입력하세요.");
+    showError("novel-info-dialog-error", t("work.titleRequired"));
     $("novel-info-title-input").focus();
     return;
   }
   if (title.length > 80) {
-    showError("novel-info-dialog-error", "제목은 최대 80자까지 입력할 수 있습니다.");
+    showError("novel-info-dialog-error", t("work.titleTooLong"));
     return;
   }
   const minRaw = $("novel-info-length-min").value.trim();
@@ -247,11 +248,11 @@ async function saveNovelInfo() {
   const lo = Number(minRaw);
   const hi = Number(maxRaw);
   if (workStyle && (!minRaw || !maxRaw || !Number.isInteger(lo) || !Number.isInteger(hi))) {
-    showError("novel-info-dialog-error", "목표 분량을 숫자로 입력하세요.");
+    showError("novel-info-dialog-error", t("work.lengthMustBeNumber"));
     return;
   }
   if (workStyle && !(1 <= lo && lo <= hi && hi <= 10000)) {
-    showError("novel-info-dialog-error", "분량은 1 ≤ 최소 ≤ 최대 ≤ 10000 이어야 합니다.");
+    showError("novel-info-dialog-error", t("work.lengthRange"));
     return;
   }
   const titleChanged = title !== work.title;
@@ -262,7 +263,7 @@ async function saveNovelInfo() {
   }
   const btn = $("btn-novel-info-save");
   btn.disabled = true;
-  btn.textContent = "저장 중…";
+  btn.textContent = t("work.saving");
   try {
     if (titleChanged) {
       work = { ...work, ...(await api.patchWork(work.uid || work.id, { title })) };
@@ -275,7 +276,9 @@ async function saveNovelInfo() {
           length_min: lo, length_max: hi,
         });
       } catch (e) {
-        showError("novel-info-dialog-error", `${titleChanged ? "제목은 저장됐으나 " : ""}설정 저장 실패: ${e}`);
+        showError("novel-info-dialog-error", titleChanged
+          ? t("work.titleSavedSettingsFailed", { error: e })
+          : t("work.settingsSaveFailed", { error: e }));
         return;
       }
     }
@@ -284,7 +287,7 @@ async function saveNovelInfo() {
     showError("novel-info-dialog-error", String(e));
   } finally {
     btn.disabled = false;
-    btn.textContent = "저장";
+    btn.textContent = t("work.save");
   }
 }
 
