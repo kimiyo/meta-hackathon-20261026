@@ -203,6 +203,9 @@ def publishing_episodes(design_id: int,
                     "state": j["state"],
                     "manuscript_revision_id": j.get("manuscript_revision_id"),
                     "updated_at": j.get("updated_at", ""),
+                    "published_date": j.get("published_date") or "",
+                    "published_note": j.get("published_note") or "",
+                    "published_platform": j.get("published_platform") or "",
                     "issues": {"open": sum(1 for i in issues
                                            if i["status"] == "open"),
                                "total": len(issues)}})
@@ -314,89 +317,31 @@ def get_manuscript(episode_no: int, work: str, version: int | None = None,
     return dict(row)
 
 
-EDITION_TEXT_MAX = 200000
-
-
-@router.get("/episodes/{episode_no}/publish-edition")
-def get_publish_edition(episode_no: int, work: str,
-                        conn: sqlite3.Connection = Depends(get_conn),
-                        author: dict = Depends(get_current_author)):
+@router.get("/episodes/{episode_no}/approved-text")
+def get_approved_text(episode_no: int, work: str,
+                      conn: sqlite3.Connection = Depends(get_conn),
+                      author: dict = Depends(get_current_author)):
+    """발간중 회차의 승인 원고 원문 (읽기 전용)."""
     job = _owned_job(conn, work, episode_no, author["id"])
-    wid = job["work_id"]
-    edition = publishing.get_edition(conn, wid, episode_no)
-    approved, _rev = publishing.approved_text(conn, wid, episode_no)
-    nxt = publishing.episode_head_text(conn, wid, episode_no + 1)
-    return {"edition": edition,
-            "platforms": list(publishing.PLATFORMS),
-            "default_platform": publishing.DEFAULT_PLATFORM,
-            "has_approved": bool(approved.strip()),
-            "next_episode_no": episode_no + 1,
-            "next_available": bool(nxt.strip())}
-
-
-class EditionIn(BaseModel):
-    platform: str | None = None
-    text: str | None = None
-
-
-@router.put("/episodes/{episode_no}/publish-edition")
-def put_publish_edition(episode_no: int, body: EditionIn, work: str,
-                        conn: sqlite3.Connection = Depends(get_conn),
-                        author: dict = Depends(get_current_author)):
-    job = _owned_job(conn, work, episode_no, author["id"])
-    if body.text is not None and len(body.text) > EDITION_TEXT_MAX:
-        raise HTTPException(400,
-                            f"text must be ≤{EDITION_TEXT_MAX} chars")
-    try:
-        edition = publishing.upsert_edition(
-            conn, job["work_id"], episode_no, platform=body.platform,
-            text=body.text)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return {"edition": edition}
-
-
-@router.post("/episodes/{episode_no}/publish-edition/from-approved")
-def edition_from_approved(episode_no: int, work: str,
-                          conn: sqlite3.Connection = Depends(get_conn),
-                          author: dict = Depends(get_current_author)):
-    job = _owned_job(conn, work, episode_no, author["id"])
-    wid = job["work_id"]
-    approved, rev_id = publishing.approved_text(conn, wid, episode_no)
-    if not approved.strip():
+    text, rev_id = publishing.approved_text(conn, job["work_id"], episode_no)
+    if not text.strip():
         raise HTTPException(409, "발간 승인된 원고가 없습니다")
-    edition = publishing.upsert_edition(
-        conn, wid, episode_no, text=approved, source_revision_id=rev_id)
-    return {"edition": edition}
+    return {"text": text, "revision_id": rev_id}
 
 
-@router.post("/episodes/{episode_no}/publish-edition/teaser")
-def edition_teaser(episode_no: int, work: str,
-                   conn: sqlite3.Connection = Depends(get_conn),
-                   meta=Depends(get_meta),
-                   author: dict = Depends(get_current_author)):
+class PublishRecordIn(BaseModel):
+    published_date: str = ""
+    note: str = ""
+
+
+@router.put("/episodes/{episode_no}/publish-record")
+def put_publish_record(episode_no: int, body: PublishRecordIn, work: str,
+                       conn: sqlite3.Connection = Depends(get_conn),
+                       author: dict = Depends(get_current_author)):
+    """플랫폼 등록 기록 저장/삭제. 빈 날짜면 기록 삭제. 상태 불변."""
     job = _owned_job(conn, work, episode_no, author["id"])
-    wid = job["work_id"]
-    nxt = publishing.episode_head_text(conn, wid, episode_no + 1)
-    if not nxt.strip():
-        raise HTTPException(409, "다음 화 원고가 없습니다")
     try:
-        teaser = publishing.make_teaser(meta, wid, episode_no, nxt)
+        return publishing.set_publish_record(
+            conn, job["work_id"], episode_no, body.published_date, body.note)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    except LLMStepError as e:
-        raise HTTPException(502, f"{e.reason}: {e.detail}")
-    edition = publishing.get_edition(conn, wid, episode_no)
-    base = edition["text"] if edition else ""
-    if not base.strip():
-        base, rev_id = publishing.approved_text(conn, wid, episode_no)
-        if not base.strip():
-            raise HTTPException(409, "출판본 원문이 없습니다")
-    else:
-        _approved, rev_id = publishing.approved_text(conn, wid, episode_no)
-    edition = publishing.upsert_edition(
-        conn, wid, episode_no,
-        text=publishing.compose_with_teaser(base, teaser),
-        teaser_episode=episode_no + 1, teaser_text=teaser,
-        source_revision_id=rev_id)
-    return {"edition": edition, "teaser": teaser}

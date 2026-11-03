@@ -1,4 +1,4 @@
-"""Publishing: work meta, covers, per-episode editions + teasers."""
+"""Publishing: work meta, platform, covers, blurb, approved text."""
 import base64
 
 import pytest
@@ -12,14 +12,6 @@ from app.routes.deps import get_conn, get_current_author
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
     "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
-
-
-class TeaserFake:
-    def __init__(self, teaser="다음 화에서 비밀이 밝혀진다."):
-        self.teaser = teaser
-
-    def chat_json(self, **kw):
-        return {"teaser": self.teaser}
 
 
 @pytest.fixture()
@@ -85,6 +77,19 @@ def test_patch_publish_meta(pub_client):
     assert r.status_code == 400
 
 
+def test_patch_platform(pub_client):
+    client, wid = pub_client
+    r = client.get(f"/api/v1/works/{wid}")
+    assert r.json()["platform"] == "문피아"
+    assert r.json()["platforms"] == ["문피아", "카카오페이지", "네이버시리즈",
+                                     "리디", "기타"]
+    r = client.patch(f"/api/v1/works/{wid}", json={"platform": "리디"})
+    assert r.status_code == 200, r.text
+    assert r.json()["platform"] == "리디"
+    r = client.patch(f"/api/v1/works/{wid}", json={"platform": "네이버웹툰"})
+    assert r.status_code == 400
+
+
 def test_cover_upload_serve_delete(pub_client):
     client, wid = pub_client
     b64 = base64.b64encode(PNG_1PX).decode()
@@ -120,72 +125,58 @@ def test_cover_rejects_oversize(pub_client, monkeypatch):
     assert r.status_code == 400
 
 
-def test_edition_crud_and_platform(pub_client):
+def test_publish_record_flow(pub_client):
     client, wid = pub_client
-    r = client.get(f"/api/v1/episodes/1/publish-edition?work={wid}")
+    # Record with work platform snapshot (default 문피아).
+    r = client.put(f"/api/v1/episodes/1/publish-record?work={wid}",
+                   json={"published_date": "2026-11-03", "note": "1화 등록"})
     assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["edition"] is None
-    assert body["has_approved"] is True
-    assert body["next_available"] is True
-    assert body["default_platform"] == "문피아"
-    # Upsert with explicit platform.
-    r = client.put(f"/api/v1/episodes/1/publish-edition?work={wid}",
-                   json={"platform": "리디", "text": "출판본 초안"})
-    assert r.status_code == 200
-    assert r.json()["edition"]["platform"] == "리디"
-    # Bad platform rejected.
-    r = client.put(f"/api/v1/episodes/1/publish-edition?work={wid}",
-                   json={"platform": "네이버웹툰"})
+    assert r.json() == {"published_date": "2026-11-03",
+                        "published_note": "1화 등록",
+                        "published_platform": "문피아"}
+    # Visible in the publishing list.
+    did = client.get(f"/api/v1/works/{wid}").json()["latest_design"]["id"]
+    r = client.get(f"/api/v1/designs/{did}/publishing")
+    eps = {e["episode_no"]: e for e in r.json()["episodes"]}
+    assert eps[1]["published_date"] == "2026-11-03"
+    # Platform change is snapshotted per record.
+    client.patch(f"/api/v1/works/{wid}", json={"platform": "리디"})
+    r = client.put(f"/api/v1/episodes/1/publish-record?work={wid}",
+                   json={"published_date": "2026-11-04", "note": ""})
+    assert r.json()["published_platform"] == "리디"
+    # Empty date clears the record.
+    r = client.put(f"/api/v1/episodes/1/publish-record?work={wid}",
+                   json={"published_date": "", "note": ""})
+    assert r.json() == {"published_date": "", "published_note": "",
+                        "published_platform": ""}
+    # Unknown episode.
+    r = client.put(f"/api/v1/episodes/9/publish-record?work={wid}",
+                   json={"published_date": "2026-11-03", "note": ""})
+    assert r.status_code == 404
+
+
+def test_publish_record_validation(pub_client):
+    client, wid = pub_client
+    r = client.put(f"/api/v1/episodes/1/publish-record?work={wid}",
+                   json={"published_date": "2026-13-99", "note": ""})
     assert r.status_code == 400
-    # Text-only update keeps platform.
-    r = client.put(f"/api/v1/episodes/1/publish-edition?work={wid}",
-                   json={"text": "수정한 출판본"})
-    assert r.json()["edition"]["text"] == "수정한 출판본"
-    assert r.json()["edition"]["platform"] == "리디"
+    r = client.put(f"/api/v1/episodes/1/publish-record?work={wid}",
+                   json={"published_date": "2026-11-03", "note": "x" * 201})
+    assert r.status_code == 400
 
 
-def test_edition_from_approved(pub_client):
+def test_approved_text(pub_client):
     client, wid = pub_client
-    r = client.post(
-        f"/api/v1/episodes/1/publish-edition/from-approved?work={wid}")
+    r = client.get(f"/api/v1/episodes/1/approved-text?work={wid}")
     assert r.status_code == 200, r.text
-    ed = r.json()["edition"]
-    assert ed["text"] == "1화 승인 원고 본문이다."
-    assert ed["platform"] == "문피아"
+    assert r.json()["text"] == "1화 승인 원고 본문이다."
+    assert r.json()["revision_id"] is not None
     # EP2 has no approved revision.
-    r = client.post(
-        f"/api/v1/episodes/2/publish-edition/from-approved?work={wid}")
+    r = client.get(f"/api/v1/episodes/2/approved-text?work={wid}")
     assert r.status_code == 409
-
-
-def test_edition_teaser_flow(pub_client):
-    from app.main import app
-    from app.routes.works import get_meta
-
-    client, wid = pub_client
-    app.dependency_overrides[get_meta] = lambda: TeaserFake()
-    try:
-        # Creates the edition from approved text when missing.
-        r = client.post(
-            f"/api/v1/episodes/1/publish-edition/teaser?work={wid}")
-        assert r.status_code == 200, r.text
-        assert r.json()["teaser"] == "다음 화에서 비밀이 밝혀진다."
-        ed = r.json()["edition"]
-        assert ed["text"].startswith("1화 승인 원고 본문이다.")
-        assert publishing.TEASER_MARK in ed["text"]
-        assert ed["teaser_episode"] == 2
-        # Re-run replaces the teaser block instead of duplicating it.
-        r = client.post(
-            f"/api/v1/episodes/1/publish-edition/teaser?work={wid}")
-        assert r.json()["edition"]["text"].count(
-            publishing.TEASER_MARK) == 1
-        # EP2 has no next episode: 409.
-        r = client.post(
-            f"/api/v1/episodes/2/publish-edition/teaser?work={wid}")
-        assert r.status_code == 409
-    finally:
-        del app.dependency_overrides[get_meta]
+    # Unknown episode.
+    r = client.get(f"/api/v1/episodes/9/approved-text?work={wid}")
+    assert r.status_code == 404
 
 
 class BlurbFake:
@@ -209,7 +200,7 @@ def test_generate_blurb(pub_client):
         r = client.post(f"/api/v1/works/{wid}/blurb")
         assert r.status_code == 200, r.text
         assert r.json()["blurb"].startswith("Hook.")
-        # Not auto-saved: the author reviews and saves explicitly.
+        # The API does not save; the frontend saves after showing it.
         r = client.get(f"/api/v1/works/{wid}")
         assert r.json()["publish_blurb"] == ""
     finally:
@@ -230,11 +221,3 @@ def test_blurb_long_output_trimmed():
     out = publishing.make_blurb(fake, 1, {"title": "t", "logline": "l",
                                          "synopsis": "", "outlines": []})
     assert len(out) == 500
-
-
-def test_teaser_long_output_trimmed():
-    assert publishing.TEASER_MAX_CHARS == 100
-    assert publishing.compose_with_teaser("본문", "예고").count(
-        publishing.TEASER_MARK) == 1
-    assert publishing.strip_teaser_block(
-        publishing.compose_with_teaser("본문", "예고")).strip() == "본문"

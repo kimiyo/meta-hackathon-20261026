@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS works (
   publish_pen_name TEXT NOT NULL DEFAULT '',
   publish_blurb TEXT NOT NULL DEFAULT '',
   cover_path TEXT NOT NULL DEFAULT '',
+  platform TEXT NOT NULL DEFAULT '문피아',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
 );
@@ -289,6 +290,9 @@ CREATE TABLE IF NOT EXISTS episode_jobs (
   quality_json TEXT DEFAULT '{}',
   needs_attention INTEGER NOT NULL DEFAULT 0,
   return_reason TEXT NOT NULL DEFAULT '',
+  published_date TEXT NOT NULL DEFAULT '',
+  published_note TEXT NOT NULL DEFAULT '',
+  published_platform TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL,
   PRIMARY KEY (work_id, episode_no)
 );
@@ -695,6 +699,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
   "ALTER TABLE works ADD COLUMN publish_pen_name TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE works ADD COLUMN publish_blurb TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE works ADD COLUMN cover_path TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE works ADD COLUMN platform TEXT NOT NULL DEFAULT '문피아'",
+  "ALTER TABLE episode_jobs ADD COLUMN published_date TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE episode_jobs ADD COLUMN published_note TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE episode_jobs ADD COLUMN published_platform TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(sql)

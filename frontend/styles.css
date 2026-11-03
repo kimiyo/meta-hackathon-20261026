@@ -100,8 +100,10 @@ section.screen.active { display: block; }
 .pub-card.active { border-color: var(--accent); background: var(--accent-bg); }
 .pub-card .t { font-weight: 700; }
 .pub-card .s { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+.pub-badge { font-size: 11px; font-weight: 600; color: var(--accent-deep); background: var(--accent-bg); border-radius: 10px; padding: 1px 8px; margin-left: 6px; white-space: nowrap; }
 .pub-cover-img { max-width: 220px; max-height: 300px; border: 1px solid var(--line); border-radius: 8px; }
 .pub-edition-text { width: 100%; min-height: 320px; font-family: inherit; font-size: 14px; line-height: 1.8; }
+.pub-read-text { white-space: pre-wrap; word-break: keep-all; font-size: 14px; line-height: 1.8; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-top: 10px; max-height: 560px; overflow-y: auto; background: var(--paper); }
 .grid-monitor { display: grid; grid-template-columns: minmax(260px, var(--writing-left-w, 300px)) 8px minmax(0, 1fr) 8px minmax(260px, var(--writing-right-w, 340px)); gap: 16px 6px; align-items: start; }
 #pane-progress .pane-expand { display: none; }
 .grid-monitor.progress-collapsed { grid-template-columns: 44px minmax(0, 1fr) 8px minmax(260px, var(--writing-right-w, 340px)); }

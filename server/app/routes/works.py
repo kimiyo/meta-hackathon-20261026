@@ -79,6 +79,7 @@ def get_work(key: str, conn: sqlite3.Connection = Depends(get_conn),
     work["latest_design"] = dict(latest) if latest else None
     work["cover_url"] = publishing.cover_url(work.get("cover_path") or "")
     work["author_pen_name"] = author.get("pen_name") or ""
+    work["platforms"] = list(publishing.PLATFORMS)
     return work
 
 
@@ -154,6 +155,7 @@ class WorkPatch(BaseModel):
     publish_title: str | None = None
     publish_pen_name: str | None = None
     publish_blurb: str | None = None
+    platform: str | None = None
 
 
 @router.patch("/works/{key}")
@@ -190,6 +192,12 @@ def patch_work(key: str, body: WorkPatch,
                                 f"publish_blurb must be ≤{BLURB_MAX} chars")
         sets.append("publish_blurb=?")
         args.append(body.publish_blurb)
+    if body.platform is not None:
+        try:
+            sets.append("platform=?")
+            args.append(publishing.check_platform(body.platform))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     if not sets:
         raise HTTPException(400, "no valid work fields")
     args.append(work["id"])

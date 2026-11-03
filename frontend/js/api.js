@@ -164,21 +164,12 @@ export const api = {
     if (version) p.set("version", version);
     return req(`/episodes/${no}/manuscript?${p.toString()}`);
   },
-  publishEdition: (no, workKey) =>
-    req(`/episodes/${no}/publish-edition?${epQuery(workKey)}`),
-  savePublishEdition: (no, body, workKey) =>
-    req(`/episodes/${no}/publish-edition?${epQuery(workKey)}`, {
+  approvedText: (no, workKey) =>
+    req(`/episodes/${no}/approved-text?${epQuery(workKey)}`),
+  savePublishRecord: (no, body, workKey) =>
+    req(`/episodes/${no}/publish-record?${epQuery(workKey)}`, {
       method: "PUT",
       body: JSON.stringify(body),
-    }),
-  editionFromApproved: (no, workKey) =>
-    req(`/episodes/${no}/publish-edition/from-approved?${epQuery(workKey)}`, {
-      method: "POST",
-    }),
-  editionTeaser: (no, workKey) =>
-    req(`/episodes/${no}/publish-edition/teaser?${epQuery(workKey)}`, {
-      method: "POST",
-      timeoutMs: 180000,
     }),
   consistencyAnalyze: (no, workKey) =>
     req(`/episodes/${no}/consistency/analyze?${epQuery(workKey)}`, { method: "POST" }),

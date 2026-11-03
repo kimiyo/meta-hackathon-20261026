@@ -1,9 +1,4 @@
-"""Publishing support: final per-episode editions, teasers, work covers.
-
-An edition is display-only data for external platforms. It starts as a
-copy of the approved (발간중) manuscript text and is never fed back into
-extraction or consistency analysis.
-"""
+"""Publishing support: work platform, AI blurb, covers, approved text."""
 from __future__ import annotations
 
 import base64
@@ -14,28 +9,18 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from .db import covers_dir, now_iso
+from .db import covers_dir
 
 PLATFORMS = ("문피아", "카카오페이지", "네이버시리즈", "리디", "기타")
 DEFAULT_PLATFORM = "문피아"
 
-TEASER_MARK = "〈다음 화 예고〉"
-TEASER_MAX_CHARS = 100
-TEASER_CONTEXT_CHARS = 1500
-
 COVER_MAX_BYTES = 5 * 1024 * 1024
 COVER_EXTS = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
 
-PROMPT = (Path(__file__).parent / "prompts" / "teaser.txt").read_text(
-    encoding="utf-8")
 BLURB_PROMPT = (Path(__file__).parent / "prompts" / "blurb.txt").read_text(
     encoding="utf-8")
 BLURB_AI_MAX_CHARS = 500
 BLURB_CTX_CHARS = 3000
-
-
-class TeaserOut(BaseModel):
-    teaser: str
 
 
 class BlurbOut(BaseModel):
@@ -49,56 +34,43 @@ def check_platform(platform: str) -> str:
     return p
 
 
-def get_edition(conn: sqlite3.Connection, work_id: int,
-                episode_no: int) -> dict | None:
-    row = conn.execute(
-        "SELECT * FROM publish_editions WHERE work_id=? AND episode_no=?",
-        (work_id, episode_no)).fetchone()
-    return dict(row) if row else None
+PUBLISH_NOTE_MAX = 200
 
 
-def upsert_edition(conn: sqlite3.Connection, work_id: int, episode_no: int,
-                   *, platform: str | None = None, text: str | None = None,
-                   teaser_episode: int | None = None,
-                   teaser_text: str | None = None,
-                   source_revision_id: int | None = None) -> dict:
-    edition = get_edition(conn, work_id, episode_no)
-    ts = now_iso()
-    if edition is None:
-        if platform is None:
-            platform = DEFAULT_PLATFORM
-        else:
-            platform = check_platform(platform)
-        conn.execute(
-            "INSERT INTO publish_editions(work_id, episode_no, platform, text,"
-            " teaser_episode, teaser_text, source_revision_id, created_at,"
-            " updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-            (work_id, episode_no, platform, text or "",
-             teaser_episode, teaser_text or "", source_revision_id, ts, ts))
-    else:
-        sets, args = [], []
-        if platform is not None:
-            sets.append("platform=?")
-            args.append(check_platform(platform))
-        if text is not None:
-            sets.append("text=?")
-            args.append(text)
-        if teaser_episode is not None or teaser_text is not None:
-            sets.append("teaser_episode=?")
-            args.append(teaser_episode)
-            sets.append("teaser_text=?")
-            args.append(teaser_text or "")
-        if source_revision_id is not None:
-            sets.append("source_revision_id=?")
-            args.append(source_revision_id)
-        sets.append("updated_at=?")
-        args.append(ts)
-        args.extend((work_id, episode_no))
-        conn.execute(
-            f"UPDATE publish_editions SET {', '.join(sets)}"
-            " WHERE work_id=? AND episode_no=?", args)
+def check_publish_record(published_date: str, note: str) -> tuple[str, str]:
+    """Validate a platform-registration record. Empty date clears it."""
+    import datetime as dt
+
+    d = (published_date or "").strip()
+    n = (note or "").strip()
+    if not d:
+        return "", ""
+    try:
+        dt.date.fromisoformat(d)
+    except ValueError:
+        raise ValueError("등록일은 YYYY-MM-DD 형식이어야 합니다")
+    if len(n) > PUBLISH_NOTE_MAX:
+        raise ValueError(f"메모는 {PUBLISH_NOTE_MAX}자 이하여야 합니다")
+    return d, n
+
+
+def set_publish_record(conn: sqlite3.Connection, work_id: int, episode_no: int,
+                       published_date: str, note: str) -> dict:
+    """Record (or clear) external platform registration. No state change."""
+    d, n = check_publish_record(published_date, note)
+    platform = ""
+    if d:
+        work = conn.execute("SELECT platform FROM works WHERE id=?",
+                            (work_id,)).fetchone()
+        platform = (work["platform"] if work and work["platform"]
+                    else DEFAULT_PLATFORM)
+    conn.execute(
+        "UPDATE episode_jobs SET published_date=?, published_note=?,"
+        " published_platform=? WHERE work_id=? AND episode_no=?",
+        (d, n, platform, work_id, episode_no))
     conn.commit()
-    return get_edition(conn, work_id, episode_no)
+    return {"published_date": d, "published_note": n,
+            "published_platform": platform}
 
 
 def approved_text(conn: sqlite3.Connection, work_id: int,
@@ -116,58 +88,6 @@ def approved_text(conn: sqlite3.Connection, work_id: int,
     if not rev:
         return "", None
     return rev["text"] or "", rev["revision_id"]
-
-
-def episode_head_text(conn: sqlite3.Connection, work_id: int,
-                      episode_no: int) -> str:
-    """Latest readable text of an episode (draft wins, else revision)."""
-    from . import manuscripts
-
-    try:
-        doc = manuscripts.ensure_doc_row(conn, work_id, episode_no)
-    except Exception:
-        doc = {}
-    draft = (doc.get("draft_content") if doc else "") or ""
-    if draft.strip():
-        return draft
-    row = conn.execute(
-        "SELECT text FROM manuscript_revisions WHERE work_id=? AND episode_no=?"
-        " ORDER BY version DESC LIMIT 1", (work_id, episode_no)).fetchone()
-    return (row["text"] if row else "") or ""
-
-
-def strip_teaser_block(text: str) -> str:
-    """Drop a previously appended teaser block so re-runs replace it."""
-    idx = (text or "").rfind("\n\n" + TEASER_MARK)
-    if idx < 0:
-        return text or ""
-    return (text[:idx]).rstrip() + "\n"
-
-
-def compose_with_teaser(body: str, teaser: str) -> str:
-    return strip_teaser_block(body).rstrip() + "\n\n" + TEASER_MARK + "\n" + teaser.strip() + "\n"
-
-
-def make_teaser(meta, work_id: int, episode_no: int,
-                next_text: str) -> str:
-    """Ask the model for a ≤100-char teaser from the next episode head."""
-    import json
-
-    head = (next_text or "").strip()[:TEASER_CONTEXT_CHARS]
-    if not head:
-        raise ValueError("다음 화 원고가 없습니다")
-    out = meta.chat_json(
-        bundle="publish-teaser", episode=episode_no, system=PROMPT,
-        work_id=work_id,
-        user="다음 화 앞부분이다. 스켈레톤: {\"teaser\": str}\n" + json.dumps(
-            {"episode_no": episode_no + 1, "head": head}, ensure_ascii=False),
-        schema=TeaserOut, max_tokens=8000)
-    teaser = (out.get("teaser") or "").strip()
-    if not teaser:
-        raise ValueError("AI가 빈 예고 문구를 반환했습니다")
-    if len(teaser) > TEASER_MAX_CHARS:
-        teaser = teaser[:TEASER_MAX_CHARS].rstrip()
-    return teaser
 
 
 def collect_blurb_context(conn: sqlite3.Connection,

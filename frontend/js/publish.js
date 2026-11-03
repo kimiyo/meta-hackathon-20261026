@@ -1,12 +1,23 @@
 import { api } from "./api.js";
 import { $, esc, showError, showToast } from "./util.js";
 import { getWork } from "./work.js";
-import { go, novelPath } from "./router.js";
 import { openReader } from "./manuscript.js";
 
 // 화면 5 · 발간중: 작품 발간 정보 + 커버 + 회차별 최종 출판본.
 
-let detail = null; // { ep, title, platforms, nextNo, nextAvailable, hasApproved }
+let detail = null; // { ep, title, text, record, editing }
+let episodeRows = [];
+
+function todayLocal() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function rowOf(ep) {
+  return episodeRows.find((r) => r.episode_no === ep);
+}
 
 function workKey() {
   const w = getWork();
@@ -44,6 +55,7 @@ async function loadWorkPanel() {
     $("pub-pen").value = "";
     $("pub-pen").placeholder = "";
     $("pub-blurb").value = "";
+    $("pub-platform").innerHTML = "";
     coverView.innerHTML = `<span class="muted small">작품을 선택하세요.</span>`;
     return;
   }
@@ -55,6 +67,9 @@ async function loadWorkPanel() {
   penInput.value = full.publish_pen_name || full.author_pen_name || "";
   penInput.placeholder = "게재용 필명";
   $("pub-blurb").value = full.publish_blurb || "";
+  const platform = full.platform || "문피아";
+  $("pub-platform").innerHTML = (full.platforms ?? ["문피아"])
+    .map((p) => `<option${p === platform ? " selected" : ""}>${esc(p)}</option>`).join("");
   renderCover(full.cover_url || "");
 }
 
@@ -99,6 +114,7 @@ const WORK_FIELDS = [
   ["pub-title", "publish_title", "게재 작품명"],
   ["pub-pen", "publish_pen_name", "작가 필명"],
   ["pub-blurb", "publish_blurb", "작품 소개글"],
+  ["pub-platform", "platform", "게시출판 플랫폼"],
 ];
 
 async function autoSaveWorkField(inputId, apiField, label) {
@@ -190,9 +206,10 @@ async function loadCards() {
     box.innerHTML = `<span class="muted small">발간중인 회차가 없습니다.</span>`;
     return [];
   }
+  episodeRows = rows;
   box.innerHTML = `<div class="pub-cards">${rows.map((r) => `
     <button class="pub-card" data-ep="${r.episode_no}" data-role="publish.list.card">
-      <div class="t">EP ${esc(r.episode_no)} · ${esc(r.title)}</div>
+      <div class="t">EP ${esc(r.episode_no)} · ${esc(r.title)}${r.published_date ? ` <span class="pub-badge" data-role="publish.list.reg-badge">플랫폼에 등록됨 ${esc(r.published_date)}</span>` : ""}</div>
       <div class="s">원고 ${r.manuscript_revision_id ? `rev ${esc(r.manuscript_revision_id)}` : "-"} · 이슈 열림 ${esc(r.issues.open)}/${esc(r.issues.total)} · ${esc((r.updated_at || "").slice(0, 16).replace("T", " "))}</div>
     </button>`).join("")}</div>`;
   box.querySelectorAll("[data-ep]").forEach((card) => {
@@ -208,121 +225,133 @@ async function selectEpisode(ep) {
   const body = $("pub-detail-body");
   body.innerHTML = `<span class="muted small">불러오는 중…</span>`;
   try {
-    const d = await api.publishEdition(ep, workKey());
-    const cards = document.querySelector(`#publish-cards [data-ep="${ep}"] .t`);
+    const d = await api.approvedText(ep, workKey());
+    const row = rowOf(ep) ?? {};
+    // 카드 제목에는 뱃지 텍스트가 섞여 있어 row에서 제목을 복원한다.
     detail = {
       ep,
-      title: cards ? cards.textContent : `EP ${ep}`,
-      platforms: d.platforms ?? ["문피아"],
-      defaultPlatform: d.default_platform ?? "문피아",
-      nextNo: d.next_episode_no,
-      nextAvailable: !!d.next_available,
-      hasApproved: !!d.has_approved,
+      title: row.title ? `EP ${ep} · ${row.title}` : `EP ${ep}`,
+      text: d.text || "",
+      record: {
+        published_date: row.published_date || "",
+        published_note: row.published_note || "",
+        published_platform: row.published_platform || "",
+      },
+      editing: false,
     };
-    renderDetail(d.edition);
+    renderDetail();
   } catch (e) {
     showError("publish-error", String(e));
     body.innerHTML = `<span class="muted small">불러오기 실패</span>`;
   }
 }
 
-function renderDetail(edition) {
-  const platform = edition?.platform || detail.defaultPlatform;
-  const text = edition?.text || "";
-  const teaserInfo = edition?.teaser_text
-    ? `EP ${esc(edition.teaser_episode)} 예고 포함 (${esc(String(edition.teaser_text).length)}자)`
-    : "예고 없음";
+function recordHtml() {
+  const rec = detail.record;
+  if (detail.editing) {
+    return `
+    <div data-role="publish.record.form">
+      <label class="f" for="pub-reg-date">등록일</label>
+      <input type="date" id="pub-reg-date" data-role="publish.record.date"
+        value="${esc(rec.published_date || todayLocal())}">
+      <label class="f" for="pub-reg-note">메모</label>
+      <input type="text" id="pub-reg-note" data-role="publish.record.note"
+        value="${esc(rec.published_note)}" maxlength="200" style="width:100%"
+        placeholder="예: 문피아 1화 등록">
+      <div class="btn-row">
+        <button class="btn sm primary" id="btn-pub-reg-save" data-role="publish.record.save-btn">기록 저장</button>
+        <button class="btn sm ghost" id="btn-pub-reg-cancel" data-role="publish.record.cancel-btn">취소</button>
+      </div>
+    </div>`;
+  }
+  if (rec.published_date) {
+    return `
+    <div data-role="publish.record.view">
+      <p style="margin:6px 0"><b>플랫폼에 등록됨</b> · ${esc(rec.published_platform)} · ${esc(rec.published_date)}${rec.published_note ? `<br><span class="muted">${esc(rec.published_note)}</span>` : ""}</p>
+      <div class="btn-row" style="margin-top:0">
+        <button class="btn sm" id="btn-pub-reg-edit" data-role="publish.record.edit-btn">수정</button>
+        <button class="btn sm danger" id="btn-pub-reg-clear" data-role="publish.record.clear-btn">기록 삭제</button>
+      </div>
+    </div>`;
+  }
+  return `
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn sm" id="btn-pub-reg-edit" data-role="publish.record.add-btn">플랫폼 등록 기록</button>
+    </div>`;
+}
+
+function renderDetail() {
   $("pub-detail-title").textContent = detail.title;
   $("pub-detail-body").innerHTML = `
-    <label class="f" for="pub-ed-platform">게시출판 플랫폼</label>
-    <select id="pub-ed-platform" data-role="publish.detail.platform">
-      ${detail.platforms.map((p) => `<option${p === platform ? " selected" : ""}>${esc(p)}</option>`).join("")}
-    </select>
+    ${recordHtml()}
     <div class="btn-row">
-      <button class="btn sm" id="btn-pub-ed-from" data-role="publish.detail.from-btn"${detail.hasApproved ? "" : " disabled"}>승인본으로 출판본 만들기</button>
-      <button class="btn sm" id="btn-pub-ed-teaser" data-role="publish.detail.teaser-btn"${detail.nextAvailable ? "" : " disabled"}>다음화(EP ${esc(detail.nextNo)})의 시작 가져와서 출판본 만들기</button>
-    </div>
-    <div class="btn-row">
-      <button class="btn sm primary" id="btn-pub-ed-save" data-role="publish.detail.save-btn">출판본 저장</button>
       <button class="btn sm" id="btn-pub-ed-full" data-role="publish.detail.full-btn">전체화면</button>
-      <button class="btn sm ghost" id="btn-pub-ed-review" data-role="publish.detail.review-btn">작가검토로 이동</button>
+      <span class="hint">발간 승인된 원문 그대로 보여줍니다 (${detail.text.length}자).</span>
     </div>
-    <p class="muted small">${esc(teaserInfo)}${detail.hasApproved ? "" : " · 승인된 원고가 없습니다"}${detail.nextAvailable ? "" : ` · EP ${esc(detail.nextNo)} 원고가 없어 티저를 붙일 수 없습니다`}</p>
-    <label class="f" for="pub-ed-text">최종 출판본 (<span id="pub-ed-count">${text.length}</span>자)</label>
-    <textarea class="pub-edition-text" id="pub-ed-text" data-role="publish.detail.text">${esc(text)}</textarea>`;
-  $("pub-ed-text").addEventListener("input", (e) => {
-    $("pub-ed-count").textContent = e.target.value.length;
-  });
-  $("btn-pub-ed-from").addEventListener("click", fromApproved);
-  $("btn-pub-ed-teaser").addEventListener("click", attachTeaser);
-  $("btn-pub-ed-save").addEventListener("click", saveEdition);
+    <div class="pub-read-text" data-role="publish.detail.text">${esc(detail.text)}</div>`;
   $("btn-pub-ed-full").addEventListener("click", () => {
     openReader({
-      text: $("pub-ed-text").value,
+      text: detail.text,
       title: `최종 출판본 · ${detail.title}`,
-      version: `플랫폼: ${$("pub-ed-platform").value}`,
+      version: "",
     });
   });
-  $("btn-pub-ed-review").addEventListener("click", () => {
-    go(novelPath(workKey(), "review"));
-    setTimeout(() => {
-      document.dispatchEvent(new CustomEvent("review-episode", {
-        detail: { ep: detail.ep },
-      }));
-    }, 50);
+  $("btn-pub-reg-edit")?.addEventListener("click", () => {
+    detail.editing = true;
+    renderDetail();
   });
+  $("btn-pub-reg-cancel")?.addEventListener("click", () => {
+    detail.editing = false;
+    renderDetail();
+  });
+  $("btn-pub-reg-save")?.addEventListener("click", saveRecord);
+  $("btn-pub-reg-clear")?.addEventListener("click", clearRecord);
 }
 
-function currentEditionText() {
-  return $("pub-ed-text")?.value ?? "";
-}
-
-async function fromApproved() {
-  if (currentEditionText().trim() &&
-      !window.confirm("현재 출판본을 승인된 원고로 덮어쓸까요? 직접 수정한 내용은 사라집니다.")) {
-    return;
+function syncRowRecord(ep, rec) {
+  const row = rowOf(ep);
+  if (row) {
+    row.published_date = rec.published_date;
+    row.published_note = rec.published_note;
+    row.published_platform = rec.published_platform;
   }
-  const btn = $("btn-pub-ed-from");
-  setBusy(btn, true, "생성중…");
-  try {
-    const d = await api.editionFromApproved(detail.ep, workKey());
-    renderDetail(d.edition);
-    showToast("승인본으로 출판본을 만들었습니다.");
-  } catch (e) {
-    showError("publish-error", String(e));
-  } finally {
-    setBusy(btn, false);
-  }
+  const title = document.querySelector(`#publish-cards [data-ep="${ep}"] .t`);
+  if (!title || !row) return;
+  title.innerHTML = `EP ${esc(ep)} · ${esc(row.title)}${rec.published_date ? ` <span class="pub-badge" data-role="publish.list.reg-badge">플랫폼에 등록됨 ${esc(rec.published_date)}</span>` : ""}`;
 }
 
-async function attachTeaser() {
-  const btn = $("btn-pub-ed-teaser");
-  setBusy(btn, true, "티저 생성중…");
-  try {
-    const d = await api.editionTeaser(detail.ep, workKey());
-    renderDetail(d.edition);
-    showToast(`EP ${detail.nextNo} 예고(${d.teaser.length}자)를 붙였습니다.`);
-  } catch (e) {
-    showError("publish-error", String(e));
-  } finally {
-    setBusy(btn, false);
-  }
-}
-
-async function saveEdition() {
-  const btn = $("btn-pub-ed-save");
+async function saveRecord() {
+  const btn = $("btn-pub-reg-save");
   setBusy(btn, true, "저장중…");
   try {
-    const d = await api.savePublishEdition(detail.ep, {
-      platform: $("pub-ed-platform").value,
-      text: currentEditionText(),
+    const rec = await api.savePublishRecord(detail.ep, {
+      published_date: $("pub-reg-date").value,
+      note: $("pub-reg-note").value,
     }, workKey());
-    renderDetail(d.edition);
-    showToast("출판본을 저장했습니다.");
+    detail.record = rec;
+    detail.editing = false;
+    syncRowRecord(detail.ep, rec);
+    renderDetail();
+    showToast("플랫폼 등록을 기록했습니다.");
   } catch (e) {
     showError("publish-error", String(e));
   } finally {
     setBusy(btn, false);
+  }
+}
+
+async function clearRecord() {
+  if (!window.confirm("이 회차의 플랫폼 등록 기록을 삭제할까요?")) return;
+  try {
+    const rec = await api.savePublishRecord(detail.ep, {
+      published_date: "", note: "",
+    }, workKey());
+    detail.record = rec;
+    syncRowRecord(detail.ep, rec);
+    renderDetail();
+    showToast("등록 기록을 삭제했습니다.");
+  } catch (e) {
+    showError("publish-error", String(e));
   }
 }
 
