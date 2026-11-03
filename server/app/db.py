@@ -37,9 +37,28 @@ CREATE TABLE IF NOT EXISTS works (
   stage TEXT NOT NULL DEFAULT 'ideas',
   structure_json TEXT NOT NULL DEFAULT '{}',
   ideas_locked INTEGER NOT NULL DEFAULT 0,
+  publish_title TEXT NOT NULL DEFAULT '',
+  publish_pen_name TEXT NOT NULL DEFAULT '',
+  publish_blurb TEXT NOT NULL DEFAULT '',
+  cover_path TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS publish_editions (
+  id INTEGER PRIMARY KEY,
+  work_id INTEGER NOT NULL REFERENCES works(id),
+  episode_no INTEGER NOT NULL,
+  platform TEXT NOT NULL DEFAULT '문피아',
+  text TEXT NOT NULL DEFAULT '',
+  teaser_episode INTEGER,
+  teaser_text TEXT NOT NULL DEFAULT '',
+  source_revision_id INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT '',
+  UNIQUE(work_id, episode_no)
+);
+CREATE INDEX IF NOT EXISTS ix_publish_editions_work
+  ON publish_editions(work_id, episode_no);
 CREATE TABLE IF NOT EXISTS design_threads (
   id INTEGER PRIMARY KEY,
   design_id INTEGER NOT NULL REFERENCES story_designs(id),
@@ -438,6 +457,15 @@ def db_path() -> Path:
     return PROJECT_ROOT / "data" / "studio.db"
 
 
+def covers_dir() -> Path:
+    """Cover image storage, next to the sqlite file (test-DB aware)."""
+    p = db_path()
+    base = p.parent if str(p) != ":memory:" else PROJECT_ROOT / "data"
+    d = base / "covers"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def connect(path: Path | None = None) -> sqlite3.Connection:
     p = path or db_path()
     if str(p) != ":memory:":
@@ -663,6 +691,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
   "ALTER TABLE style_policies ADD COLUMN custom_style_id INTEGER",
   "ALTER TABLE episode_jobs ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE episode_jobs ADD COLUMN return_reason TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE works ADD COLUMN publish_title TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE works ADD COLUMN publish_pen_name TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE works ADD COLUMN publish_blurb TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE works ADD COLUMN cover_path TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(sql)

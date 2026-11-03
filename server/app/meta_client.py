@@ -141,16 +141,26 @@ class MetaClient:
         )
         parsed2 = self._parse_and_validate(raw2, schema)
         # One row covers both calls; finish shows "first>recovery".
+        finish = f"{usage['finish']}>{usage2['finish']}"
         total = {"in": usage["in"] + usage2["in"],
                  "out": usage["out"] + usage2["out"],
                  "reasoning": usage["reasoning"] + usage2["reasoning"],
-                 "finish": f"{usage['finish']}>{usage2['finish']}"}
+                 "finish": finish}
         user_stored = user + "\n\n[복구 재시도]\n" + recovery
         if parsed2 is not None:
             self._record(bundle, episode, work_id, total,
                          latency_ms + latency2, True, "", system, user_stored,
                          _dump(parsed2))
             return parsed2
+        if not (raw2 or "").strip() and "length" in finish:
+            # Reasoning-heavy models can burn the whole max_tokens budget
+            # before emitting content; report the cutoff, not a schema fault.
+            self._record(bundle, episode, work_id, total,
+                         latency_ms + latency2, False, "max_tokens_exhausted",
+                         system, user_stored, raw2 or "")
+            raise LLMStepError(bundle, episode, "max_tokens_exhausted",
+                               "모델 응답이 토큰 한도에 잘렸습니다."
+                               " max_tokens를 올리세요.")
         self._record(bundle, episode, work_id, total,
                      latency_ms + latency2, False, "json_schema_failed",
                      system, user_stored, raw2 or "")

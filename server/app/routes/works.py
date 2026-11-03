@@ -7,7 +7,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import custom_styles, drafting, planning, style_presets
+from .. import custom_styles, drafting, planning, publishing, style_presets
 from ..db import find_work, new_uid, now_iso, touch_work
 from ..errors import LLMStepError
 from ..ideas import check_total_episodes
@@ -77,6 +77,8 @@ def get_work(key: str, conn: sqlite3.Connection = Depends(get_conn),
         " FROM story_designs WHERE work_id=? ORDER BY version DESC LIMIT 1",
         (work["id"],)).fetchone()
     work["latest_design"] = dict(latest) if latest else None
+    work["cover_url"] = publishing.cover_url(work.get("cover_path") or "")
+    work["author_pen_name"] = author.get("pen_name") or ""
     return work
 
 
@@ -143,9 +145,15 @@ def patch_outline(design_id: int, episode_no: int, body: OutlinePatch,
         raise HTTPException(400, str(e))
 
 
+BLURB_MAX = 2000
+
+
 class WorkPatch(BaseModel):
     title: str | None = None
     logline: str | None = None
+    publish_title: str | None = None
+    publish_pen_name: str | None = None
+    publish_blurb: str | None = None
 
 
 @router.patch("/works/{key}")
@@ -164,14 +172,94 @@ def patch_work(key: str, body: WorkPatch,
     if body.logline is not None:
         sets.append("logline=?")
         args.append(body.logline)
+    if body.publish_title is not None:
+        if len(body.publish_title.strip()) > TITLE_MAX:
+            raise HTTPException(400,
+                                f"publish_title must be ≤{TITLE_MAX} chars")
+        sets.append("publish_title=?")
+        args.append(body.publish_title.strip())
+    if body.publish_pen_name is not None:
+        if len(body.publish_pen_name.strip()) > TITLE_MAX:
+            raise HTTPException(400,
+                                f"publish_pen_name must be ≤{TITLE_MAX} chars")
+        sets.append("publish_pen_name=?")
+        args.append(body.publish_pen_name.strip())
+    if body.publish_blurb is not None:
+        if len(body.publish_blurb) > BLURB_MAX:
+            raise HTTPException(400,
+                                f"publish_blurb must be ≤{BLURB_MAX} chars")
+        sets.append("publish_blurb=?")
+        args.append(body.publish_blurb)
     if not sets:
         raise HTTPException(400, "no valid work fields")
     args.append(work["id"])
     conn.execute(f"UPDATE works SET {', '.join(sets)} WHERE id=?", args)
     touch_work(conn, work["id"])
     conn.commit()
-    return dict(conn.execute("SELECT * FROM works WHERE id=?",
-                             (work["id"],)).fetchone())
+    out = dict(conn.execute("SELECT * FROM works WHERE id=?",
+                            (work["id"],)).fetchone())
+    out["cover_url"] = publishing.cover_url(out.get("cover_path") or "")
+    out["author_pen_name"] = author.get("pen_name") or ""
+    return out
+
+
+class CoverIn(BaseModel):
+    filename: str = ""
+    content_base64: str = ""
+
+
+@router.post("/works/{key}/cover")
+def upload_cover(key: str, body: CoverIn,
+                 conn: sqlite3.Connection = Depends(get_conn),
+                 author: dict = Depends(get_current_author)):
+    work = _work_or_404(conn, key, author["id"])
+    try:
+        name = publishing.save_cover(work["id"], body.filename,
+                                     body.content_base64)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    old = work.get("cover_path") or ""
+    conn.execute("UPDATE works SET cover_path=? WHERE id=?",
+                 (name, work["id"]))
+    touch_work(conn, work["id"])
+    conn.commit()
+    if old and old != name:
+        publishing.delete_cover_file(old)
+    return {"cover_url": publishing.cover_url(name)}
+
+
+@router.delete("/works/{key}/cover")
+def delete_cover(key: str,
+                 conn: sqlite3.Connection = Depends(get_conn),
+                 author: dict = Depends(get_current_author)):
+    work = _work_or_404(conn, key, author["id"])
+    old = work.get("cover_path") or ""
+    if not old:
+        raise HTTPException(404, "no cover")
+    conn.execute("UPDATE works SET cover_path='' WHERE id=?", (work["id"],))
+    touch_work(conn, work["id"])
+    conn.commit()
+    publishing.delete_cover_file(old)
+    return {"cover_url": ""}
+
+
+@router.post("/works/{key}/blurb")
+def generate_blurb(key: str,
+                   conn: sqlite3.Connection = Depends(get_conn),
+                   meta=Depends(get_meta),
+                   author: dict = Depends(get_current_author)):
+    work = _work_or_404(conn, key, author["id"])
+    ctx = publishing.collect_blurb_context(conn, work)
+    if not publishing.has_blurb_material(ctx):
+        raise HTTPException(409, "소개글 재료가 없습니다"
+                                 "(로그라인·시놉시스·회차 개요 중 하나 필요)")
+    try:
+        blurb = publishing.make_blurb(meta, work["id"], ctx)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except LLMStepError as e:
+        raise HTTPException(502, f"{e.reason}: {e.detail}")
+    return {"blurb": blurb}
 
 
 class WorkDeleteIn(BaseModel):

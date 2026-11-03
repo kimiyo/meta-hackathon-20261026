@@ -121,6 +121,11 @@ export const api = {
       body: JSON.stringify({ title }),
     }),
   work: (key) => req(`/works/${key}`),
+  uploadCover: (key, body) =>
+    req(`/works/${key}/cover`, { method: "POST", body: JSON.stringify(body) }),
+  deleteCover: (key) => req(`/works/${key}/cover`, { method: "DELETE" }),
+  generateBlurb: (key) =>
+    req(`/works/${key}/blurb`, { method: "POST", timeoutMs: 180000 }),
   createDesign: (workKey, body) =>
     req(`/works/${workKey}/designs`, { method: "POST", body: JSON.stringify(body) }),
   design: (id) => req(`/designs/${id}`),
@@ -159,6 +164,22 @@ export const api = {
     if (version) p.set("version", version);
     return req(`/episodes/${no}/manuscript?${p.toString()}`);
   },
+  publishEdition: (no, workKey) =>
+    req(`/episodes/${no}/publish-edition?${epQuery(workKey)}`),
+  savePublishEdition: (no, body, workKey) =>
+    req(`/episodes/${no}/publish-edition?${epQuery(workKey)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  editionFromApproved: (no, workKey) =>
+    req(`/episodes/${no}/publish-edition/from-approved?${epQuery(workKey)}`, {
+      method: "POST",
+    }),
+  editionTeaser: (no, workKey) =>
+    req(`/episodes/${no}/publish-edition/teaser?${epQuery(workKey)}`, {
+      method: "POST",
+      timeoutMs: 180000,
+    }),
   consistencyAnalyze: (no, workKey) =>
     req(`/episodes/${no}/consistency/analyze?${epQuery(workKey)}`, { method: "POST" }),
   consistencyReset: (no, workKey) =>

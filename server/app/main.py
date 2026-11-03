@@ -100,6 +100,18 @@ class NoStoreStaticFiles(StaticFiles):
         return response
 
 
+@app.get("/covers/{name}")
+def serve_cover(name: str):
+    """Cover image bytes. Per-request lookup so test DBs resolve."""
+    from fastapi.responses import FileResponse
+
+    if "/" in name or "\\" in name or not name:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    path = dbmod.covers_dir() / name
+    if not path.is_file():
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return FileResponse(path)
+
 # Serve the static frontend (plain HTML/CSS/JS, no build step) at /.
 _frontend = PROJECT_ROOT / "frontend"
 if _frontend.is_dir():

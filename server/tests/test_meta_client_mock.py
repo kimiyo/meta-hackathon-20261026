@@ -114,6 +114,25 @@ def test_double_schema_failure_raises():
     assert recs[0]["ok"] == 0
 
 
+def test_length_cutoff_with_empty_output_raises_clear_error():
+    """Reasoning can burn max_tokens before content: name the cutoff."""
+    recs = []
+
+    def h(request):
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": ""},
+                         "finish_reason": "length"}],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 100,
+                      "completion_tokens_details": {"reasoning_tokens": 100}}})
+
+    c = _client(h, recs)
+    with pytest.raises(LLMStepError, match="max_tokens_exhausted"):
+        c.chat_json(bundle="publish-blurb", episode=None, system="s", user="u",
+                    schema=ToySchema, max_tokens=100)
+    assert recs[0]["ok"] == 0
+    assert recs[0]["error"] == "max_tokens_exhausted"
+
+
 def test_budget_exceeded_skips_http():
     def h(request):  # pragma: no cover
         raise AssertionError("must not call HTTP")

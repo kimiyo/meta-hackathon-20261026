@@ -366,13 +366,50 @@
 <!-- ════════════ 화면 5 · 발간중 ════════════ -->
 <section class="screen" id="s5" data-role="publish.screen">
   <div id="publish-error"></div>
-  <div class="screen-lead"><b>발간중</b>발간요청이 완료된 회차 목록입니다. 읽기 전용입니다.</div>
-  <div class="card" data-role="publish.list.panel">
-    <h3>발간중인 회차 <span class="hint" id="publish-count"></span></h3>
-    <table class="tbl">
-      <thead><tr><th>회차</th><th>제목</th><th>원고</th><th>이슈</th><th>발간일시</th><th></th></tr></thead>
-      <tbody id="publish-rows" data-role="publish.list.rows"><tr><td colspan="6"><span class="muted small">불러오는 중…</span></td></tr></tbody>
-    </table>
+  <div class="screen-lead"><b>발간중</b>플랫폼에 올릴 작품 정보와 회차별 최종 출판본을 관리합니다.</div>
+  <div class="seg" role="tablist" aria-label="발간 작업 순서" data-role="publish.tabs.bar" style="margin-bottom:10px">
+    <button class="active" id="tab-pub-work" data-role="publish.tabs.work-btn" role="tab" aria-selected="true">1 · 작품정보</button>
+    <button id="tab-pub-episodes" data-role="publish.tabs.episodes-btn" role="tab" aria-selected="false">2 · 발간중인 회차</button>
+  </div>
+  <div id="tabpane-pub-work" data-role="publish.tabs.work-pane" role="tabpanel">
+  <div class="grid-2eq" data-role="publish.work.wrap">
+    <div class="card" data-role="publish.work.panel">
+      <h3>작품 발간 정보</h3>
+      <label class="f">게재 작품명
+        <input type="text" id="pub-title" data-role="publish.work.title-input" maxlength="80">
+      </label>
+      <label class="f">작가 필명
+        <input type="text" id="pub-pen" data-role="publish.work.pen-input" maxlength="80">
+      </label>
+      <label class="f">작품 소개글
+        <textarea id="pub-blurb" data-role="publish.work.blurb-input" rows="4" maxlength="2000"></textarea>
+      </label>
+      <div class="btn-row"><button class="btn sm" id="btn-pub-blurb" data-role="publish.work.blurb-btn">AI 소개글 생성</button></div>
+    </div>
+    <div class="card" data-role="publish.cover.panel">
+      <h3>커버 이미지 <span class="hint">jpg/png · 5MB 이하</span></h3>
+      <div id="pub-cover-view" data-role="publish.cover.view"><span class="muted small">불러오는 중…</span></div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <label class="btn sm" for="pub-cover-file" data-role="publish.cover.pick-label">파일 선택</label>
+        <input type="file" id="pub-cover-file" data-role="publish.cover.file" accept=".jpg,.jpeg,.png" hidden>
+        <button class="btn sm primary" id="btn-pub-cover-upload" data-role="publish.cover.upload-btn" disabled>업로드</button>
+        <a class="btn sm" id="btn-pub-cover-download" data-role="publish.cover.download-btn" href="#" download hidden>다운로드</a>
+        <button class="btn sm danger" id="btn-pub-cover-delete" data-role="publish.cover.delete-btn" hidden>삭제</button>
+      </div>
+    </div>
+  </div>
+  </div>
+  <div id="tabpane-pub-episodes" data-role="publish.tabs.episodes-pane" role="tabpanel" style="display:none">
+  <div class="grid-2eq" data-role="publish.episodes.wrap">
+    <div class="card" data-role="publish.list.panel">
+      <h3>발간중인 회차 <span class="hint" id="publish-count"></span></h3>
+      <div id="publish-cards" data-role="publish.list.cards"><span class="muted small">불러오는 중…</span></div>
+    </div>
+    <div class="card" data-role="publish.detail.panel">
+      <h3 id="pub-detail-title" data-role="publish.detail.title">회차 상세</h3>
+      <div id="pub-detail-body" data-role="publish.detail.body"><span class="muted">회차를 선택하세요.</span></div>
+    </div>
+  </div>
   </div>
 </section>
 

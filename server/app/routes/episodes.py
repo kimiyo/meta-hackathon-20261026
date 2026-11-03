@@ -10,7 +10,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import consistency, manuscripts, state_machine
+from .. import consistency, manuscripts, publishing, state_machine
 from ..db import find_work, touch_work
 from ..errors import LLMStepError
 from .deps import (get_conn, get_current_author, require_design,
@@ -312,3 +312,91 @@ def get_manuscript(episode_no: int, work: str, version: int | None = None,
     if not row:
         raise HTTPException(404, f"manuscript EP{episode_no} v{version} not found")
     return dict(row)
+
+
+EDITION_TEXT_MAX = 200000
+
+
+@router.get("/episodes/{episode_no}/publish-edition")
+def get_publish_edition(episode_no: int, work: str,
+                        conn: sqlite3.Connection = Depends(get_conn),
+                        author: dict = Depends(get_current_author)):
+    job = _owned_job(conn, work, episode_no, author["id"])
+    wid = job["work_id"]
+    edition = publishing.get_edition(conn, wid, episode_no)
+    approved, _rev = publishing.approved_text(conn, wid, episode_no)
+    nxt = publishing.episode_head_text(conn, wid, episode_no + 1)
+    return {"edition": edition,
+            "platforms": list(publishing.PLATFORMS),
+            "default_platform": publishing.DEFAULT_PLATFORM,
+            "has_approved": bool(approved.strip()),
+            "next_episode_no": episode_no + 1,
+            "next_available": bool(nxt.strip())}
+
+
+class EditionIn(BaseModel):
+    platform: str | None = None
+    text: str | None = None
+
+
+@router.put("/episodes/{episode_no}/publish-edition")
+def put_publish_edition(episode_no: int, body: EditionIn, work: str,
+                        conn: sqlite3.Connection = Depends(get_conn),
+                        author: dict = Depends(get_current_author)):
+    job = _owned_job(conn, work, episode_no, author["id"])
+    if body.text is not None and len(body.text) > EDITION_TEXT_MAX:
+        raise HTTPException(400,
+                            f"text must be ≤{EDITION_TEXT_MAX} chars")
+    try:
+        edition = publishing.upsert_edition(
+            conn, job["work_id"], episode_no, platform=body.platform,
+            text=body.text)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"edition": edition}
+
+
+@router.post("/episodes/{episode_no}/publish-edition/from-approved")
+def edition_from_approved(episode_no: int, work: str,
+                          conn: sqlite3.Connection = Depends(get_conn),
+                          author: dict = Depends(get_current_author)):
+    job = _owned_job(conn, work, episode_no, author["id"])
+    wid = job["work_id"]
+    approved, rev_id = publishing.approved_text(conn, wid, episode_no)
+    if not approved.strip():
+        raise HTTPException(409, "발간 승인된 원고가 없습니다")
+    edition = publishing.upsert_edition(
+        conn, wid, episode_no, text=approved, source_revision_id=rev_id)
+    return {"edition": edition}
+
+
+@router.post("/episodes/{episode_no}/publish-edition/teaser")
+def edition_teaser(episode_no: int, work: str,
+                   conn: sqlite3.Connection = Depends(get_conn),
+                   meta=Depends(get_meta),
+                   author: dict = Depends(get_current_author)):
+    job = _owned_job(conn, work, episode_no, author["id"])
+    wid = job["work_id"]
+    nxt = publishing.episode_head_text(conn, wid, episode_no + 1)
+    if not nxt.strip():
+        raise HTTPException(409, "다음 화 원고가 없습니다")
+    try:
+        teaser = publishing.make_teaser(meta, wid, episode_no, nxt)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except LLMStepError as e:
+        raise HTTPException(502, f"{e.reason}: {e.detail}")
+    edition = publishing.get_edition(conn, wid, episode_no)
+    base = edition["text"] if edition else ""
+    if not base.strip():
+        base, rev_id = publishing.approved_text(conn, wid, episode_no)
+        if not base.strip():
+            raise HTTPException(409, "출판본 원문이 없습니다")
+    else:
+        _approved, rev_id = publishing.approved_text(conn, wid, episode_no)
+    edition = publishing.upsert_edition(
+        conn, wid, episode_no,
+        text=publishing.compose_with_teaser(base, teaser),
+        teaser_episode=episode_no + 1, teaser_text=teaser,
+        source_revision_id=rev_id)
+    return {"edition": edition, "teaser": teaser}
