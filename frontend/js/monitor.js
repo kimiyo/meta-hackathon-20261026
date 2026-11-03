@@ -7,6 +7,8 @@ import { mountManuscriptPanel } from "./manuscript.js";
 
 const WRITING_RESIZER = { resizerId: "writing-resizer", varName: "--writing-left-w",
   storageKey: "writing-left-w", side: "left", min: 260, reserve: 320 };
+const WRITING_RESIZER_RIGHT = { resizerId: "writing-resizer-right", varName: "--writing-right-w",
+  storageKey: "writing-right-w", side: "right", min: 260, reserve: 620 };
 
 // 화면 3 · 집필: 이 화면 자체가 '집필중'이다. 원고 수정은 여기서만 한다.
 let rows = [];
@@ -25,7 +27,10 @@ let msDoc = null;
 function setBusy(v) {
   busy = v;
   for (const b of document.querySelectorAll("#s2 button")) b.disabled = v;
-  if (!v) applyStartGate();
+  if (!v) {
+    applyStartGate();
+    renderWritingChat();
+  }
 }
 
 // 순차 집필: EP N의 첫 시작은 EP N-1이 발간중(PUBLISHING)된 뒤에만 가능.
@@ -232,15 +237,7 @@ function renderDetail() {
       ${d.hasJob && d.state === "WRITING" ? `<button class="btn" data-redraft data-role="writing.episode.redraft-btn">AI로 다시 쓰기</button>` : ""}
       ${d.hasJob ? `<button class="btn" data-review data-role="writing.episode.review-link">작가 검토로 이동 →</button>` : ""}
     </div>
-    ${d.hasJob && d.state !== "WRITING" ? `<div class="small muted" style="margin-top:6px">※ 이 회차는 ${esc(stateKo(d.state))} 상태라 여기서 수정할 수 없습니다.</div>` : ""}
-    ${d.hasJob && d.state === "WRITING" ? `
-    <div class="card" data-role="writing.chat.panel" style="margin-top:10px">
-      <h3>AI 채팅 수정 <span class="hint">지시대로 고쳐 새 버전 저장</span></h3>
-      <div id="writing-chat-messages" data-role="writing.chat.messages" class="chat-box"></div>
-      <div id="writing-chat-hint" data-role="writing.chat.hint" class="small muted" style="margin-bottom:6px"></div>
-      <textarea id="writing-chat-input" data-role="writing.chat.input" placeholder="예: @L12 대사를 더 짧게 고쳐줘 (Enter 전송)"></textarea>
-      <div class="btn-row"><button class="btn primary sm" id="btn-writing-chat-send" data-role="writing.chat.send-btn">전송</button></div>
-    </div>` : ""}`;
+    ${d.hasJob && d.state !== "WRITING" ? `<div class="small muted" style="margin-top:6px">※ 이 회차는 ${esc(stateKo(d.state))} 상태라 여기서 수정할 수 없습니다.</div>` : ""}`;
   box.querySelector("[data-start]")?.addEventListener("click", (e) =>
     startCurrent(e.currentTarget));
   box.querySelector("[data-submit]")?.addEventListener("click", (e) =>
@@ -248,13 +245,6 @@ function renderDetail() {
   box.querySelector("[data-redraft]")?.addEventListener("click", (e) =>
     redraftCurrent(e.currentTarget));
   box.querySelector("[data-review]")?.addEventListener("click", () => goReview());
-  box.querySelector("#btn-writing-chat-send")?.addEventListener("click", sendWritingChat);
-  box.querySelector("#writing-chat-input")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendWritingChat();
-    }
-  });
   mountPanel();
   renderWritingChat();
 }
@@ -262,6 +252,15 @@ function renderDetail() {
 function renderWritingChat() {
   const box = $("writing-chat-messages");
   if (!box) return;
+  const usable = !!detail?.hasJob && detail?.state === "WRITING";
+  const input = $("writing-chat-input");
+  const send = $("btn-writing-chat-send");
+  if (input) input.disabled = !usable;
+  if (send) send.disabled = !usable;
+  if (!usable) {
+    box.innerHTML = `<span class="muted small">집필중 회차에서 사용할 수 있습니다.</span>`;
+    return;
+  }
   box.innerHTML = writingChat.length
     ? writingChat.map((m) =>
         `<div class="msg ${m.role === "user" ? "user" : "assistant"}"><div class="bubble">${esc(m.content)}</div></div>`
@@ -278,6 +277,7 @@ function setWritingChatHint(text) {
 function insertLinePin({ startLine, endLine }) {
   const input = $("writing-chat-input");
   if (!input) return;
+  setWritingChatCollapsed(false);
   const s = input.selectionStart ?? input.value.length;
   const e = input.selectionEnd ?? input.value.length;
   const pin = startLine === endLine ? `@L${startLine} ` : `@L${startLine}-${endLine} `;
@@ -307,6 +307,11 @@ async function sendWritingChat() {
 function setProgressCollapsed(collapsed) {
   localStorage.setItem("writing-progress-collapsed", collapsed ? "1" : "0");
   document.querySelector(".grid-monitor")?.classList.toggle("progress-collapsed", collapsed);
+}
+
+function setWritingChatCollapsed(collapsed) {
+  localStorage.setItem("writing-chat-collapsed", collapsed ? "1" : "0");
+  document.querySelector(".grid-monitor")?.classList.toggle("chat-collapsed", collapsed);
 }
 
 function currentDesignId() {
@@ -438,9 +443,21 @@ export async function refreshBudgetChips() {
 
 export function initMonitor() {
   initColResizer(WRITING_RESIZER);
+  initColResizer(WRITING_RESIZER_RIGHT);
   setProgressCollapsed(localStorage.getItem("writing-progress-collapsed") === "1");
   $("btn-progress-collapse").addEventListener("click", () => setProgressCollapsed(true));
   $("btn-progress-expand").addEventListener("click", () => setProgressCollapsed(false));
+  setWritingChatCollapsed(localStorage.getItem("writing-chat-collapsed") === "1");
+  $("btn-writing-chat-collapse").addEventListener("click", () => setWritingChatCollapsed(true));
+  $("btn-writing-chat-expand").addEventListener("click", () => setWritingChatCollapsed(false));
+  $("btn-writing-chat-send").addEventListener("click", sendWritingChat);
+  $("writing-chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendWritingChat();
+    }
+  });
+  renderWritingChat();
   $("btn-monitor-load").addEventListener("click", () =>
     run(async () => {
       const did = currentDesignId();
@@ -486,6 +503,7 @@ export function initMonitor() {
   document.addEventListener("enter-screen", (e) => {
     if (e.detail?.section !== "s2") return;
     restoreColResizer(WRITING_RESIZER);
+    restoreColResizer(WRITING_RESIZER_RIGHT);
     const cur = getWork();
     if (!cur) return;
     run(async () => {

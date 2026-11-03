@@ -278,6 +278,17 @@
     <div class="center-col">
       <div class="card" id="ep-detail" data-role="writing.episode.panel"><h3>회차 상세</h3><span class="muted">회차를 선택하면 상세 정보가 표시됩니다.</span></div>
     </div>
+    <div class="col-resizer" id="writing-resizer-right" data-role="writing.screen.col-resizer-right" title="드래그하여 너비 조절"></div>
+    <div class="card" id="pane-writing-chat" data-role="writing.chat.panel">
+      <button class="pane-expand" id="btn-writing-chat-expand" data-role="writing.chat.expand-btn" title="AI 채팅 펼치기"><span>◀</span><span class="vlabel">AI 채팅</span></button>
+      <div class="writing-chat-main">
+        <h3 class="split"><span>AI 채팅 수정 <span class="hint">지시대로 고쳐 새 버전 저장</span></span><button class="btn sm" id="btn-writing-chat-collapse" data-role="writing.chat.collapse-btn" title="AI 채팅 접기">▶</button></h3>
+        <div id="writing-chat-messages" data-role="writing.chat.messages" class="chat-box"></div>
+        <div id="writing-chat-hint" data-role="writing.chat.hint" class="small muted" style="margin-bottom:6px"></div>
+        <textarea id="writing-chat-input" data-role="writing.chat.input" placeholder="예: @L12 대사를 더 짧게 고쳐줘 (Enter 전송)"></textarea>
+        <div class="btn-row"><button class="btn primary sm" id="btn-writing-chat-send" data-role="writing.chat.send-btn">전송</button></div>
+      </div>
+    </div>
   </div>
 </section>
 

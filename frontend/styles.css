@@ -93,9 +93,9 @@ main { padding: 18px 12px 60px; width: 100%; }
 section.screen { display: none; }
 section.screen.active { display: block; }
 .grid-2 { display: grid; grid-template-columns: minmax(260px, var(--entities-left-w, 320px)) 8px minmax(0, 1fr); gap: 16px 6px; align-items: start; }
-.grid-monitor { display: grid; grid-template-columns: minmax(260px, var(--writing-left-w, 300px)) 8px minmax(0, 1fr); gap: 16px 6px; align-items: start; }
+.grid-monitor { display: grid; grid-template-columns: minmax(260px, var(--writing-left-w, 300px)) 8px minmax(0, 1fr) 8px minmax(260px, var(--writing-right-w, 340px)); gap: 16px 6px; align-items: start; }
 #pane-progress .pane-expand { display: none; }
-.grid-monitor.progress-collapsed { grid-template-columns: 44px minmax(0, 1fr); }
+.grid-monitor.progress-collapsed { grid-template-columns: 44px minmax(0, 1fr) 8px minmax(260px, var(--writing-right-w, 340px)); }
 .grid-monitor.progress-collapsed > #writing-resizer { display: none; }
 .grid-monitor.progress-collapsed #pane-progress { padding: 8px 6px; }
 .grid-monitor.progress-collapsed #pane-progress .progress-main { display: none; }
@@ -107,6 +107,20 @@ section.screen.active { display: block; }
 }
 .grid-monitor.progress-collapsed #pane-progress .pane-expand:hover { border-color: var(--accent); color: var(--accent-deep); }
 #pane-progress .pane-expand .vlabel { writing-mode: vertical-rl; font-weight: 600; }
+#pane-writing-chat .pane-expand { display: none; }
+.grid-monitor.chat-collapsed { grid-template-columns: minmax(260px, var(--writing-left-w, 300px)) 8px minmax(0, 1fr) 44px; }
+.grid-monitor.chat-collapsed > #writing-resizer-right { display: none; }
+.grid-monitor.chat-collapsed #pane-writing-chat { padding: 8px 6px; }
+.grid-monitor.chat-collapsed #pane-writing-chat .writing-chat-main { display: none; }
+.grid-monitor.chat-collapsed #pane-writing-chat .pane-expand {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 7px;
+  padding: 10px 4px; cursor: pointer; color: var(--ink-soft);
+  font-family: var(--sans); font-size: 12px;
+}
+.grid-monitor.chat-collapsed #pane-writing-chat .pane-expand:hover { border-color: var(--accent); color: var(--accent-deep); }
+#pane-writing-chat .pane-expand .vlabel { writing-mode: vertical-rl; font-weight: 600; }
+.grid-monitor.progress-collapsed.chat-collapsed { grid-template-columns: 44px minmax(0, 1fr) 44px; }
 .grid-review { display: grid; grid-template-columns: minmax(0, 1fr) 8px minmax(280px, var(--review-right-w, 380px)); gap: 16px 6px; align-items: start; }
 .grid-ideas { display: grid; grid-template-columns: minmax(280px, var(--ideas-chat-w, 400px)) 8px minmax(0, 1fr); gap: 16px 6px; align-items: start; }
 .col-resizer { align-self: stretch; width: 8px; cursor: col-resize; touch-action: none; border-radius: 4px; position: relative; }
@@ -530,6 +544,11 @@ ul.tree li.collapsed > ul { display: none; }
   .grid-monitor.progress-collapsed #pane-progress .progress-main { display: block; }
   .grid-monitor.progress-collapsed #pane-progress .pane-expand { display: none; }
   #btn-progress-collapse { display: none; }
+  .grid-monitor.chat-collapsed { grid-template-columns: 1fr; }
+  .grid-monitor.chat-collapsed #pane-writing-chat { padding: 16px 18px; }
+  .grid-monitor.chat-collapsed #pane-writing-chat .writing-chat-main { display: block; }
+  .grid-monitor.chat-collapsed #pane-writing-chat .pane-expand { display: none; }
+  #btn-writing-chat-collapse { display: none; }
   #sdesign-mtabs { display: flex; }
   .grid-design .card { display: none; }
   .grid-design .card.mpane-active { display: block; }
