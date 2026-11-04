@@ -155,4 +155,4 @@ Limitations, stated plainly:
 - Development: built with Muse Code ([log](docs/muse-code-development-log.md)); design decisions recorded in [`docs/구현계획.md`](docs/구현계획.md) (authoritative spec) and [`docs/muse-code-development-log.md`](docs/muse-code-development-log.md).
 - Open-source runtime deps (see [`server/requirements.txt`](server/requirements.txt)): FastAPI, Uvicorn, Pydantic, HTTPX, certifi, pytest.
 - Fonts are OS/browser font stacks (Pretendard/Noto fallbacks) — no vendored font files. Brand symbol, mockups, and sample stories are original to this project ([branding guide](docs/branding/README.md)); no third-party images or manuscripts are included.
-- **License: [TBD — a LICENSE file must be added before the repository goes public]**.
+- **License: [MIT](LICENSE)** — Copyright (c) 2026 Jonghoon Kim.
