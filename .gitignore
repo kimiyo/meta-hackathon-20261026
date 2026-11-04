@@ -1,6 +1,7 @@
 .env
 .playwright-mcp/
 .venv/
-data/*.db
+data/
+*.db
 __pycache__/
 *.pyc
