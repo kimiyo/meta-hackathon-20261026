@@ -471,13 +471,34 @@ def delete_work(key: str, body: WorkDeleteIn,
                 author: dict = Depends(get_current_author)):
     """Permanent delete after title confirmation. AI usage logs stay.
 
-    Work-scoped rows go; global episode_jobs/manuscript_revisions rows stay
-    (episode numbers are global) and become orphans of the deleted design.
+    Every work-scoped row goes (episodes, manuscripts, memory, reviews).
+    works.id has no AUTOINCREMENT, so a recreated novel reuses the id —
+    leftovers would resurface as the new novel's writing. llm_calls stay
+    by design (usage history), as do author-level custom styles.
     """
     work = _work_or_404(conn, key, author["id"])
     if (body.title or "") != work["title"]:
         raise HTTPException(400, "title does not match")
     wid = work["id"]
+    # Episodes/manuscripts/memory/reviews first (FK children before parents).
+    conn.execute("DELETE FROM change_proposal_items WHERE proposal_set_id IN"
+                 " (SELECT proposal_set_id FROM change_proposals"
+                 " WHERE work_id=?)", (wid,))
+    conn.execute("DELETE FROM event_participants WHERE event_id IN"
+                 " (SELECT event_id FROM events WHERE work_id=?)", (wid,))
+    for table in ("entity_mentions", "entity_aliases", "entity_changes",
+                  "entity_snapshots", "entity_relations"):
+        conn.execute(f"DELETE FROM {table} WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM narrative_units WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM change_proposals WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM events WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM entities WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM manuscript_revisions WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM manuscript_docs WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM episode_jobs WHERE work_id=?", (wid,))
+    for table in ("consistency_issues", "consistency_analyses",
+                  "review_messages", "memory_versions"):
+        conn.execute(f"DELETE FROM {table} WHERE work_id=?", (wid,))
     conn.execute("DELETE FROM idea_messages WHERE thread_id IN"
                  " (SELECT id FROM idea_threads WHERE work_id=?)", (wid,))
     conn.execute("DELETE FROM idea_threads WHERE work_id=?", (wid,))
@@ -501,6 +522,9 @@ def delete_work(key: str, body: WorkDeleteIn,
     conn.execute("DELETE FROM story_designs WHERE work_id=?", (wid,))
     conn.execute("DELETE FROM publish_editions WHERE work_id=?", (wid,))
     conn.execute("DELETE FROM style_policies WHERE work_id=?", (wid,))
+    cover = work.get("cover_path") or ""
     conn.execute("DELETE FROM works WHERE id=?", (wid,))
     conn.commit()
+    if cover:
+        publishing.delete_cover_file(cover)
     return {"deleted": wid}

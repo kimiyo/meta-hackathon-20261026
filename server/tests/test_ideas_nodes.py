@@ -210,6 +210,106 @@ def test_delete_work_with_design_threads_and_settings(client, fakes):
         conn.close()
 
 
+def test_delete_work_removes_episodes_manuscripts_memory(client):
+    """Regression: deleted novels resurfaced after id reuse.
+
+    works.id has no AUTOINCREMENT, so a recreated novel reuses the id.
+    Every work-scoped row (jobs, manuscripts, memory, reviews) must go
+    with the work, or the new novel shows the old novel's writing.
+    llm_calls stay by design (usage history is kept).
+    """
+    c, db_path = client
+    w = _mkwork(c)
+    conn = dbmod.connect(db_path)
+    did = conn.execute(
+        "INSERT INTO story_designs(work_id, version, scope_total_episodes,"
+        " concept_json, sections_json, status)"
+        " VALUES(?,1,2,'{}','[]','approved')", (w["id"],)).lastrowid
+    rev = conn.execute(
+        "INSERT INTO manuscript_revisions(work_id, episode_no, version, text,"
+        " created_at) VALUES(?,1,1,'old','t')", (w["id"],)).lastrowid
+    conn.execute(
+        "INSERT INTO narrative_units(work_id, episode_no, manuscript_revision_id,"
+        " unit_index, start_offset, end_offset, text_hash)"
+        " VALUES(?,1,?,0,0,3,'h')", (w["id"], rev))
+    conn.execute(
+        "INSERT INTO episode_jobs(work_id, episode_no, design_id, state,"
+        " manuscript_revision_id, updated_at)"
+        " VALUES(?,1,?,'PUBLISHING',?,'t')", (w["id"], did, rev))
+    conn.execute("INSERT INTO manuscript_docs(work_id, episode_no)"
+                 " VALUES(?,1)", (w["id"],))
+    for eid in ("ch_del1", "ch_del2"):
+        conn.execute(
+            "INSERT INTO entities(entity_id, work_id, type, canonical_name,"
+            " first_episode) VALUES(?,?, 'character',?,1)",
+            (eid, w["id"], eid))
+    conn.execute(
+        "INSERT INTO entity_mentions(entity_id, work_id, episode_no,"
+        " manuscript_revision_id, quote) VALUES('ch_del1',?,1,?,'q')",
+        (w["id"], rev))
+    conn.execute(
+        "INSERT INTO entity_aliases(work_id, entity_id, alias)"
+        " VALUES(?,'ch_del1','a')", (w["id"],))
+    conn.execute(
+        "INSERT INTO entity_changes(entity_id, work_id, episode_no,"
+        " manuscript_revision_id, attribute_path, operation, committed_at)"
+        " VALUES('ch_del1',?,1,?,'age','set','t')", (w["id"], rev))
+    conn.execute(
+        "INSERT INTO entity_snapshots(entity_id, work_id, episode_no,"
+        " attributes_json) VALUES('ch_del1',?,1,'{}')", (w["id"],))
+    conn.execute(
+        "INSERT INTO entity_relations(work_id, subject_id, predicate,"
+        " object_id, valid_from_episode)"
+        " VALUES(?,'ch_del1','knows','ch_del2',1)", (w["id"],))
+    evt = conn.execute(
+        "INSERT INTO events(work_id, episode_no, summary)"
+        " VALUES(?,1,'e')", (w["id"],)).lastrowid
+    conn.execute("INSERT INTO event_participants(event_id, entity_id)"
+                 " VALUES(?,'ch_del1')", (evt,))
+    sid = conn.execute(
+        "INSERT INTO change_proposals(work_id, episode_no,"
+        " manuscript_revision_id, created_at) VALUES(?,1,?,'t')",
+        (w["id"], rev)).lastrowid
+    conn.execute("INSERT INTO change_proposal_items(proposal_set_id, operation)"
+                 " VALUES(?,'set')", (sid,))
+    conn.execute("INSERT INTO consistency_issues(work_id, episode_no, created_at)"
+                 " VALUES(?,1,'t')", (w["id"],))
+    conn.execute("INSERT INTO consistency_analyses(work_id, episode_no, created_at)"
+                 " VALUES(?,1,'t')", (w["id"],))
+    conn.execute("INSERT INTO review_messages(work_id, episode_no, role, content,"
+                 " created_at) VALUES(?,1,'user','m','t')", (w["id"],))
+    conn.execute("INSERT INTO memory_versions(work_id, version, episode_no,"
+                 " created_at) VALUES(?,1,1,'t')", (w["id"],))
+    conn.execute("INSERT INTO llm_calls(ts, bundle, work_id, episode_no, model, ok)"
+                 " VALUES('t','drafting',?,1,'m',1)", (w["id"],))
+    conn.commit()
+    conn.close()
+    r = c.request("DELETE", f"/api/v1/works/{w['uid']}",
+                  json={"title": w["title"]})
+    assert r.status_code == 200, r.text
+    conn = dbmod.connect(db_path)
+    try:
+        for table in ["episode_jobs", "manuscript_revisions", "manuscript_docs",
+                      "narrative_units", "change_proposals",
+                      "change_proposal_items", "consistency_issues",
+                      "consistency_analyses", "review_messages", "entities",
+                      "entity_aliases", "entity_changes", "entity_mentions",
+                      "entity_relations", "entity_snapshots", "events",
+                      "event_participants", "memory_versions"]:
+            n = conn.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"]
+            assert n == 0, f"{table} not cleaned: {n}"
+        n = conn.execute("SELECT COUNT(*) c FROM llm_calls").fetchone()["c"]
+        assert n == 1, "usage history must stay"
+    finally:
+        conn.close()
+    # A same-title successor must start clean even if the id is reused.
+    w2 = _mkwork(c, title=w["title"])
+    r = c.get(f"/api/v1/episodes/1?work={w2['uid']}")
+    assert r.status_code == 404, r.text
+    r = c.get(f"/api/v1/episodes/1/entity-proposals?work={w2['uid']}")
+    assert r.status_code == 404, r.text
+
+
 # ---------------------------------------------------------------- ideas
 
 def test_threads_and_chat_roundtrip(client, fakes):
