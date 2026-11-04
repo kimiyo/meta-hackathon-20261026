@@ -364,6 +364,7 @@ async function sendChat() {
   const send = $("btn-chat-send");
   const orig = send.textContent;
   send.textContent = t("ideas.chat.sending");
+  send.disabled = true;
   await run(async () => {
     const out = await api.postMessage(sentTid, content, parseMentions(content), null, {
       include_synopsis: $("syn-include").checked,
@@ -381,6 +382,7 @@ async function sendChat() {
     renderSettings();
   });
   send.textContent = orig;
+  send.disabled = false;
   if (sending && sentTid === threadId) {
     // AI 호출 실패: 사용자 메시지는 서버에 저장되어 있으므로 동기화
     sending = false;
