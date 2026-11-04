@@ -23,6 +23,15 @@ export function showError(boxId, message) {
     : "";
 }
 
+// 에러가 아닌 정보성 안내는 파란 배너로 보여준다. 빈 문자열이면 지운다.
+export function showInfo(boxId, message) {
+  const box = $(boxId);
+  if (!box) return;
+  box.innerHTML = message
+    ? `<div class="notice info">${esc(message)}</div>`
+    : "";
+}
+
 // 화면 하단 토스트로 잠시 보여주고 사라진다.
 export function showToast(message, ms = 2500) {
   let wrap = $("toast-wrap");

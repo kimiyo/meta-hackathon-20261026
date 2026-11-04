@@ -153,7 +153,9 @@ def latest_analysis(episode_no: int, work: str,
     job = _owned_job(conn, work, episode_no, author["id"])
     return {"episode_no": episode_no,
             "analysis": consistency.latest_analysis(conn, episode_no,
-                                                    job["work_id"])}
+                                                    job["work_id"]),
+            "comparable": consistency.has_comparison_basis(
+                conn, episode_no, job["work_id"])}
 
 
 class IssueStatusIn(BaseModel):

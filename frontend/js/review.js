@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { t } from "./i18n.js";
-import { $, esc, showError, showToast, stateKo, severityKo, issueStatusKo, verdictKo, kindKo, modeKo, historyTimelineHtml } from "./util.js";
+import { $, esc, showError, showInfo, showToast, stateKo, severityKo, issueStatusKo, verdictKo, kindKo, modeKo, historyTimelineHtml } from "./util.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
 import { mountManuscriptPanel } from "./manuscript.js";
 import { getWork } from "./work.js";
@@ -25,6 +25,7 @@ let messages = [];
 let pending = null;
 let aliases = [];
 let analysis = null;
+let comparable = null;
 let entityOptions = [];
 let busy = false;
 
@@ -91,6 +92,16 @@ function updateConsistencyResetButton() {
   btn.disabled = !hasReviewData();
 }
 
+// 비교 근거(직전화·확정 기억)가 없으면 분석 실행을 미리 막고 안내한다.
+// EP 1처럼 아직 대조할 것이 없을 때 skipped 왕복을 피하기 위함이다.
+function updateAnalyzeGate() {
+  const btn = $("btn-consistency-analyze");
+  if (!btn) return;
+  const noBasis = comparable === false;
+  btn.disabled = busy || !inReview() || noBasis;
+  btn.title = noBasis ? t("review.analyze.noBasis") : "";
+}
+
 function openReviewResetConfirm() {
   const bits = [];
   if (issues.length) bits.push(t("review.consistencyReset.issues", { n: issues.length }));
@@ -139,12 +150,13 @@ function inReview() {
 function updateActionState() {
   const ok = !busy && inReview();
   for (const id of ["btn-back-to-writing", "btn-request-publish",
-                    "btn-consistency-analyze", "btn-consistency-send",
+                    "btn-consistency-send",
                     "btn-entity-extract", "btn-entity-save",
                     "btn-entity-chat"]) {
     const b = $(id);
     if (b) b.disabled = !ok;
   }
+  updateAnalyzeGate();
   for (const id of ["consistency-input", "entity-chat-input"]) {
     const input = $(id);
     if (input) input.disabled = !ok;
@@ -273,6 +285,7 @@ async function load(epNo) {
   messages = msgs.messages ?? [];
   pending = prop;
   analysis = ana.analysis ?? null;
+  comparable = ana.comparable ?? null;
   aliases = aliasList;
   entityOptions = ents.entities ?? [];
   renderAll();
@@ -339,7 +352,8 @@ function renderMessages() {
 function renderAnalysis() {
   const box = $("analysis-status");
   if (!analysis) {
-    box.innerHTML = `<span class="muted small">${t("review.analysis.beforeAnalysis")}</span>`;
+    box.innerHTML = `<span class="muted small">${t("review.analysis.beforeAnalysis")}`
+      + (comparable === false ? ` · ${t("review.analyze.noBasis")}` : "") + `</span>`;
     return;
   }
   const counts = (() => { try { return JSON.parse(analysis.counts_json || "{}"); } catch { return {}; } })();
@@ -389,6 +403,7 @@ function renderIssues() {
   const open = issues.filter((i) => i.status === "open").length;
   $("issue-count").textContent = t("review.issues.count", { open, total: issues.length });
   updateConsistencyResetButton();
+  updateAnalyzeGate();
   renderAnalysis();
   if (!issues.length) {
     box.innerHTML = `<span class="muted small">${t("review.issues.empty")}</span>`;
@@ -776,9 +791,12 @@ async function refreshIssues() {
 
 async function refreshAnalysis() {
   try {
-    analysis = (await api.latestAnalysis(currentEp(), currentWorkKey())).analysis ?? null;
+    const ana = await api.latestAnalysis(currentEp(), currentWorkKey());
+    analysis = ana.analysis ?? null;
+    comparable = ana.comparable ?? null;
   } catch {
     analysis = null;
+    comparable = null;
   }
   renderIssues();
   renderNotice();
@@ -838,7 +856,7 @@ export function initReview() {
         if (out.partial) {
           showError("review-error", t("review.analyze.partial", { error: out.error ?? "" }));
         } else if (out.skipped) {
-          showError("review-error", t("review.analyze.skipped"));
+          showInfo("review-error", t("review.analyze.skipped"));
         }
       } finally {
         btn.textContent = t("review.analyze.runFull");

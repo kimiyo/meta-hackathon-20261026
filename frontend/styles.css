@@ -354,6 +354,7 @@ details.outline .body b { color: var(--ink); }
 .notice.err { background: var(--red-bg); border: 1px solid #dfb3ad; }
 .notice.warn { background: var(--amber-bg); border: 1px solid #dcc489; }
 .notice.ok { background: var(--green-bg); border: 1px solid #b3d2bd; }
+.notice.info { background: var(--blue-bg); border: 1px solid #b9c9e8; }
 
 .chip { display: inline-block; font-size: 11.5px; background: var(--gray-bg); border-radius: 5px; padding: 2px 8px; margin: 1px 2px; }
 .mono { font-family: var(--mono); }

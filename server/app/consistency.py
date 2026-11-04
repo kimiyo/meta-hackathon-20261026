@@ -60,6 +60,22 @@ def _memory_context(conn: sqlite3.Connection, episode_no: int, work_id: int,
             "relations": relations}
 
 
+def _basis_present(prev: dict | None, mem: dict) -> bool:
+    return prev is not None or bool(
+        mem["entities"] or mem["rules"] or mem["recent_events"])
+
+
+def has_comparison_basis(conn: sqlite3.Connection, episode_no: int,
+                         work_id: int) -> bool:
+    """비교 근거(직전화 원문 또는 그 이전 확정 기억)가 있는지.
+
+    analyze_episode의 skip 분기와 동일한 조건이다. EP 1처럼 비교
+    대상이 없을 때 UI가 분석 실행 전에 미리 안내하는 데 쓴다.
+    """
+    return _basis_present(prev_manuscript(conn, episode_no, work_id),
+                          _memory_context(conn, episode_no, work_id))
+
+
 def _current_manuscript(conn: sqlite3.Connection, episode_no: int,
                         revision_id: int | None, work_id: int) -> str:
     if revision_id:
@@ -526,8 +542,7 @@ def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
     base = memory.current_memory_version(conn, work_id)
     prev = prev_manuscript(conn, episode_no, work_id)
     mem = _memory_context(conn, episode_no, work_id)
-    has_memory = bool(mem["entities"] or mem["rules"] or mem["recent_events"])
-    if prev is None and not has_memory:
+    if not _basis_present(prev, mem):
         analysis = record_analysis(
             conn, work_id=work_id, episode_no=episode_no,
             revision_id=revision_id, base_version=base, status="skipped",

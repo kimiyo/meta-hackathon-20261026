@@ -154,6 +154,13 @@ def test_analyze_skips_without_previous_memory(conn):
     assert meta.calls == []  # AI 호출 없음
 
 
+def test_has_comparison_basis(conn):
+    assert consistency.has_comparison_basis(conn, 1, 1) is False
+    drafting.save_revision(conn, 1, 1, "첫 회차 원문")
+    assert consistency.has_comparison_basis(conn, 1, 1) is False
+    assert consistency.has_comparison_basis(conn, 2, 1) is True
+
+
 def test_analyze_registers_issues(conn):
     drafting.save_revision(conn, 1, 1, "그는 어제 죽었다")
     rev = drafting.save_revision(conn, 1, 2, "그는 어제 죽었는데 오늘 웃었다")
