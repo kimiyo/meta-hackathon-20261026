@@ -81,7 +81,7 @@ def _resolve_ref(conn, ref: str,
 def extract_changes(meta, conn: sqlite3.Connection, *, episode_no: int,
                     revision_id: int, manuscript: str, work_id: int,
                     base_memory_version: int = 0, model_version: str = "",
-                    max_tokens: int = 8000,
+                    max_tokens: int | None = None,
                     author_instruction: str = "",
                     writing_locale: str | None = None,
                     market: str | None = None) -> dict:

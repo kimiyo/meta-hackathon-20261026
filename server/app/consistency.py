@@ -518,7 +518,7 @@ def fix_manuscript_issues(meta, conn: sqlite3.Connection, *, episode_no: int,
 
 def analyze_episode(meta, conn: sqlite3.Connection, *, episode_no: int,
                     revision_id: int | None, work_id: int,
-                    max_tokens: int = 8000,
+                    max_tokens: int | None = None,
                     writing_locale: str | None = None,
                     market: str | None = None) -> dict:
     """원고 전체를 이전 기억과 대조해 일관성 이슈 목록을 만든다.

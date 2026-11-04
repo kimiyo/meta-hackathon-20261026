@@ -19,7 +19,7 @@ COHERENCE_MIN = 0.6
 
 def run_quality(meta, conn: sqlite3.Connection, *, episode_no: int,
                 revision_id: int, manuscript: str, outline: dict, work_id: int,
-                max_tokens: int = 8000,
+                max_tokens: int | None = None,
                 writing_locale: str | None = None,
                 market: str | None = None) -> dict:
     from . import meta_client as metac

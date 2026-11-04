@@ -82,7 +82,7 @@ def _outline_user(keywords: str, concept: dict, start: int, end: int,
 def generate_concept(meta, *, keywords: str, total_episodes: int,
                      constraints: list[str], prev_feedback: str = "",
                      work_id: int | None = None,
-                     max_tokens: int,
+                     max_tokens: int | None,
                      writing_locale: str = "ko-KR",
                      market: str = "KR",
                      system: str | None = None) -> dict:
@@ -106,7 +106,7 @@ def generate_concept(meta, *, keywords: str, total_episodes: int,
 def generate_outline_batch(meta, *, keywords: str, concept: dict, start: int,
                            end: int, constraints: list[str], prev_summary: str,
                            work_id: int | None = None,
-                           max_tokens: int,
+                           max_tokens: int | None,
                            writing_locale: str = "ko-KR",
                            market: str = "KR",
                            system: str | None = None) -> dict:
@@ -130,7 +130,8 @@ def generate_outline_batch(meta, *, keywords: str, concept: dict, start: int,
 def generate_design(meta, conn: sqlite3.Connection, *, work_id: int,
                     keywords: str, total_episodes: int,
                     constraints: list[str] | None = None,
-                    prev_feedback: str = "", max_tokens: int = 8000) -> dict:
+                    prev_feedback: str = "",
+                    max_tokens: int | None = None) -> dict:
     """Full design generation + persistence. Returns design summary."""
     from . import meta_client as metac
 

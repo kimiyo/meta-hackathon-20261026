@@ -125,7 +125,8 @@ def _accepts_i18n_kwargs(fn: Callable) -> bool:
 
 def chat_with_provenance(meta, *, bundle: str, episode: int | None,
                          system: str, user: str, schema: type[BaseModel],
-                         max_tokens: int, work_id: int | None = None,
+                         max_tokens: int | None = None,
+                         work_id: int | None = None,
                          writing_locale: str = DEFAULT_WRITING_LOCALE,
                          market: str = DEFAULT_MARKET,
                          prompt_feature: str = "",
@@ -201,6 +202,7 @@ class MetaClient:
         timeout_s: int = 120,
         max_retry: int = 3,
         daily_budget: int = 1_000_000,
+        default_max_tokens: int = 8000,
         recorder: Callable[[dict], None] | None = None,
         budget_checker: Callable[[], None] | None = None,
         http_client: httpx.Client | None = None,
@@ -211,6 +213,7 @@ class MetaClient:
         self._timeout_s = timeout_s
         self._max_retry = max_retry
         self._daily_budget = daily_budget
+        self._default_max_tokens = default_max_tokens
         self._recorder = recorder or (lambda record: None)
         self._budget_checker = budget_checker or (lambda: None)
         self._http = http_client  # test seam; otherwise built per call
@@ -231,7 +234,7 @@ class MetaClient:
         system: str,
         user: str,
         schema: type[BaseModel],
-        max_tokens: int,
+        max_tokens: int | None = None,
         work_id: int | None = None,
         writing_locale: str = DEFAULT_WRITING_LOCALE,
         market: str = DEFAULT_MARKET,
@@ -241,6 +244,8 @@ class MetaClient:
         preset_version: str = "",
     ) -> dict:
         """Call the model, force JSON, validate against schema. Structured errors."""
+        if max_tokens is None:
+            max_tokens = self._default_max_tokens
         locale = writing_locale or DEFAULT_WRITING_LOCALE
         i18n = {"market": market or "", "writing_locale": locale,
                 "prompt_feature": prompt_feature or "",
@@ -465,6 +470,7 @@ def build_client(settings, recorder=None, budget_checker=None) -> MetaClient:
         timeout_s=settings.request_timeout_s,
         max_retry=settings.llm_max_retry,
         daily_budget=settings.daily_token_budget,
+        default_max_tokens=settings.max_tokens_per_call,
         recorder=recorder,
         budget_checker=budget_checker,
     )

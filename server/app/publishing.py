@@ -174,7 +174,7 @@ def make_blurb(meta, work_id: int, ctx: dict,
             ctx, ensure_ascii=False))
     out = metac.chat_with_provenance(
         meta, bundle="publish-blurb", episode=None, system=system,
-        work_id=work_id, user=user, schema=BlurbOut, max_tokens=8000,
+        work_id=work_id, user=user, schema=BlurbOut,
         writing_locale=writing_locale, market=market,
         prompt_feature="blurb")
     blurb = (out.get("blurb") or "").strip()

@@ -337,6 +337,31 @@ def test_extract_empty_result_is_successful_empty(conn):
     assert row["status"] == "pending"  # 성공한 빈 실행으로 저장
 
 
+def test_extract_inherits_client_default_max_tokens(conn):
+    from app import extraction
+
+    class CapMeta:
+        def __init__(self):
+            self.seen = []
+
+        def chat_json(self, *, bundle, episode, system, user, schema,
+                      max_tokens, work_id=None):
+            self.seen.append(max_tokens)
+            return schema.model_validate(
+                {"items": [], "mentions": [], "events": []}).model_dump()
+
+    rev = drafting.save_revision(conn, 1, 1, "본문")
+    meta = CapMeta()
+    extraction.extract_changes(meta, conn, episode_no=1,
+                               revision_id=rev["revision_id"],
+                               manuscript="본문", work_id=1)
+    extraction.extract_changes(meta, conn, episode_no=1,
+                               revision_id=rev["revision_id"],
+                               manuscript="본문", work_id=1,
+                               max_tokens=1234)
+    assert meta.seen == [None, 1234]
+
+
 def test_extract_passes_author_instruction(conn):
     from app import extraction
     from tests.test_consistency import IssueMeta

@@ -36,7 +36,7 @@ def _excerpt(text: str, start: int | None, end: int | None, window: int = 200) -
 def verify_proposals(meta, conn: sqlite3.Connection, *, episode_no: int,
                      revision_id: int, proposal_set_id: int, manuscript: str,
                      world_rules: list[str] | None = None, work_id: int | None = None,
-                     max_tokens: int = 8000,
+                     max_tokens: int | None = None,
                      writing_locale: str | None = None,
                      market: str | None = None) -> dict:
     items = [i for i in memory.get_proposals(conn, episode_no, work_id)

@@ -49,6 +49,21 @@ def test_chat_json_success_and_record():
     assert "SECRETKEY123" not in json.dumps(r)
 
 
+def test_chat_json_uses_client_default_max_tokens():
+    seen = []
+
+    def h(request):
+        seen.append(json.loads(request.content.decode())["max_tokens"])
+        return httpx.Response(200, json=_ok_payload('{"answer": "yes"}'))
+
+    c = _client(h, [], default_max_tokens=20000)
+    c.chat_json(bundle="planning", episode=None, system="s", user="u",
+                schema=ToySchema)
+    c.chat_json(bundle="planning", episode=None, system="s", user="u",
+                schema=ToySchema, max_tokens=100)
+    assert seen == [20000, 100]
+
+
 def test_retry_on_500_then_success():
     records = {"n": 0}
 

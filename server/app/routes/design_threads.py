@@ -119,7 +119,7 @@ def post_message(thread_id: int, body: ThreadMessageIn,
             user=design_threads.node_context(conn, node, extra,
                                              history=history,
                                              writing_locale=writing_locale),
-            schema=sch.DesignChatOut, max_tokens=8000,
+            schema=sch.DesignChatOut,
             work_id=work_id, writing_locale=writing_locale, market=market,
             prompt_feature="design_chat",
             preset_id=preset_id, preset_version=preset_version)
