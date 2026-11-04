@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { $, esc, showError, stateKo } from "./util.js";
+import { $, esc, showError, showInfo, stateKo } from "./util.js";
 import { getWork } from "./work.js";
 import { go, novelPath } from "./router.js";
 import { initColResizer, restoreColResizer } from "./resizer.js";
@@ -377,9 +377,26 @@ async function withPanelSaved(btn, fn) {
   });
 }
 
+// 409(이미 시작됨)는 뒤처진 화면에서의 클릭이므로, 최신 상태로
+// 새로고침하고 빨간 오류가 아닌 파란 안내로 알린다.
+async function handleStartConflict(ep, e) {
+  if (e?.status !== 409) return false;
+  await load(currentDesignId());
+  await fetchDetail(ep);
+  await refreshBudgetChips();
+  showInfo("monitor-error", t("monitor.alreadyStarted"));
+  return true;
+}
+
 async function startCurrent(btn) {
   await withPanelSaved(btn, async () => {
-    await api.startEpisode(detail.ep, Number(currentDesignId()), currentWorkKey());
+    try {
+      await api.startEpisode(detail.ep, Number(currentDesignId()), currentWorkKey());
+    } catch (e) {
+      if (e?.status !== 409) throw e;
+      // withPanelSaved의 후속 새로고침이 최신 상태를 불러온다.
+      showInfo("monitor-error", t("monitor.alreadyStarted"));
+    }
   });
 }
 
@@ -398,7 +415,12 @@ async function redraftCurrent(btn) {
 async function rowAction(ep, row) {
   if (!row?.job) {
     await run(async () => {
-      await api.startEpisode(ep, Number(currentDesignId()), currentWorkKey());
+      try {
+        await api.startEpisode(ep, Number(currentDesignId()), currentWorkKey());
+      } catch (e) {
+        if (await handleStartConflict(ep, e)) return;
+        throw e;
+      }
       await load(currentDesignId());
       await fetchDetail(ep);
       await refreshBudgetChips();

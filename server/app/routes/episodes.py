@@ -60,8 +60,12 @@ def start_episode(episode_no: int, body: StartIn, work: str,
         raise HTTPException(400, f"design {body.design_id} is not in this work")
     job = state_machine.get_job(conn, wid, episode_no)
     if job is not None:
-        raise HTTPException(409, f"episode {episode_no} is already being"
-                                 f" written in design {job['design_id']}")
+        loc = metac.work_locale(conn, wid)[1]
+        if loc == "en-US":
+            raise HTTPException(409, f"episode {episode_no} is already started"
+                                     f" ({job['state']})")
+        raise HTTPException(409, f"{episode_no}화는 이미 시작되었습니다"
+                                 f"({job['state']})")
     try:
         out = state_machine.start_writing(conn, meta, wid, episode_no,
                                           design_id=body.design_id)
@@ -173,14 +177,17 @@ def design_episodes(design_id: int,
                     conn: sqlite3.Connection = Depends(get_conn),
                     author: dict = Depends(get_current_author)):
     """Outlines joined with jobs (for the writing monitor)."""
-    require_design(conn, design_id, author["id"])
+    design = require_design(conn, design_id, author["id"])
     outlines = conn.execute(
         "SELECT episode_no, title FROM episode_outlines WHERE design_id=?"
         " ORDER BY episode_no", (design_id,)).fetchall()
     if not outlines:
         raise HTTPException(404, f"design {design_id} not found")
+    # Episode identity is (work, episode_no): a job started under one design
+    # must show under every design of the same work, otherwise the monitor
+    # offers a phantom Start button that only 409s.
     jobs = {r["episode_no"]: dict(r) for r in conn.execute(
-        "SELECT * FROM episode_jobs WHERE design_id=?", (design_id,))}
+        "SELECT * FROM episode_jobs WHERE work_id=?", (design["work_id"],))}
     return {"design_id": design_id, "episodes": [
         {"episode_no": o["episode_no"], "title": o["title"],
          "job": ({k: jobs[o["episode_no"]][k] for k in

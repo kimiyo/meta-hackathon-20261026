@@ -187,6 +187,7 @@ def test_episodes_api(api_client):
         r = api_client.post(f"/api/v1/episodes/1/start?work={wid}",
                             json={"design_id": did})
         assert r.status_code == 409
+        assert "이미 시작" in r.json()["detail"]
         r = api_client.get(f"/api/v1/episodes/1?work={wid}")
         assert r.json()["revisions"][0]["length"] == 5000
         assert r.json()["issues"] == {"open": 0, "total": 0}
@@ -194,6 +195,60 @@ def test_episodes_api(api_client):
         assert len(r.json()["text"]) == 5000
         r = api_client.get(f"/api/v1/episodes/9?work={wid}")
         assert r.status_code == 404
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
+def test_duplicate_start_message_en(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_drafting import FakeMeta as DraftFake
+    from tests.test_planning import FakeMeta as PlanFake
+
+    wid = api_client.post("/api/v1/works", json={
+        "title": "EN", "market": "US",
+        "writing_locale": "en-US"}).json()["id"]
+    app.dependency_overrides[get_meta] = lambda: PlanFake(2)
+    did = api_client.post(f"/api/v1/works/{wid}/designs",
+                          json={"keywords": "k", "total_episodes": 2}).json()["design_id"]
+    app.dependency_overrides[get_meta] = lambda: DraftFake(["word " * 6000])
+    try:
+        r = api_client.post(f"/api/v1/episodes/1/start?work={wid}",
+                            json={"design_id": did})
+        assert r.status_code == 200, r.text
+        r = api_client.post(f"/api/v1/episodes/1/start?work={wid}",
+                            json={"design_id": did})
+        assert r.status_code == 409
+        assert r.json()["detail"] == "episode 1 is already started (WRITING)"
+    finally:
+        del app.dependency_overrides[get_meta]
+
+
+def test_design_episodes_shows_jobs_across_designs(api_client):
+    from app.routes.works import get_meta
+    from app.main import app
+    from tests.test_drafting import FakeMeta as DraftFake
+    from tests.test_planning import FakeMeta as PlanFake
+
+    wid = api_client.post("/api/v1/works", json={"title": "w"}).json()["id"]
+    app.dependency_overrides[get_meta] = lambda: PlanFake(2)
+    did_a = api_client.post(
+        f"/api/v1/works/{wid}/designs",
+        json={"keywords": "k", "total_episodes": 2}).json()["design_id"]
+    app.dependency_overrides[get_meta] = lambda: DraftFake(["가" * 5000])
+    try:
+        r = api_client.post(f"/api/v1/episodes/1/start?work={wid}",
+                            json={"design_id": did_a})
+        assert r.status_code == 200, r.text
+        app.dependency_overrides[get_meta] = lambda: PlanFake(2)
+        did_b = api_client.post(
+            f"/api/v1/works/{wid}/designs",
+            json={"keywords": "k2", "total_episodes": 2}).json()["design_id"]
+        assert did_b != did_a
+        eps = api_client.get(f"/api/v1/designs/{did_b}/episodes").json()["episodes"]
+        ep1 = next(e for e in eps if e["episode_no"] == 1)
+        assert ep1["job"] is not None
+        assert ep1["job"]["state"] == "WRITING"
     finally:
         del app.dependency_overrides[get_meta]
 
@@ -749,6 +804,16 @@ def test_analyze_records_completed_analysis(api_client):
         assert ana["manuscript_revision_id"] is not None
     finally:
         del app.dependency_overrides[get_meta]
+
+
+def test_latest_analysis_reports_comparable(api_client):
+    wid = _started_in_review(api_client)
+    r = api_client.get(
+        f"/api/v1/episodes/1/consistency/analyses/latest?work={wid}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["analysis"] is None
+    assert body["comparable"] is False
 
 
 def test_consistency_reset_clears_issues(api_client):
