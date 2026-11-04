@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StorySpine — One-page overview</title>
+<style>
+  :root {
+    --paper: #F7F4EC;
+    --paper-dim: rgba(247, 244, 236, .72);
+    --paper-faint: rgba(247, 244, 236, .42);
+    --forest: #214E40;
+    --forest-hi: #3E7B66;
+    --ink: #13201C;
+    --ink-2: #1A2A25;
+    --brass: #C9984F;
+    --brass-dim: rgba(201, 152, 79, .55);
+    --amber: #F0A53A;
+    --ok: #7FC7A8;
+    --serif: Georgia, "Times New Roman", serif;
+    --sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--ink); }
+  body {
+    font-family: var(--sans); color: var(--paper);
+    background:
+      radial-gradient(1200px 620px at 78% 58%, rgba(62, 123, 102, .30), transparent 70%),
+      radial-gradient(900px 500px at 8% 0%, rgba(201, 152, 79, .10), transparent 70%),
+      linear-gradient(180deg, #13201C 0%, #172823 100%);
+  }
+  .slide { position: relative; width: 1920px; height: 1080px; padding: 48px 80px 40px; }
+
+  /* ---------- header ---------- */
+  .top { display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 16px; }
+  .brand svg { width: 46px; height: 46px; }
+  .brand .name { font-size: 30px; font-weight: 700; letter-spacing: -.3px; }
+  .brand .sep { width: 1px; height: 28px; background: var(--paper-faint); margin: 0 6px; }
+  .brand .desc { font-size: 18px; color: var(--paper-dim); letter-spacing: .2px; }
+  .event { font-size: 15px; letter-spacing: 2.4px; text-transform: uppercase; color: var(--brass);
+           border: 1px solid var(--brass-dim); padding: 9px 18px; border-radius: 999px; }
+
+  .hero { display: grid; grid-template-columns: 1110px 1fr; gap: 70px; margin-top: 38px; align-items: end; }
+  .eyebrow { font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--amber); margin-bottom: 14px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 74px; line-height: 1.04; letter-spacing: -1.4px; }
+  h1 em { font-style: italic; color: var(--brass); }
+  .pitch { font-size: 21px; line-height: 1.5; color: var(--paper-dim); padding-bottom: 6px; }
+  .pitch b { color: var(--paper); font-weight: 600; }
+
+  /* ---------- spine timeline ---------- */
+  .spine { position: relative; height: 372px; margin-top: 26px; }
+  .spine svg { position: absolute; inset: 0; }
+  .card {
+    position: absolute; top: 0; width: 372px; padding: 16px 20px 16px;
+    background: rgba(247, 244, 236, .97); color: #202C29; border-radius: 10px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, .35);
+  }
+  .card .k { display: flex; justify-content: space-between; align-items: center;
+             font-size: 13px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: var(--forest); }
+  .card .tag { font-size: 12px; letter-spacing: .6px; padding: 3px 9px; border-radius: 999px; font-weight: 700; }
+  .card .q { font-family: var(--serif); font-size: 21px; line-height: 1.3; margin-top: 8px; }
+  .card .meta { font-size: 13.5px; color: #5B6B66; margin-top: 8px; }
+  .card.rule .tag { background: #E3EDE8; color: var(--forest); }
+  .card.change .tag { background: #E3EDE8; color: var(--forest); }
+  .card.alert { border: 2px solid var(--amber); }
+  .card.alert .k { color: #A35F00; }
+  .card.alert .tag { background: #FBE7C6; color: #8A4E00; }
+  .card.alert .q { text-decoration: underline wavy rgba(240, 165, 58, .9); text-underline-offset: 5px; text-decoration-thickness: 1.5px; }
+
+  .spine .axis-title { position: absolute; left: 1400px; top: 262px; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--ok); }
+  .spine .finale { position: absolute; right: 0; top: 124px; text-align: right; }
+  .finale .t { font-family: var(--serif); font-size: 26px; font-style: italic; color: var(--paper); }
+  .finale .s { font-size: 14px; color: var(--paper-dim); margin-top: 3px; }
+  .illus { position: absolute; right: 0; bottom: 2px; font-size: 12px; color: var(--paper-faint); letter-spacing: .4px; }
+
+  /* ---------- loop strip ---------- */
+  .loop { display: flex; align-items: center; gap: 9px; margin-top: 14px; }
+  .loop .lbl { font-size: 13px; font-weight: 700; letter-spacing: 2.4px; text-transform: uppercase; color: var(--paper-faint); margin-right: 4px; white-space: nowrap; }
+  .step { font-size: 15.5px; padding: 8px 13px; border-radius: 8px; background: rgba(247, 244, 236, .06);
+          border: 1px solid rgba(247, 244, 236, .14); white-space: nowrap; }
+  .step.me { background: rgba(201, 152, 79, .16); border-color: var(--brass-dim); color: #F2D9AE; font-weight: 600; }
+  .arr { color: var(--paper-faint); font-size: 16px; }
+  .back { font-size: 15px; color: var(--ok); margin-left: 2px; white-space: nowrap; }
+
+  /* ---------- pillars ---------- */
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 24px; }
+  .pillar { padding: 20px 24px 20px; border-radius: 12px; background: rgba(247, 244, 236, .045);
+            border: 1px solid rgba(247, 244, 236, .11); border-top: 3px solid var(--forest-hi); }
+  .pillar .n { font-family: var(--serif); font-style: italic; color: var(--brass); font-size: 20px; }
+  .pillar h3 { font-size: 25px; font-weight: 700; letter-spacing: -.2px; margin: 2px 0 8px; }
+  .pillar p { font-size: 16.5px; line-height: 1.5; color: var(--paper-dim); }
+  .pillar p b { color: var(--paper); font-weight: 600; }
+
+  /* ---------- footer ---------- */
+  .foot { position: absolute; left: 80px; right: 80px; bottom: 34px; display: flex; justify-content: space-between; align-items: center; }
+  .meta-line { font-size: 17px; color: var(--paper-dim); }
+  .meta-line b { color: var(--paper); }
+  .chips { display: flex; gap: 10px; }
+  .chip { font-size: 14px; padding: 6px 13px; border-radius: 999px; border: 1px solid rgba(247, 244, 236, .2); color: var(--paper-dim); }
+  .chip b { color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="slide">
+
+  <!-- header -->
+  <div class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-label="StorySpine symbol"><g fill="#F7F4EC">
+        <path d="M13.9 5.5C10.2 3.6 6.3 3.6 3.5 5.2v21.6c2.8-1.6 6.7-1.6 10.4.3z"/>
+        <path d="M18.1 5.5c3.7-1.9 7.6-1.9 10.4-.3v21.6c-2.8-1.6-6.7-1.6-10.4.3z"/>
+        <rect x="14.9" y="4" width="2.2" height="24" rx="1" fill="#C9984F"/></g></svg>
+      <span class="name">StorySpine</span>
+      <span class="sep"></span>
+      <span class="desc">AI writing studio for long-form serialized fiction</span>
+    </div>
+    <div class="event">Build for Your World</div>
+  </div>
+
+  <!-- hero -->
+  <div class="hero">
+    <div>
+      <div class="eyebrow">200+ episodes · thousands of facts · one author</div>
+      <h1>Write episode 200<br>with the memory of <em>episode 1.</em></h1>
+    </div>
+    <p class="pitch">
+      Finishing a 200-episode serial is a marathon where every new chapter can quietly break something written months ago.
+      <b>StorySpine gives the story a spine</b>: story memory the author approves, continuity checks that cite their evidence,
+      and a writing loop that carries the author to the finale.
+    </p>
+  </div>
+
+  <!-- spine timeline -->
+  <div class="spine" id="spine">
+    <svg id="spineSvg" width="1760" height="372" viewBox="0 0 1760 372"></svg>
+
+    <div class="card rule" style="left:0">
+      <div class="k">Story rule · EP 3 <span class="tag">✓ Author-approved</span></div>
+      <div class="q">“Magic requires a 24-hour cooldown.”</div>
+      <div class="meta">Extracted with verbatim quote → saved to canon</div>
+    </div>
+
+    <div class="card change" style="left:520px">
+      <div class="k">Relation · EP 58 <span class="tag">✓ Deliberate change</span></div>
+      <div class="q">“Kael is no longer her ally.”</div>
+      <div class="meta">Author approves the twist → canon history updated</div>
+    </div>
+
+    <div class="card alert" style="left:1060px">
+      <div class="k">New draft · EP 147 <span class="tag">⚠ Contradiction</span></div>
+      <div class="q">“One hour later, she cast again.”</div>
+      <div class="meta">Breaks the <b>EP 3</b> rule → fix, dismiss, or approve</div>
+    </div>
+
+    <div class="axis-title">▲ Approved canon grows every episode</div>
+    <div class="finale">
+      <div class="t">EP 200 — the finale, canon intact.</div>
+      <div class="s">No re-reading 150 chapters to write the next one.</div>
+    </div>
+    <div class="illus">Illustrative timeline · example story data</div>
+  </div>
+
+  <!-- loop -->
+  <div class="loop">
+    <span class="lbl">Every episode</span>
+    <span class="step">Ideas</span><span class="arr">→</span>
+    <span class="step">Design tree</span><span class="arr">→</span>
+    <span class="step">AI draft grounded in canon</span><span class="arr">→</span>
+    <span class="step">Extract facts + quotes</span><span class="arr">→</span>
+    <span class="step">Rule + AI consistency check</span><span class="arr">→</span>
+    <span class="step">One-click fix · diff</span><span class="arr">→</span>
+    <span class="step me">Author decides</span><span class="arr">→</span>
+    <span class="step">Publish</span>
+    <span class="back">↺ feeds the next episode</span>
+  </div>
+
+  <!-- pillars -->
+  <div class="pillars">
+    <div class="pillar">
+      <div class="n">01</div>
+      <h3>Memory the author approves</h3>
+      <p>Meta AI extracts characters, relations, states, rules and events from each episode — <b>each fact with a verbatim quote</b>.
+        Nothing becomes canon until the author saves it. Recall any fact <b>as of any episode</b>.</p>
+    </div>
+    <div class="pillar">
+      <div class="n">02</div>
+      <h3>Contradictions caught, with evidence</h3>
+      <p><b>Two layers:</b> deterministic rules (the dead acting, impossible locations, count limits) run first, then a Meta AI review
+        against committed canon. Every finding <b>cites the episode it conflicts with</b>.</p>
+    </div>
+    <div class="pillar">
+      <div class="n">03</div>
+      <h3>A flow built for the long haul</h3>
+      <p>Part → Chapter → Episode → Scene design tree, AI drafts grounded in canon, chat edits pinned to lines,
+        <b>AI fixes verified by version diff</b>, then publish. The author stays in control of every step.</p>
+    </div>
+  </div>
+
+  <!-- footer -->
+  <div class="foot">
+    <div class="meta-line">Powered by <b>Meta Model API · Muse Spark</b> — 10 AI tasks across the whole writing lifecycle</div>
+    <div class="chips">
+      <span class="chip"><b>368</b> tests passing</span>
+      <span class="chip">Korean + English markets</span>
+      <span class="chip">Every AI call logged</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Draw the 200-episode spine: ticks, growing canon area, highlighted episodes and evidence arc.
+  const svg = document.getElementById('spineSvg');
+  const NS = 'http://www.w3.org/2000/svg';
+  const X0 = 30, X1 = 1730, BASE = 300, TOP = 202;
+  const x = n => X0 + (n - 1) / 199 * (X1 - X0);
+  const canonY = n => BASE - (BASE - TOP) * Math.pow((n - 1) / 199, 0.55);
+  const el = (tag, attrs, parent = svg) => { const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+
+  const defs = el('defs', {});
+  const g = el('linearGradient', { id: 'canon', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el('stop', { offset: '0', 'stop-color': '#7FC7A8', 'stop-opacity': '.42' }, g);
+  el('stop', { offset: '1', 'stop-color': '#7FC7A8', 'stop-opacity': '0' }, g);
+
+  // canon area
+  let d = `M ${x(1)} ${BASE}`;
+  for (let n = 1; n <= 200; n++) d += ` L ${x(n)} ${canonY(n)}`;
+  el('path', { d: d + ` L ${x(200)} ${BASE} Z`, fill: 'url(#canon)' });
+  let line = `M ${x(1)} ${canonY(1)}`;
+  for (let n = 2; n <= 200; n++) line += ` L ${x(n)} ${canonY(n)}`;
+  el('path', { d: line, fill: 'none', stroke: '#7FC7A8', 'stroke-width': 2.5 });
+
+  // the spine + 200 episode ticks
+  el('line', { x1: X0, y1: BASE, x2: X1, y2: BASE, stroke: '#F7F4EC', 'stroke-opacity': .55, 'stroke-width': 2 });
+  for (let n = 1; n <= 200; n++) {
+    const major = n === 1 || n % 25 === 0;
+    el('line', { x1: x(n), y1: BASE - (major ? 9 : 4), x2: x(n), y2: BASE + (major ? 9 : 4),
+      stroke: '#F7F4EC', 'stroke-opacity': major ? .8 : .3, 'stroke-width': major ? 1.6 : 1 });
+    if (major) { const t = el('text', { x: x(n), y: BASE + 30, 'text-anchor': 'middle', fill: '#F7F4EC',
+      'fill-opacity': .55, 'font-size': 14, 'font-family': 'Segoe UI, Arial' }); t.textContent = 'EP ' + n; }
+  }
+
+  // evidence arc EP147 -> EP3 (below the spine)
+  const a = x(3), b = x(147);
+  el('path', { d: `M ${b} ${BASE + 6} C ${b - 160} ${BASE + 96}, ${a + 160} ${BASE + 96}, ${a} ${BASE + 6}`,
+    fill: 'none', stroke: '#F0A53A', 'stroke-width': 2, 'stroke-dasharray': '7 6' });
+  const lbl = el('text', { x: (a + b) / 2, y: BASE + 64, 'text-anchor': 'middle', fill: '#F0A53A',
+    'font-size': 15, 'font-weight': 700, 'letter-spacing': 1.2, 'font-family': 'Segoe UI, Arial' });
+  lbl.textContent = 'EVIDENCE LINK · EP 147 draft  ⟷  EP 3 approved rule';
+  const lblBg = lbl.getBBox();
+  const r = el('rect', { x: lblBg.x - 14, y: lblBg.y - 6, width: lblBg.width + 28, height: lblBg.height + 12, rx: 14,
+    fill: '#172823', stroke: '#F0A53A', 'stroke-opacity': .5 });
+  svg.insertBefore(r, lbl);
+
+  // connectors from cards to their episode nodes
+  const nodes = [
+    { n: 3,   cardX: 186,  color: '#C9984F' },
+    { n: 58,  cardX: 706,  color: '#7FC7A8' },
+    { n: 147, cardX: 1246, color: '#F0A53A' },
+  ];
+  const CARD_BOTTOM = 132;
+  nodes.forEach(({ n, cardX, color }) => {
+    el('path', { d: `M ${cardX} ${CARD_BOTTOM} C ${cardX} ${CARD_BOTTOM + 60}, ${x(n)} ${BASE - 90}, ${x(n)} ${BASE - 12}`,
+      fill: 'none', stroke: color, 'stroke-width': 1.6, 'stroke-opacity': .85 });
+    el('circle', { cx: x(n), cy: BASE, r: 13, fill: color, 'fill-opacity': .18 });
+    el('circle', { cx: x(n), cy: BASE, r: 6.5, fill: color });
+  });
+  // finale node
+  el('circle', { cx: x(200), cy: BASE, r: 15, fill: '#F7F4EC', 'fill-opacity': .15 });
+  el('circle', { cx: x(200), cy: BASE, r: 7.5, fill: '#F7F4EC' });
+</script>
+</body>
+</html>

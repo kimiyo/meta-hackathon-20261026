@@ -4,6 +4,8 @@
 
 Brand direction: **Story Architecture** (`StorySpine` + `Give your story a spine.`). See [brand plan](docs/StorySpine_브랜드_기획안.md) and [brand images & usage guide](docs/branding/README.md).
 
+![StorySpine one-pager: write episode 200 with the memory of episode 1](docs/branding/storyspine/marketing/storyspine-onepager-en.png)
+
 ## 2. Demo video / live demo
 
 - Demo video: **[TBD — 3-minute demo URL will be added after recording]**. Planned content: English UI, new user registration, demo novel *The Hidden Legacy of the Ancient Mage* (3 episodes), each episode going through write → extract → consistency-check → fix → publish. AI waiting sections will be time-lapsed and labeled `edited / time-lapse`.
