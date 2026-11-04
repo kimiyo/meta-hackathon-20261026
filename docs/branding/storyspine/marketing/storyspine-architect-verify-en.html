@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StorySpine — Architect top-down, verify bottom-up</title>
+<style>
+  :root {
+    --paper: #F7F4EC;
+    --paper-dim: rgba(247, 244, 236, .74);
+    --paper-faint: rgba(247, 244, 236, .44);
+    --forest: #214E40;
+    --forest-hi: #3E7B66;
+    --ink: #13201C;
+    --brass: #C9984F;
+    --brass-dim: rgba(201, 152, 79, .55);
+    --amber: #F0A53A;
+    --ok: #7FC7A8;
+    --bad: #E8826B;
+    --serif: Georgia, "Times New Roman", serif;
+    --sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --mono: Consolas, "Cascadia Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--ink); }
+  body {
+    font-family: var(--sans); color: var(--paper);
+    background:
+      radial-gradient(900px 600px at 18% 70%, rgba(62, 123, 102, .26), transparent 70%),
+      radial-gradient(900px 600px at 84% 62%, rgba(201, 152, 79, .13), transparent 70%),
+      linear-gradient(180deg, #13201C 0%, #172823 100%);
+  }
+  .slide { position: relative; width: 1920px; height: 1080px; padding: 44px 72px 36px; }
+
+  /* header */
+  .top { display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand svg { width: 40px; height: 40px; }
+  .brand .name { font-size: 27px; font-weight: 700; letter-spacing: -.3px; }
+  .brand .sep { width: 1px; height: 26px; background: var(--paper-faint); margin: 0 6px; }
+  .brand .desc { font-size: 17px; color: var(--paper-dim); }
+  .pill { font-size: 14px; letter-spacing: 2.4px; text-transform: uppercase; color: var(--brass);
+          border: 1px solid var(--brass-dim); padding: 8px 18px; border-radius: 999px; }
+
+  .hero { display: grid; grid-template-columns: 1110px 1fr; gap: 64px; margin-top: 26px; align-items: end; }
+  .eyebrow { font-size: 16px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--amber); margin-bottom: 10px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 68px; line-height: 1.02; letter-spacing: -1.2px; white-space: nowrap; }
+  h1 .a { color: var(--ok); }
+  h1 em { font-style: italic; color: var(--brass); }
+  .pitch { font-size: 20px; line-height: 1.45; color: var(--paper-dim); padding-bottom: 6px; }
+  .pitch b { color: var(--paper); font-weight: 600; }
+
+  /* two panels */
+  .main { position: relative; display: grid; grid-template-columns: 760px 1fr; gap: 104px; margin-top: 30px; }
+  .panel { position: relative; border-radius: 16px; padding: 24px 30px 24px; height: 672px;
+           background: rgba(247, 244, 236, .045); border: 1px solid rgba(247, 244, 236, .12); }
+  .panel.arch { border-top: 4px solid var(--ok); }
+  .panel.verify { border-top: 4px solid var(--brass); }
+  .ph { display: flex; align-items: baseline; gap: 14px; }
+  .ph .n { font-family: var(--serif); font-style: italic; font-size: 24px; }
+  .arch .ph .n { color: var(--ok); }
+  .verify .ph .n { color: var(--brass); }
+  .ph .k { font-size: 15px; font-weight: 700; letter-spacing: 2.6px; text-transform: uppercase; color: var(--paper-faint); }
+  .panel h2 { font-size: 33px; font-weight: 700; letter-spacing: -.4px; margin-top: 4px; }
+
+  .analog { font-family: var(--mono); font-size: 15px; color: var(--paper-faint); letter-spacing: .2px; }
+
+  /* architect: chat -> suggestion -> apply */
+  .flow { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+  .fc { font-size: 17px; padding: 7px 14px; border-radius: 999px; white-space: nowrap; }
+  .fc.chat { background: rgba(127, 199, 168, .12); border: 1px solid rgba(127, 199, 168, .55); color: var(--paper); }
+  .fc.sug { border: 1px dashed rgba(247, 244, 236, .4); color: var(--paper-dim); }
+  .fc.apply { background: rgba(201, 152, 79, .2); border: 1px solid var(--brass); color: #F2D9AE; font-weight: 700; }
+  .flow .ar { color: var(--paper-faint); font-size: 18px; }
+  .flow .analog { margin-left: 6px; }
+
+  /* architect: tree */
+  .tree { margin-top: 12px; }
+  .row { display: flex; align-items: center; height: 48px; position: relative; }
+  .row .node { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+  .code { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--ink); background: var(--ok);
+          border-radius: 6px; padding: 3px 8px; min-width: 54px; text-align: center; }
+  .row .t { font-size: 23px; font-weight: 600; }
+  .row .t small { font-size: 16px; font-weight: 400; color: var(--paper-faint); margin-left: 6px; }
+  .lv1 { padding-left: 30px; } .lv2 { padding-left: 60px; } .lv3 { padding-left: 90px; } .lv4 { padding-left: 120px; }
+  .row:not(.lv0)::before { content: ""; position: absolute; top: -24px; height: 48px; width: 18px;
+          border-left: 2px solid rgba(127, 199, 168, .45); border-bottom: 2px solid rgba(127, 199, 168, .45); border-bottom-left-radius: 6px; }
+  .lv1::before { left: 12px; } .lv2::before { left: 42px; } .lv3::before { left: 72px; } .lv4::before { left: 102px; }
+  .set { position: absolute; left: 430px; display: flex; align-items: center; gap: 8px; font-size: 16px; white-space: nowrap;
+         padding: 6px 12px; border-radius: 8px; }
+  .set .sc { font-family: var(--mono); font-weight: 700; font-size: 14px; }
+  .set.def { background: rgba(247, 244, 236, .94); color: #202C29; }
+  .set.def .sc { color: var(--forest); }
+  .set.inh { color: var(--paper-dim); border: 1px dashed rgba(247, 244, 236, .3); }
+  .set.ovr { background: rgba(240, 165, 58, .16); border: 1px solid rgba(240, 165, 58, .7); color: #F7D9A8; }
+  .set.ovr .sc { color: var(--amber); }
+  .legend { margin-top: 10px; font-size: 18px; color: var(--paper-dim); }
+  .legend b { color: var(--paper); }
+  .legend .analog { margin-left: 8px; }
+
+  .spec { margin-top: 18px; border-radius: 12px; padding: 16px 20px; background: rgba(127, 199, 168, .09);
+          border: 1px solid rgba(127, 199, 168, .35); }
+  .spec .sh { display: flex; justify-content: space-between; align-items: baseline; }
+  .spec .st { font-size: 20px; font-weight: 700; }
+  .fields { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .f { font-size: 16px; padding: 5px 11px; border-radius: 999px; border: 1px solid rgba(247, 244, 236, .25); color: var(--paper); }
+  .f.c { border-color: var(--ok); color: var(--ok); font-weight: 600; }
+  .illus { position: absolute; right: 30px; bottom: 16px; font-size: 13px; color: var(--paper-faint); }
+
+  /* verify: pipeline */
+  .pipe { margin-top: 18px; position: relative; }
+  .pipe::before { content: ""; position: absolute; left: 207px; top: 30px; bottom: 44px; width: 2px;
+                  background: linear-gradient(180deg, var(--brass), rgba(201, 152, 79, .25)); }
+  .stage { display: grid; grid-template-columns: 186px 44px 1fr; align-items: center; min-height: 94px; position: relative; }
+  .stage .analog { text-align: right; padding-right: 18px; font-size: 16px; }
+  .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--brass); box-shadow: 0 0 0 6px rgba(201, 152, 79, .18); margin-left: 6px; }
+  .stage .name { font-size: 25px; font-weight: 700; }
+  .stage .name .ai { font-size: 14px; font-weight: 700; letter-spacing: 1px; color: var(--ink); background: var(--brass);
+                     border-radius: 5px; padding: 2px 7px; margin-left: 8px; vertical-align: 4px; }
+  .stage .d { font-size: 17.5px; line-height: 1.4; color: var(--paper-dim); margin-top: 3px; }
+  .stage .d b { color: var(--paper); font-weight: 600; }
+  .stage.gate .dot { background: var(--amber); box-shadow: 0 0 0 6px rgba(240, 165, 58, .22); }
+  .stage.merge .name { color: #F2D9AE; }
+  .badges { display: flex; gap: 12px; margin-top: 8px; }
+  .badge { font-size: 17px; font-weight: 700; padding: 6px 14px; border-radius: 999px; }
+  .badge.no { background: rgba(232, 130, 107, .16); border: 1px solid var(--bad); color: #F3B3A4; }
+  .badge.yes { background: rgba(127, 199, 168, .14); border: 1px solid var(--ok); color: var(--ok); }
+
+  /* connector + loop */
+  .overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+
+
+
+
+
+  .foot { position: absolute; left: 72px; right: 72px; bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
+  .impl { font-size: 15px; color: var(--paper-dim); }
+  .impl b { color: var(--paper); }
+  .impl code { font-family: var(--mono); font-size: 14px; color: var(--paper-faint); }
+  .chips { display: flex; gap: 10px; }
+  .chip { font-size: 14px; padding: 6px 13px; border-radius: 999px; border: 1px solid rgba(247, 244, 236, .22); color: var(--paper-dim); white-space: nowrap; }
+  .chip b { color: var(--paper); }
+</style>
+</head>
+<body>
+<div class="slide">
+
+  <div class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-label="StorySpine symbol"><g fill="#F7F4EC">
+        <path d="M13.9 5.5C10.2 3.6 6.3 3.6 3.5 5.2v21.6c2.8-1.6 6.7-1.6 10.4.3z"/>
+        <path d="M18.1 5.5c3.7-1.9 7.6-1.9 10.4-.3v21.6c-2.8-1.6-6.7-1.6-10.4.3z"/>
+        <rect x="14.9" y="4" width="2.2" height="24" rx="1" fill="#C9984F"/></g></svg>
+      <span class="name">StorySpine</span>
+      <span class="sep"></span>
+      <span class="desc">How it works</span>
+    </div>
+    <div class="pill">Software engineering, applied to fiction</div>
+  </div>
+
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Two angles · one loop</div>
+      <h1><span class="a">Architect</span> top-down. <em>Verify</em> bottom-up.</h1>
+    </div>
+    <p class="pitch">
+      A long serial is a codebase maintained for years, and continuity errors are its regressions.
+      <b>StorySpine designs the story like software architecture and tests every chapter like CI.</b>
+    </p>
+  </div>
+
+  <div class="main">
+    <!-- ARCHITECT -->
+    <section class="panel arch">
+      <div class="ph"><span class="n">01</span><span class="k">Architect · top-down</span></div>
+      <h2>Design the story like software</h2>
+      <div class="flow">
+        <span class="fc chat">Chat freely <b style="color:var(--ok)">· Muse Spark</b></span><span class="ar">→</span>
+        <span class="fc sug">PR-style suggestions</span><span class="ar">→</span>
+        <span class="fc apply">Author applies ✓</span>
+      </div>
+
+      <div class="tree">
+        <div class="row lv0"><div class="node"><span class="code">N</span><span class="t">Novel</span></div>
+          <div class="set def"><span class="sc">D01</span>Gates close at dusk</div></div>
+        <div class="row lv1"><div class="node"><span class="code">P1</span><span class="t">Part</span></div>
+          <div class="set inh">↓ inherits D01</div></div>
+        <div class="row lv2"><div class="node"><span class="code">C2</span><span class="t">Chapter</span></div>
+          <div class="set ovr"><span class="sc">D01</span>override · festival, gates open</div></div>
+        <div class="row lv3"><div class="node"><span class="code">E007</span><span class="t">Episode</span></div>
+          <div class="set inh">↓ inherits C2’s override</div></div>
+        <div class="row lv4"><div class="node"><span class="code">S1</span><span class="t">Scene</span></div></div>
+      </div>
+
+      <p class="legend"><b>Settings inherit and override down the tree.</b><span class="analog">// config inheritance</span></p>
+
+      <div class="spec">
+        <div class="sh"><span class="st">Episode spec → AI draft</span><span class="analog">// spec drives implementation</span></div>
+        <div class="fields">
+          <span class="f">Goal</span><span class="f">Events</span><span class="f">Character changes</span>
+          <span class="f">Foreshadowing</span><span class="f c">Constraints ✓ validated on the draft</span>
+        </div>
+      </div>
+      <div class="illus">Illustrative example</div>
+    </section>
+
+    <!-- VERIFY -->
+    <section class="panel verify">
+      <div class="ph"><span class="n">02</span><span class="k">Verify · bottom-up, like CI</span></div>
+      <h2>Test every chapter like a pull request</h2>
+
+      <div class="pipe">
+        <div class="stage"><span class="analog">commit</span><span class="dot"></span>
+          <div><div class="name">Draft</div>
+            <div class="d">AI draft or author edit, saved as a <b>versioned revision</b></div></div></div>
+        <div class="stage"><span class="analog">pull request</span><span class="dot"></span>
+          <div><div class="name">Extract facts <span class="ai">MUSE SPARK</span></div>
+            <div class="d">Every proposed fact carries a <b>verbatim quote, checked against the manuscript</b></div></div></div>
+        <div class="stage"><span class="analog">CI tests</span><span class="dot"></span>
+          <div><div class="name">Rule checks → AI review <span class="ai">MUSE SPARK</span></div>
+            <div class="d">The dead acting, two places at once, count limits. <b>A dream is not a contradiction.</b></div></div></div>
+        <div class="stage merge"><span class="analog">review &amp; merge</span><span class="dot"></span>
+          <div><div class="name">Author approves</div>
+            <div class="d"><b>Nothing becomes canon</b> until the author saves it</div></div></div>
+        <div class="stage gate"><span class="analog">deploy</span><span class="dot"></span>
+          <div><div class="name">Publish</div>
+            <div class="badges"><span class="badge no">✕ 2 open issues · blocked</span><span class="badge yes">✓ 0 open · publish</span></div></div></div>
+      </div>
+    </section>
+
+
+  </div>
+
+  <svg class="overlay" width="1920" height="1080" viewBox="0 0 1920 1080">
+    <defs>
+      <marker id="hOk" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+        <path d="M0,0 L10,6 L0,12 z" fill="#7FC7A8"/></marker>
+      <marker id="hBr" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+        <path d="M0,0 L10,6 L0,12 z" fill="#C9984F"/></marker>
+    </defs>
+    <!-- spec card -> Draft stage -->
+    <path d="M 804 822 C 906 822, 900 436, 934 436" fill="none" stroke="#7FC7A8" stroke-width="2.5" marker-end="url(#hOk)"/>
+    <text transform="translate(842 640) rotate(-90)" text-anchor="middle" fill="#7FC7A8" font-family="Segoe UI, Arial" font-size="14" font-weight="700" letter-spacing="2.5">SPEC → DRAFT</text>
+    <!-- loop: publish back to architect side -->
+    <path d="M 1180 912 L 1180 968 L 400 968 L 400 918" fill="none" stroke="#C9984F" stroke-width="2.5"
+          stroke-dasharray="8 7" marker-end="url(#hBr)"/>
+    <rect x="560" y="951" width="460" height="34" rx="17" fill="#172823" stroke="#C9984F" stroke-opacity=".6"/>
+    <text x="790" y="974" text-anchor="middle" fill="#F2D9AE" font-family="Segoe UI, Arial" font-size="17" font-weight="700">
+      ↺ Approved canon grounds the next episode’s draft</text>
+  </svg>
+
+  <div class="foot">
+    <div class="impl"><b>Every step shown is implemented:</b>
+      <code>ideas.py · design_threads.py · design_nodes.py · drafting.py · citation.py · checks.py · consistency.py · memory.py · state_machine.py</code></div>
+    <div class="chips">
+      <span class="chip">Powered by <b>Meta Model API · Muse Spark</b></span>
+      <span class="chip">Built with <b>Muse Code</b></span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

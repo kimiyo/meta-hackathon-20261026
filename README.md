@@ -6,6 +6,26 @@ Brand direction: **Story Architecture** (`StorySpine` + `Give your story a spine
 
 ![StorySpine one-pager: write episode 200 with the memory of episode 1](docs/branding/storyspine/marketing/storyspine-onepager-en.png)
 
+## 1. Why StorySpine is different
+
+Other writing tools remember what you tell them. StorySpine reads what you wrote, proves every finding with a quote, and only remembers what you approve.
+
+**Architect top-down, verify bottom-up.** A long serial is a codebase maintained for years, and continuity errors are its regressions. StorySpine designs the story like software architecture and tests every chapter like CI.
+
+![Architect top-down, verify bottom-up: StorySpine's design tree with inherited settings, and a CI-style pipeline from draft to a publish gate that blocks while issues remain open](docs/branding/storyspine/marketing/storyspine-architect-verify-en.png)
+
+- **Architect top-down** — Part → Chapter → Episode → Scene design tree; settings inherit and override down the tree (`effective_node_settings` in [`design_nodes.py`](server/app/design_nodes.py)); each episode's goal, events, and constraints drive its AI draft, and constraints are validated on the result ([`drafting.py`](server/app/drafting.py)).
+- **Publish gate** — like a failing build, an episode cannot be published while consistency issues stay open (`request_publish` in [`state_machine.py`](server/app/state_machine.py)).
+- **Evidence or it didn't happen** — every extraction and every contradiction ships with a manuscript quote, verified against the source ([`citation.py`](server/app/citation.py)).
+- **Canon gate** — AI only proposes; nothing becomes canon until the author approves it, and approved memory grounds the next episode's draft (`commit_episode` in [`memory.py`](server/app/memory.py)).
+- **Not every mismatch is a mistake** — deterministic rule checks run first, then AI review; dreams, recollections, and time passage don't count as contradictions (see `death-normal-dream`, `state-normal-time-passage` in [`evals/cases.json`](evals/cases.json)).
+
+Solo-built in 8 days with Muse Code: ~25k lines of Python/JS, 10 Muse Spark-powered features, 370+ tests including 20+ keyless eval tests. Verify the deterministic core without an API key:
+
+```bash
+cd server && ../.venv/bin/python -m pytest tests/test_eval_quality.py -q  # no LLM, seconds
+```
+
 ## 2. Demo video / live demo
 
 - Demo video: [`demo-video-3min.mp4`](demo-video-3min.mp4) (3 minutes, 1080p). English UI, demo novel *The Hidden Legacy of the Ancient Mage*: write → extract → consistency-check → fix → publish per episode. AI waiting sections are time-lapsed and labeled `edited / time-lapse`.
@@ -78,7 +98,7 @@ cp .env.example .env
 # 2. Dependencies + tests (no API key needed, ~1 min)
 python -m venv .venv
 .venv/bin/pip install -r server/requirements.txt
-cd server && ../.venv/bin/python -m pytest -q   # 368 passed
+cd server && ../.venv/bin/python -m pytest -q   
 cd ..
 
 # 3. Start (http://127.0.0.1:8000, health: /api/v1/health)
@@ -111,14 +131,14 @@ Self-authored samples (no rights issues; written for this project):
 
 - [`Sample_English_Story.md`](Sample_English_Story.md) — English demo story (*The Hidden Legacy of the Ancient Mage*), the demo video's input material.
 - [`samples/injection_cases.json`](samples/injection_cases.json) — approved EP1 facts plus a contradiction case (`cool-01`, expect `error`), a homonym case (`homo-01`, expect split, not merge), and a normal-recall case (`recall-01`, expect no error), each with expected verdicts and rationale.
-- [`evals/cases.json`](evals/cases.json) — 12 deterministic contradiction/normal pairs for the rule checks (count limits, post-death actions, exclusive location), with quote-honesty validation. See [evals/README.md](evals/README.md).
+- [`evals/cases.json`](evals/cases.json) — 15+ paired contradiction/normal cases for the rule checks (count limits, post-death actions, exclusive location, state clashes), with quote-honesty validation. See [evals/README.md](evals/README.md).
 
 Reproduce without an API key (deterministic):
 
 ```bash
 cd server
-../.venv/bin/python -m pytest tests/test_eval_quality.py -q  # 12 eval cases, no LLM
-../.venv/bin/python -m pytest -q                               # full suite, 368 passed
+../.venv/bin/python -m pytest tests/test_eval_quality.py -q  # 15+ eval cases, no LLM
+../.venv/bin/python -m pytest -q                               
 ```
 
 Reproduce the full workflow (needs `MODEL_API_KEY`):
@@ -140,7 +160,7 @@ Measured results (all small-sample; see [`evals/결과_20261028.md`](evals/결�
 - Quote grounding: 3/3 manual spot-checks passed (plus unit-level checks); sample too small for a rate claim.
 - Pipeline completion: 3/3 sample episodes through the full cycle.
 - Cost/latency (ko-KR, `muse-spark-1.3`, ~5k-char episodes): ~56k tokens and ~170 s per episode (3-episode total: 21 calls, in=49,866/out=119,041 tokens, 537 s wall clock). Cost in currency not computed (rate card pending).
-- Deterministic suite: 12/12 eval cases (`test_eval_quality.py`, no LLM) and 368/368 pytest tests green.
+- Deterministic suite: all paired eval cases (`test_eval_quality.py`, no LLM) and 370+ pytest tests green.
 
 Limitations, stated plainly:
 
