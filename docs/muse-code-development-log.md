@@ -109,7 +109,7 @@ Meta model calls used by the application at runtime.
 
 ## 8. Evidence and reproduction
 
-- Repository: `https://github.com/kimiyo/meta-hackathon-20261026` (verify public at submit time)
+- Repository: `https://github.com/kimiyo/storyspine` (verify public at submit time)
 - Range: `8408601` (initial, 10/28) → `0176c09` (11/4), 63 commits
 - Run/reproduce: README install, run, and reproduction steps as written
 - Security: `.env` untracked and never committed, key confined to server memory, secrets scan performed
