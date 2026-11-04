@@ -8,7 +8,7 @@ Brand direction: **Story Architecture** (`StorySpine` + `Give your story a spine
 
 ## 2. Demo video / live demo
 
-- Demo video: **[TBD — 3-minute demo URL will be added after recording]**. Planned content: English UI, new user registration, demo novel *The Hidden Legacy of the Ancient Mage* (3 episodes), each episode going through write → extract → consistency-check → fix → publish. AI waiting sections will be time-lapsed and labeled `edited / time-lapse`.
+- Demo video: [`demo-video-3min.mp4`](demo-video-3min.mp4) (3 minutes, 1080p). English UI, demo novel *The Hidden Legacy of the Ancient Mage*: write → extract → consistency-check → fix → publish per episode. AI waiting sections are time-lapsed and labeled `edited / time-lapse`.
 - Live demo: none. Judges can reproduce everything locally by following §7–§8 (requires a Meta Model API key for AI steps; checks and tests run without one).
 
 ## 3. Problem and target users

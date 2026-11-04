@@ -1,7 +1,8 @@
 # i18n Contracts (Stage-1 handoff)
 
-계획서 `docs/한국_미국_지원_구현계획.md` v2의 stage-1 계약면을 wave-1
+한/미 지원 구현계획 v2의 stage-1 계약면을 wave-1
 담당자가 파일 없이도 읽을 수 있게 모았다. 구현 위치도 함께 적는다.
+(원 계획서는 `local-only/` 비공개 폴더로 이동, 본 계약면이 정본이다.)
 
 ## 1. 레지스트리 API (`server/app/locales.py`)
 
