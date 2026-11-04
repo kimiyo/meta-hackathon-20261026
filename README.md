@@ -61,7 +61,20 @@ Runtime AI calls go to the **Meta Model API** (`POST /v1/chat/completions` with 
 | `muse-spark-1.3` (default) | All features below |
 | `muse-wonder-1.0` | Optional flagship pick for complex work |
 
-Implemented Meta-powered tasks: idea chat, design planning, episode drafting, entity extraction, proposal verification, consistency review, manuscript chat edits, AI contradiction fixes, quality review, and blurb generation. Locale-specific prompts live in [`server/app/prompts/`](server/app/prompts/); every call records model, preset, tokens, and prompts for the AI call log.
+Implemented Meta-powered tasks (10 — each traceable to code):
+
+| # | Task | Code |
+|---|---|---|
+| 1 | Idea chat | [`routes/ideas.py`](server/app/routes/ideas.py) |
+| 2 | Design planning | [`planning.py`](server/app/planning.py), [`routes/design_threads.py`](server/app/routes/design_threads.py), [`routes/nodes.py`](server/app/routes/nodes.py) |
+| 3 | Episode drafting | [`drafting.py`](server/app/drafting.py) |
+| 4 | Entity extraction | [`extraction.py`](server/app/extraction.py) |
+| 5 | Proposal verification | [`verification.py`](server/app/verification.py) |
+| 6 | Consistency review | [`consistency.py`](server/app/consistency.py) |
+| 7 | Manuscript chat edits | [`routes/episodes.py`](server/app/routes/episodes.py) (`manuscript-chat`) |
+| 8 | AI contradiction fixes | [`consistency.py`](server/app/consistency.py) (`fix_manuscript_issues`) |
+| 9 | Quality review | [`quality.py`](server/app/quality.py) |
+| 10 | Blurb generation | [`publishing.py`](server/app/publishing.py) (`make_blurb`) | Locale-specific prompts live in [`server/app/prompts/`](server/app/prompts/); every call records model, preset, tokens, and prompts for the AI call log.
 
 Development assistance is separate from runtime: this project was built with **Muse Code** (agentic coding: implementation, tests, docs). See [development log](docs/muse-code-development-log.md). No partner technologies (Fireworks/Modal/Baseten) and no image/voice models are used.
 
