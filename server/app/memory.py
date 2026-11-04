@@ -316,6 +316,131 @@ def committed_rules(conn, work_id: int, episode_no: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+RECENT_MEMORY_WINDOW = 3
+
+
+def entities_named_in(conn, text: str, work_id: int) -> list[str]:
+    """이름이 본문에 등장하는 개체 (§6 계층 기억 0단).
+
+    정식명 + 확정 별명만 본다. 미확정 후보 별명은 합치지 않는다.
+    단순 부분일치이므로 과다 포함될 수 있다 — 안전 방향이다.
+    """
+    if not (text or "").strip():
+        return []
+    surfaces: dict[str, str] = {}
+    for r in conn.execute(
+            "SELECT entity_id, canonical_name FROM entities WHERE work_id=?",
+            (work_id,)):
+        if r["canonical_name"]:
+            surfaces.setdefault(r["canonical_name"], r["entity_id"])
+    for r in conn.execute(
+            "SELECT entity_id, alias FROM entity_aliases"
+            " WHERE work_id=? AND status='confirmed'", (work_id,)):
+        if r["alias"]:
+            surfaces.setdefault(r["alias"], r["entity_id"])
+    low = text.lower()
+    return sorted({eid for surf, eid in surfaces.items()
+                   if surf.lower() in low})
+
+
+def recently_touched(conn, work_id: int, episode_no: int,
+                     window: int = RECENT_MEMORY_WINDOW) -> list[str]:
+    """최근 window개 회차에 확정 변경이 있던 개체 (§6 계층 기억 1단)."""
+    rows = conn.execute(
+        "SELECT DISTINCT c.entity_id FROM entity_changes c"
+        " JOIN change_proposals s ON s.proposal_set_id=c.proposal_set_id"
+        " WHERE c.work_id=? AND c.episode_no>=? AND c.episode_no<?"
+        " AND s.status='committed' ORDER BY c.entity_id",
+        (work_id, episode_no - window, episode_no)).fetchall()
+    return [r["entity_id"] for r in rows]
+
+
+def _outline_text(conn, work_id: int, episode_no: int) -> str:
+    """승인 설계(없으면 최신)의 이번 화 개요 텍스트."""
+    row = conn.execute(
+        "SELECT id FROM story_designs WHERE work_id=?"
+        " ORDER BY CASE WHEN status='approved' THEN 0 ELSE 1 END, id DESC"
+        " LIMIT 1", (work_id,)).fetchone()
+    if not row:
+        return ""
+    o = conn.execute(
+        "SELECT title, goal, events_json, char_changes_json,"
+        " foreshadowing_json FROM episode_outlines"
+        " WHERE design_id=? AND episode_no=?",
+        (row["id"], episode_no)).fetchone()
+    if not o:
+        return ""
+    return " ".join(str(o[k] or "") for k in
+                    ("title", "goal", "events_json", "char_changes_json",
+                     "foreshadowing_json"))
+
+
+def select_draft_context(conn, episode_no: int, work_id: int,
+                         window: int = RECENT_MEMORY_WINDOW) -> dict:
+    """집필·검사용 3단 기억 선택 (§6). 100화 규모 대응.
+
+    0단 상시: 확정 규칙 전체 + 이번 화 개요에 등장하는 개체의 현재 상태.
+    1단 최신: 최근 window개 화에 손댄 개체들의 현재 상태.
+    2단 주문형: 모델의 lookup_requests (drafting.execute_lookups 그대로).
+    """
+    recent = recently_touched(conn, work_id, episode_no, window)
+    outline_ids = entities_named_in(
+        conn, _outline_text(conn, work_id, episode_no), work_id)
+    states = []
+    for eid in dict.fromkeys(outline_ids + recent):
+        ent = get_entity(conn, eid)
+        if ent is None or ent["work_id"] != work_id:
+            continue
+        states.append({
+            "entity_id": eid, "name": ent["canonical_name"],
+            "type": ent["type"],
+            "attributes": reconstruct_state(conn, eid, episode_no - 1,
+                                            work_id),
+        })
+    rules = [{
+        "entity_id": r["entity_id"], "name": r["canonical_name"],
+        "attribute_path": r["attribute_path"],
+        "standard_value": _u(r["standard_value"]),
+        "display": _u(r["new_value"]),
+        "story_time": r.get("story_time"),
+        "episode_no": r["episode_no"],
+    } for r in committed_rules(conn, work_id, episode_no - 1)]
+    return {"entity_states": states, "committed_rules": rules,
+            "outline_entity_ids": outline_ids, "recent_entity_ids": recent}
+
+
+def episode_entities(conn, work_id: int, episode_no: int) -> list[dict]:
+    """이번 화에 새로 생기거나 확정 변경된 개체 (검사용 보완분).
+
+    검토 대상 자체이므로 규모와 무관하게(한 화 분량) 항상 포함한다.
+    상태는 직전 화 기준(확정 기억만)으로 재구성한다.
+    """
+    ids: dict[str, None] = {}
+    for r in conn.execute(
+            "SELECT entity_id FROM entities"
+            " WHERE work_id=? AND first_episode=?",
+            (work_id, episode_no)):
+        ids.setdefault(r["entity_id"])
+    for r in conn.execute(
+        "SELECT DISTINCT c.entity_id FROM entity_changes c"
+        " JOIN change_proposals s ON s.proposal_set_id=c.proposal_set_id"
+        " WHERE c.work_id=? AND c.episode_no=? AND s.status='committed'",
+        (work_id, episode_no)):
+        ids.setdefault(r["entity_id"])
+    out = []
+    for eid in ids:
+        ent = get_entity(conn, eid)
+        if ent is None or ent["work_id"] != work_id:
+            continue
+        out.append({
+            "entity_id": eid, "name": ent["canonical_name"],
+            "type": ent["type"],
+            "attributes": reconstruct_state(conn, eid, episode_no - 1,
+                                            work_id),
+        })
+    return out
+
+
 def active_relations(conn, work_id: int, episode_no: int) -> list[dict]:
     rows = conn.execute(
         "SELECT * FROM entity_relations WHERE work_id=?"

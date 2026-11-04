@@ -42,6 +42,15 @@ def test_draft_saves_revision(conn):
     meta = FakeMeta(["가" * 5000])
     out = drafting.draft_episode(meta, conn, design_id=1, work_id=1, episode_no=1)
     assert out["version"] == 1 and out["length"] == 5000
+
+
+def test_draft_input_carries_rules_and_tiered_states(conn):
+    meta = FakeMeta(["가" * 5000])
+    drafting.draft_episode(meta, conn, design_id=1, work_id=1, episode_no=1)
+    payload = json.loads(
+        meta.calls[0][meta.calls[0].index('{"episode_outline"'):])
+    assert "committed_rules" in payload
+    assert "entity_states" in payload
     out2 = drafting.draft_episode(meta := FakeMeta(["나" * 5000]), conn,
                                   design_id=1, work_id=1, episode_no=1)
     assert out2["version"] == 2

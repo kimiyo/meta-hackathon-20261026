@@ -161,6 +161,80 @@ def test_latest_committed_set(conn):
     assert latest["manuscript_revision_id"] == rev2
 
 
+def _tiered(conn):
+    conn.execute("INSERT INTO works(id, title, created_at) VALUES(1,'w','t')")
+    conn.execute("INSERT INTO story_designs(id, work_id, version,"
+                 " scope_total_episodes, concept_json, sections_json, status)"
+                 " VALUES(1,1,1,5,'{}','[]','approved')")
+    conn.execute("INSERT INTO episode_outlines(design_id, episode_no, title,"
+                 " goal) VALUES(1,5,'Elder','Oldman negotiates')")
+    for eid, name in (("ch_old", "Oldman"), ("ch_new", "Newcomer"),
+                      ("ch_dormant", "Dormant")):
+        memory.create_entity(conn, entity_id=eid, type_="character", work_id=1,
+                             name=name, first_episode=1)
+    conn.execute("INSERT INTO entity_aliases(work_id, entity_id, alias, status)"
+                 " VALUES(1,'ch_dormant','Shopkeeper','confirmed')")
+    _commit_v(conn, 1, 1, [{"entity_id": "ch_old", "operation": "set",
+                               "attribute_path": "age", "new_value": 60,
+                               "evidence_quote": "q"}])
+    _commit_v(conn, 1, 2, [{"entity_id": "ch_dormant", "operation": "set",
+                               "attribute_path": "age", "new_value": 70,
+                               "evidence_quote": "q"}])
+    _commit_v(conn, 1, 3, [{"entity_id": "ch_old", "kind": "rule",
+                               "operation": "set",
+                               "attribute_path": "cooldown",
+                               "new_value": "24h",
+                               "evidence_quote": "q"}])
+    _commit_v(conn, 4, 1, [{"entity_id": "ch_new", "operation": "set",
+                               "attribute_path": "age", "new_value": 20,
+                               "evidence_quote": "q"}])
+    conn.commit()
+
+
+def _commit_v(conn, ep, ver, items):
+    rev = _rev(conn, ep, ver=ver)
+    sid = memory.store_proposal(conn, work_id=1, episode_no=ep, revision_id=rev,
+                                items=items)
+    for it in memory.get_proposals(conn, ep):
+        if it["proposal_set_id"] == sid and it["validation"] == "pending":
+            memory.set_item_validation(conn, it["item_id"], "ok")
+    return memory.commit_episode(conn, episode_no=ep, revision_id=rev,
+                                 proposal_set_id=sid)
+
+
+def test_select_draft_context_tiers(conn):
+    _tiered(conn)
+    ctx = memory.select_draft_context(conn, 5, 1)
+    ids = [s["entity_id"] for s in ctx["entity_states"]]
+    assert "ch_new" in ids  # recent window (EP4)
+    assert "ch_old" in ids  # named in the EP5 outline
+    assert "ch_dormant" not in ids  # old and unnamed
+    assert any(r["attribute_path"] == "cooldown"
+               for r in ctx["committed_rules"])
+    assert ctx["recent_entity_ids"] == ["ch_new"]
+    assert ctx["outline_entity_ids"] == ["ch_old"]
+    # Alias matching resolves through aliases, not just canonical names.
+    assert memory.entities_named_in(conn, "the Shopkeeper speaks", 1) == [
+        "ch_dormant"]
+
+
+def test_memory_context_includes_current_episode(conn):
+    _tiered(conn)
+    mem = consistency._memory_context(conn, 1, 1)
+    ids = [e["entity_id"] for e in mem["entities"]]
+    assert {"ch_old", "ch_new", "ch_dormant"} <= set(ids)
+
+
+def test_memory_context_uses_tiered_selection(conn):
+    _tiered(conn)
+    mem = consistency._memory_context(conn, 5, 1)
+    ids = [e["entity_id"] for e in mem["entities"]]
+    assert "ch_new" in ids
+    assert "ch_old" in ids
+    assert "ch_dormant" not in ids
+    assert any(r["predicate"] == "cooldown" for r in mem["rules"])
+
+
 def test_discard_all_pending_drops_every_revision(conn):
     rev1 = _rev(conn, 1, ver=1)
     rev2 = _rev(conn, 1, ver=2)

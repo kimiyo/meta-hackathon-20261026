@@ -32,21 +32,24 @@ LEGACY_STATUS = {"resolved": "fixed", "wontfix": "dismissed"}
 
 def _memory_context(conn: sqlite3.Connection, episode_no: int, work_id: int,
                     limit_entities: int = 60) -> dict:
-    entities = []
-    for ent in memory.search_entities(conn, work_id=work_id)[:limit_entities]:
-        entities.append({
-            "entity_id": ent["entity_id"], "name": ent["canonical_name"],
-            "type": ent["type"],
-            "attributes": memory.reconstruct_state(conn, ent["entity_id"],
-                                                   episode_no - 1, work_id),
-        })
+    ctx = memory.select_draft_context(conn, episode_no, work_id)
+    states = list(memory.episode_entities(conn, work_id, episode_no))
+    have = {s["entity_id"] for s in states}
+    for s in ctx["entity_states"]:
+        if s["entity_id"] not in have:
+            have.add(s["entity_id"])
+            states.append(s)
+    entities = [{
+        "entity_id": s["entity_id"], "name": s["name"], "type": s["type"],
+        "attributes": s["attributes"],
+    } for s in states[:limit_entities]]
     rules = [{
-        "entity_id": r["entity_id"], "name": r["canonical_name"],
+        "entity_id": r["entity_id"], "name": r["name"],
         "predicate": r["attribute_path"],
-        "standard_value": memory._u(r["standard_value"]),
-        "display": memory._u(r["new_value"]),
+        "standard_value": r["standard_value"],
+        "display": r["display"],
         "story_time": r["story_time"], "episode_no": r["episode_no"],
-    } for r in memory.committed_rules(conn, work_id, episode_no - 1)]
+    } for r in ctx["committed_rules"]]
     ev_rows = conn.execute(
         "SELECT episode_no, summary, story_time FROM events"
         " WHERE work_id=? AND episode_no<? ORDER BY episode_no DESC LIMIT 30",

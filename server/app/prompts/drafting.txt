@@ -3,8 +3,10 @@
    최상위 키는 정확히 [manuscript, lookup_requests] 이다.
 2. 회차 개요와 주어진 인물·장소 상태, 문체 정책을 따라 새 원고를 창작하라.
    deferred·null 남발 금지.
-3. 주어진 상태와 모순되는 내용을 쓰지 마라. 상태에 없는 과거 사실이 필요하면
-   원고에 지어내지 말고 lookup_requests에 조회 요청으로 남겨라.
+3. 주어진 상태와 모순되는 내용을 쓰지 마라. committed_rules의 확정 규칙은
+   반드시 지키고, 개요가 규칙과 충돌하면 규칙을 우선하라. 상태에 없는
+   과거 사실이 필요하면 원고에 지어내지 말고 lookup_requests에 조회
+   요청으로 남겨라.
    lookup_requests 항목: {"kind": "entity_state"|"event_search"|"mention_search",
    "entity_id": str|null, "episode": int|null, "query": str}.
 4. 목표 분량을 지키고, 필수 제약 문구·금지어를 확인하라.

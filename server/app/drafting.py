@@ -322,14 +322,18 @@ def get_outline(conn: sqlite3.Connection, design_id: int, episode_no: int) -> di
 
 def collect_entity_states(conn, episode_no: int,
                           work_id: int | None = None) -> list[dict]:
-    """Approved-state snapshots of all entities as of the previous episode."""
-    states = []
-    for ent in memory.search_entities(conn, work_id=work_id):
-        attrs = memory.reconstruct_state(conn, ent["entity_id"], episode_no - 1,
-                                         work_id)
-        states.append({"entity_id": ent["entity_id"], "name": ent["canonical_name"],
-                       "type": ent["type"], "attributes": attrs})
-    return states
+    """Tier-0 + Tier-1 snapshots (outline-named + recently touched)."""
+    if work_id is None:  # legacy unscoped path: full scan
+        states = []
+        for ent in memory.search_entities(conn, work_id=None):
+            attrs = memory.reconstruct_state(conn, ent["entity_id"],
+                                             episode_no - 1, None)
+            states.append({"entity_id": ent["entity_id"],
+                           "name": ent["canonical_name"],
+                           "type": ent["type"], "attributes": attrs})
+        return states
+    return memory.select_draft_context(
+        conn, episode_no, work_id)["entity_states"]
 
 
 def execute_lookups(conn, requests: list[dict], episode_no: int,
@@ -529,10 +533,11 @@ def _draft_once(meta, conn, *, design_id: int, work_id: int, episode_no: int,
     _, style_hi = parse_length_target(style["length_target"])
     out_budget = draft_output_budget(style_hi, floor=max_tokens,
                                      length_unit=unit)
-    states = collect_entity_states(conn, episode_no, work_id)
+    mem_ctx = memory.select_draft_context(conn, episode_no, work_id)
     base_input = {
         "episode_outline": outline,
-        "entity_states": states,
+        "entity_states": mem_ctx["entity_states"],
+        "committed_rules": mem_ctx["committed_rules"],
         "style_policy": style,
     }
     if manuscript_draft:
