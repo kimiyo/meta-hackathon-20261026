@@ -41,7 +41,7 @@ Runtime AI calls go to the **Meta Model API** (`POST /v1/chat/completions` with 
 
 Implemented Meta-powered tasks: idea chat, design planning, episode drafting, entity extraction, proposal verification, consistency review, manuscript chat edits, AI contradiction fixes, quality review, and blurb generation. Locale-specific prompts live in [`server/app/prompts/`](server/app/prompts/); every call records model, preset, tokens, and prompts for the AI call log.
 
-Development assistance is separate from runtime: this project was built with **Muse Code** (agentic coding: implementation, tests, docs). See [development log](docs/Muse_Code_개발_기록.md). No partner technologies (Fireworks/Modal/Baseten) and no image/voice models are used.
+Development assistance is separate from runtime: this project was built with **Muse Code** (agentic coding: implementation, tests, docs). See [development log](docs/muse-code-development-log.md). No partner technologies (Fireworks/Modal/Baseten) and no image/voice models are used.
 
 ## 6. Architecture and author-approved memory flow
 
@@ -150,7 +150,7 @@ Limitations, stated plainly:
 ## 10. Credits, licenses, and reused components
 
 - Runtime AI: Meta Model API (`muse-spark-1.3`, optional `muse-wonder-1.0`). No partner inference, no open-weight models, no image/voice models.
-- Development: built with Muse Code ([log](docs/Muse_Code_개발_기록.md)); design decisions recorded in [`docs/구현계획.md`](docs/구현계획.md) (authoritative spec) and [`docs/Muse_Code_개발_기록.md`](docs/Muse_Code_개발_기록.md).
+- Development: built with Muse Code ([log](docs/muse-code-development-log.md)); design decisions recorded in [`docs/구현계획.md`](docs/구현계획.md) (authoritative spec) and [`docs/muse-code-development-log.md`](docs/muse-code-development-log.md).
 - Open-source runtime deps (see [`server/requirements.txt`](server/requirements.txt)): FastAPI, Uvicorn, Pydantic, HTTPX, certifi, pytest.
 - Fonts are OS/browser font stacks (Pretendard/Noto fallbacks) — no vendored font files. Brand symbol, mockups, and sample stories are original to this project ([branding guide](docs/branding/README.md)); no third-party images or manuscripts are included.
 - **License: [TBD — a LICENSE file must be added before the repository goes public]**.
