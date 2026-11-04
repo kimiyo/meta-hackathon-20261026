@@ -20,9 +20,9 @@ from .deps import (get_conn, get_current_author, require_design,
 router = APIRouter(prefix="/api/v1", tags=["nodes"])
 
 
-def get_meta():
+def get_meta(author: dict = Depends(get_current_author)):
     from ..main import get_meta_client
-    return get_meta_client()
+    return get_meta_client(author["id"])
 
 
 CHAT_PROMPT = (Path(__file__).parent.parent / "prompts"

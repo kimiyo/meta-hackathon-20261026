@@ -20,26 +20,35 @@ _settings_lock = threading.Lock()
 app = FastAPI(title="StorySpine", version="0.2.0")
 
 
-def _recorder(record: dict) -> None:
-    conn = dbmod.connect()
-    try:
-        budgetmod.record_llm_call(conn, record)
-    finally:
-        conn.close()
+def _recorder_for(author_id: int | None):
+    def _recorder(record: dict) -> None:
+        conn = dbmod.connect()
+        try:
+            budgetmod.record_llm_call(conn, {**record, "author_id": author_id})
+        finally:
+            conn.close()
+    return _recorder
 
 
-def _budget_checker() -> None:
-    conn = dbmod.connect()
-    try:
-        budgetmod.check_budget(conn, settings.daily_token_budget)
-    finally:
-        conn.close()
+def _checker_for(author_id: int | None):
+    def _budget_checker() -> None:
+        conn = dbmod.connect()
+        try:
+            budgetmod.check_budget(conn, settings.daily_token_budget,
+                                   author_id=author_id)
+        finally:
+            conn.close()
+    return _budget_checker
 
 
-def get_meta_client():
-    """One MetaClient per call site (stateless, sqlite-backed recording)."""
-    return build_client(settings, recorder=_recorder,
-                        budget_checker=_budget_checker)
+def get_meta_client(author_id: int | None = None):
+    """One MetaClient per call site (stateless, sqlite-backed recording).
+
+    author_id scopes recording and the daily budget to one user; None
+    keeps the legacy global behavior (admin flows without a user).
+    """
+    return build_client(settings, recorder=_recorder_for(author_id),
+                        budget_checker=_checker_for(author_id))
 
 
 def current_settings():
@@ -47,10 +56,11 @@ def current_settings():
     return settings
 
 
-def build_client_with_model(model_id: str):
+def build_client_with_model(model_id: str, author_id: int | None = None):
     """Temp client for verifying a candidate model (does not switch)."""
     return build_client(_dc_replace(settings, model_text_id=model_id),
-                        recorder=_recorder, budget_checker=_budget_checker)
+                        recorder=_recorder_for(author_id),
+                        budget_checker=_checker_for(author_id))
 
 
 def switch_model(model_id: str):

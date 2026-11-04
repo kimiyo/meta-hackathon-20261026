@@ -105,9 +105,11 @@ def work_ai_log(key: str, limit: int = 50,
 
 
 @router.get("/ops/budget")
-def budget(conn: sqlite3.Connection = Depends(get_conn)):
+def budget(conn: sqlite3.Connection = Depends(get_conn),
+           author: dict = Depends(get_current_author)):
     from ..main import settings
-    return budgetmod.budget_status(conn, settings.daily_token_budget)
+    return budgetmod.budget_status(conn, settings.daily_token_budget,
+                                   author_id=author["id"])
 
 
 _RESET_TABLES = (

@@ -364,7 +364,8 @@ CREATE TABLE IF NOT EXISTS llm_calls (
   prompt_feature TEXT NOT NULL DEFAULT '',
   prompt_version TEXT NOT NULL DEFAULT '',
   preset_id TEXT NOT NULL DEFAULT '',
-  preset_version TEXT NOT NULL DEFAULT ''
+  preset_version TEXT NOT NULL DEFAULT '',
+  author_id INTEGER REFERENCES authors(id)
 );
 CREATE TABLE IF NOT EXISTS style_policies (
   id INTEGER PRIMARY KEY,
@@ -719,6 +720,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
   "ALTER TABLE llm_calls ADD COLUMN prompt_version TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE llm_calls ADD COLUMN preset_id TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE llm_calls ADD COLUMN preset_version TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE llm_calls ADD COLUMN author_id INTEGER REFERENCES authors(id)",
     ):
         try:
             conn.execute(sql)
@@ -732,6 +734,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
                  " WHERE state IN ('READY_FOR_REVIEW','AUTHOR_APPROVED')")
     conn.execute("UPDATE episode_jobs SET state='PUBLISHING'"
                  " WHERE state='COMMITTED'")
+    # Backfill pre-per-author rows: attribute past calls to the work owner.
+    conn.execute("UPDATE llm_calls SET author_id="
+                 " (SELECT author_id FROM works WHERE works.id=llm_calls.work_id)"
+                 " WHERE author_id IS NULL AND work_id IS NOT NULL")
     # Backfill pre-UID rows.
     for row in conn.execute("SELECT id FROM works WHERE uid IS NULL OR uid=''"):
         conn.execute("UPDATE works SET uid=? WHERE id=?", (new_uid(), row["id"]))

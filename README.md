@@ -98,7 +98,7 @@ Environment variables ([`.env.example`](.env.example)):
 | `REQUEST_TIMEOUT_S` | `120` | Per-call timeout. Long English drafts (~9k tokens) can exceed the read gap — raise to `300` if generation stalls |
 | `LLM_MAX_RETRY` | `3` | Retries on network/5xx/429 |
 | `MAX_TOKENS_PER_CALL` | `8000` | Per-call cap (reasoning included) |
-| `DAILY_TOKEN_BUDGET` | `1000000` | Daily token budget (UTC); episodes escalate to the author when exhausted |
+| `DAILY_TOKEN_BUDGET` | `1000000` | Daily token budget per user (UTC); episodes escalate to the author when exhausted |
 | `EPISODE_RETRY_LIMIT` | `3` | Per-episode retry cap |
 
 Security posture: the API key lives only in the server process; UI responses and logs never include it (covered by tests). `.env` is git-ignored and has never been committed — verified via `git log --all -- .env` plus a secret-pattern scan of tracked files.

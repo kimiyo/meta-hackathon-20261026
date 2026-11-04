@@ -40,6 +40,23 @@ def test_check_budget_raises_when_exhausted(conn):
     assert s["remaining"] == 1000
 
 
+def test_per_author_budget_isolation(conn):
+    a1 = authmod.register(conn, login_id="user1", pen_name="p",
+                          password="pw1234")["id"]
+    a2 = authmod.register(conn, login_id="user2", pen_name="p",
+                          password="pw1234")["id"]
+    budgetmod.record_llm_call(
+        conn, _rec(input_tokens=900, output_tokens=100, author_id=a1))
+    budgetmod.record_llm_call(
+        conn, _rec(input_tokens=10, output_tokens=10, author_id=a2))
+    assert budgetmod.daily_usage(conn, author_id=a1)["total_tokens"] == 1000
+    assert budgetmod.daily_usage(conn, author_id=a2)["total_tokens"] == 20
+    with pytest.raises(BudgetExceeded):
+        budgetmod.check_budget(conn, 1000, author_id=a1)
+    s = budgetmod.check_budget(conn, 1000, author_id=a2)
+    assert s["remaining"] == 980
+
+
 def test_connect_usable_across_threads(tmp_path):
     """FastAPI runs sync deps/endpoints/teardown on different threadpool
     threads, so a request-scoped connection must survive cross-thread
@@ -108,6 +125,25 @@ def api_client(tmp_path, monkeypatch):
     app.dependency_overrides[get_current_author] = lambda: _author
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+def test_ops_budget_counts_requesting_author_only(api_client, tmp_path):
+    seed = dbmod.connect(tmp_path / "api.db")
+    tester = seed.execute(
+        "SELECT id FROM authors WHERE login_id='tester'").fetchone()["id"]
+    other = authmod.register(seed, login_id="other", pen_name="o",
+                              password="pw1234")["id"]
+    try:
+        for aid, tokens in ((tester, 100), (other, 5000)):
+            budgetmod.record_llm_call(
+                seed, _rec(input_tokens=tokens, output_tokens=0,
+                           author_id=aid))
+        seed.commit()
+    finally:
+        seed.close()
+    body = api_client.get("/api/v1/ops/budget").json()
+    assert body["input_tokens"] == 100
+    assert body["total_tokens"] == 100
 
 
 def test_entities_api(api_client):

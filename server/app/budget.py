@@ -36,8 +36,8 @@ def record_llm_call(conn: sqlite3.Connection, record: dict) -> None:
         " input_tokens, output_tokens, latency_ms, ok, error,"
         " prompt_system, prompt_user, output_text, finish_reason,"
         " reasoning_tokens, market, writing_locale, prompt_feature,"
-        " prompt_version, preset_id, preset_version)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " prompt_version, preset_id, preset_version, author_id)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (record.get("ts", now_iso()), record["bundle"], record.get("episode_no"),
          record.get("work_id"), record["model"], record.get("input_tokens", 0),
          record.get("output_tokens", 0), record.get("latency_ms", 0),
@@ -52,26 +52,31 @@ def record_llm_call(conn: sqlite3.Connection, record: dict) -> None:
          record.get("prompt_feature", "") or "",
          record.get("prompt_version", "") or "",
          record.get("preset_id", "") or "",
-         record.get("preset_version", "") or ""),
+         record.get("preset_version", "") or "",
+         record.get("author_id")),
     )
     conn.commit()
 
 
-def daily_usage(conn: sqlite3.Connection, day: str | None = None) -> dict:
+def daily_usage(conn: sqlite3.Connection, day: str | None = None,
+                author_id: int | None = None) -> dict:
     day = day or datetime.now(timezone.utc).date().isoformat()
-    row = conn.execute(
-        "SELECT COALESCE(SUM(input_tokens),0) AS tin,"
-        " COALESCE(SUM(output_tokens),0) AS tout, COUNT(*) AS n"
-        " FROM llm_calls WHERE substr(ts,1,10)=?",
-        (day,),
-    ).fetchone()
+    sql = ("SELECT COALESCE(SUM(input_tokens),0) AS tin,"
+           " COALESCE(SUM(output_tokens),0) AS tout, COUNT(*) AS n"
+           " FROM llm_calls WHERE substr(ts,1,10)=?")
+    args: list = [day]
+    if author_id is not None:
+        sql += " AND author_id=?"
+        args.append(author_id)
+    row = conn.execute(sql, args).fetchone()
     return {"day": day, "input_tokens": row["tin"],
             "output_tokens": row["tout"], "calls": row["n"],
             "total_tokens": row["tin"] + row["tout"]}
 
 
-def check_budget(conn: sqlite3.Connection, daily_budget: int) -> dict:
-    usage = daily_usage(conn)
+def check_budget(conn: sqlite3.Connection, daily_budget: int,
+                 author_id: int | None = None) -> dict:
+    usage = daily_usage(conn, author_id=author_id)
     if usage["total_tokens"] >= daily_budget:
         raise BudgetExceeded(
             f"daily token budget exhausted: {usage['total_tokens']}/{daily_budget}")
@@ -79,7 +84,8 @@ def check_budget(conn: sqlite3.Connection, daily_budget: int) -> dict:
             "remaining": daily_budget - usage["total_tokens"]}
 
 
-def budget_status(conn: sqlite3.Connection, daily_budget: int) -> dict:
-    usage = daily_usage(conn)
+def budget_status(conn: sqlite3.Connection, daily_budget: int,
+                  author_id: int | None = None) -> dict:
+    usage = daily_usage(conn, author_id=author_id)
     return {**usage, "budget": daily_budget,
             "remaining": max(0, daily_budget - usage["total_tokens"])}

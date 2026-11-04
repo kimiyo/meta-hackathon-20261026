@@ -25,9 +25,9 @@ def _work_locale(work: dict) -> tuple[str, str]:
             work.get("market") or "KR")
 
 
-def get_meta():
+def get_meta(author: dict = Depends(get_current_author)):
     from ..main import get_meta_client
-    return get_meta_client()
+    return get_meta_client(author["id"])
 
 
 CHAT_PROMPT = (Path(__file__).parent.parent / "prompts"

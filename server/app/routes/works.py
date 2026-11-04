@@ -20,9 +20,9 @@ router = APIRouter(prefix="/api/v1", tags=["works"])
 TITLE_MAX = 80
 
 
-def get_meta():
+def get_meta(author: dict = Depends(get_current_author)):
     from ..main import get_meta_client
-    return get_meta_client()
+    return get_meta_client(author["id"])
 
 
 def _work_or_404(conn: sqlite3.Connection, key: str,
