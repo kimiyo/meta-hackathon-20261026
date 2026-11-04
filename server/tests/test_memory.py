@@ -140,6 +140,27 @@ def test_commit_is_idempotent(conn):
     assert n == 1
 
 
+def test_latest_committed_set(conn):
+    assert memory.latest_committed_set(conn, 1, 1) is None
+    rev1 = _rev(conn, 1, ver=1)
+    rev2 = _rev(conn, 1, ver=2)
+    item = {"entity_id": "ch_0001", "operation": "set",
+            "attribute_path": "나이", "new_value": 26,
+            "evidence_quote": "스물여섯"}
+    memory.create_entity(conn, entity_id="ch_0001", type_="character", work_id=1,
+                         name="서연", first_episode=1)
+    s1 = memory.store_proposal(conn, work_id=1, episode_no=1, revision_id=rev1,
+                               items=[dict(item)])
+    s2 = memory.store_proposal(conn, work_id=1, episode_no=1, revision_id=rev2,
+                               items=[dict(item)])
+    conn.execute("UPDATE change_proposals SET status='committed'"
+                 " WHERE proposal_set_id IN (?,?)", (s1, s2))
+    conn.commit()
+    latest = memory.latest_committed_set(conn, 1, 1)
+    assert latest["proposal_set_id"] == s2
+    assert latest["manuscript_revision_id"] == rev2
+
+
 def test_discard_all_pending_drops_every_revision(conn):
     rev1 = _rev(conn, 1, ver=1)
     rev2 = _rev(conn, 1, ver=2)

@@ -594,10 +594,19 @@ function renderPending() {
     const savedSet = pending?.saved_set;
     const savedItems = pending?.saved_items ?? [];
     const savedEvents = pending?.saved_events ?? [];
+    const prevSaved = pending?.latest_saved_set;
+    const prevItems = pending?.latest_saved_items ?? [];
+    const prevEvents = pending?.latest_saved_events ?? [];
     if (savedSet && (savedItems.length || savedEvents.length)) {
       html += `<div class="small muted" style="margin-top:6px">${t("review.memory.savedReadonly")}</div>` +
         groupedItemsHtml(savedItems, true) +
         proposalEventsHtml(savedEvents, true);
+    } else if (prevSaved && (prevItems.length || prevEvents.length)) {
+      // 수정 후 새 원고 revision: 현 원고 기준 저장분은 없지만 이전 확정분을
+      // 읽기 전용으로 보여준다. 삭제된 것이 아님을 알리고 재추출을 유도한다.
+      html += `<div style="margin-top:6px"><span class="chip warn">${t("review.memory.staleSaved", { version: esc(prevSaved.version ?? "?") })}</span></div>` +
+        groupedItemsHtml(prevItems, true) +
+        proposalEventsHtml(prevEvents, true);
     } else {
       html += `<div class="small muted" style="margin-top:6px">${t("review.memory.noDraft")}</div>`;
     }
@@ -647,7 +656,7 @@ function renderPending() {
   });
   box.querySelectorAll("[data-jump]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      jumpToEvidence(btn.dataset.quote, pending?.proposal_set?.manuscript_revision_id ?? pending?.saved_set?.manuscript_revision_id ?? null);
+      jumpToEvidence(btn.dataset.quote, pending?.proposal_set?.manuscript_revision_id ?? pending?.saved_set?.manuscript_revision_id ?? pending?.latest_saved_set?.manuscript_revision_id ?? null);
     });
   });
   box.querySelectorAll("[data-hist]").forEach((btn) => {

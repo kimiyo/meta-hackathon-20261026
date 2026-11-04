@@ -816,6 +816,44 @@ def test_latest_analysis_reports_comparable(api_client):
     assert body["comparable"] is False
 
 
+def test_entity_proposals_falls_back_to_latest_saved(api_client, tmp_path):
+    wid = api_client.post("/api/v1/works", json={"title": "w"}).json()["id"]
+    seed = dbmod.connect(tmp_path / "api.db")
+    try:
+        did = seed.execute(
+            "INSERT INTO story_designs(work_id, version, scope_total_episodes,"
+            " concept_json, sections_json, status)"
+            " VALUES(?,1,2,'{}','[]','approved')", (wid,)).lastrowid
+        rev_old = seed.execute(
+            "INSERT INTO manuscript_revisions(work_id, episode_no, version,"
+            " text, created_at) VALUES(?,1,1,'old','t')", (wid,)).lastrowid
+        rev_new = seed.execute(
+            "INSERT INTO manuscript_revisions(work_id, episode_no, version,"
+            " text, created_at) VALUES(?,1,2,'new','t')", (wid,)).lastrowid
+        seed.execute(
+            "INSERT INTO episode_jobs(work_id, episode_no, design_id, state,"
+            " manuscript_revision_id, attempt, updated_at)"
+            " VALUES(?,1,?,'IN_REVIEW',?,0,'t')", (wid, did, rev_new))
+        memory.create_entity(seed, entity_id="ch_0002", type_="character",
+                             work_id=wid, name="서연", first_episode=1)
+        sid = memory.store_proposal(
+            seed, work_id=wid, episode_no=1, revision_id=rev_old,
+            items=[{"entity_id": "ch_0002", "operation": "set",
+                    "attribute_path": "나이", "new_value": 26,
+                    "evidence_quote": "스물여섯"}])
+        seed.execute("UPDATE change_proposals SET status='committed'"
+                     " WHERE proposal_set_id=?", (sid,))
+        seed.commit()
+    finally:
+        seed.close()
+    body = api_client.get(
+        f"/api/v1/episodes/1/entity-proposals?work={wid}").json()
+    assert body["saved_set"] is None
+    assert body["latest_saved_set"]["proposal_set_id"] == sid
+    assert body["latest_saved_set"]["version"] == 1
+    assert len(body["latest_saved_items"]) == 1
+
+
 def test_consistency_reset_clears_issues(api_client):
     from app.routes.works import get_meta
     from app.main import app

@@ -396,6 +396,20 @@ def entity_proposals(episode_no: int, work: str,
               if pset else [])
     saved_events = (memory.get_proposal_events(conn, saved["proposal_set_id"])
                     if saved else [])
+    # 현 원고 기준 저장분이 없으면(수정 후 새 revision 등) 가장 최근
+    # 확정분을 읽기 전용으로 함께 내려준다. 삭제된 것이 아님을 보여주고
+    # 재추출·저장 시 갱신 기준점으로 쓴다.
+    latest_saved = None
+    latest_saved_items: list = []
+    latest_saved_events: list = []
+    if saved is None:
+        latest_saved = memory.latest_committed_set(conn, episode_no, work_id)
+        if latest_saved:
+            latest_saved_items = [
+                i for i in memory.get_proposals(conn, episode_no, work_id)
+                if i["proposal_set_id"] == latest_saved["proposal_set_id"]]
+            latest_saved_events = memory.get_proposal_events(
+                conn, latest_saved["proposal_set_id"])
     latest = memory.latest_set(conn, episode_no, work_id)
     return {"episode_no": episode_no,
             "proposal_set": _with_version(conn, pset),
@@ -405,6 +419,9 @@ def entity_proposals(episode_no: int, work: str,
             "saved_set": _with_version(conn, saved),
             "saved_items": saved_items,
             "saved_events": saved_events,
+            "latest_saved_set": _with_version(conn, latest_saved),
+            "latest_saved_items": latest_saved_items,
+            "latest_saved_events": latest_saved_events,
             "committed_summary": memory.committed_summary(
                 conn, episode_no, work_id or 0),
             "memory_version": memory.current_memory_version(conn, work_id or 0),

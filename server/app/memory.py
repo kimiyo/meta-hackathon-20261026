@@ -720,6 +720,19 @@ def approve_proposal_set(conn, set_id: int, _commit: bool = True) -> None:
         conn.commit()
 
 
+def latest_committed_set(conn, episode_no: int,
+                         work_id: int | None = None) -> dict | None:
+    """Newest committed set of the episode (any manuscript revision)."""
+    sql = ("SELECT * FROM change_proposals WHERE episode_no=?"
+           " AND status='committed'")
+    args: list = [episode_no]
+    if work_id is not None:
+        sql += " AND work_id=?"
+        args.append(work_id)
+    sql += " ORDER BY proposal_set_id DESC LIMIT 1"
+    row = conn.execute(sql, args).fetchone()
+    return dict(row) if row else None
+
 def get_committed_set_for_revision(conn, episode_no: int, revision_id: int,
                                   work_id: int | None = None) -> dict | None:
     sql = ("SELECT * FROM change_proposals WHERE episode_no=?"
