@@ -169,6 +169,47 @@ def test_delete_work_needs_title_and_keeps_logs(client):
     assert n == 1
 
 
+def test_delete_work_with_design_threads_and_settings(client, fakes):
+    """Regression: deleting a designed work hit an FK error.
+
+    design_threads/design_messages/node_settings reference design_nodes,
+    so they must go before the nodes themselves.
+    """
+    c, db_path = client
+    w = _mkwork(c)
+    r = c.post(f"/api/v1/works/{w['uid']}/handoff", json={})
+    assert r.status_code == 200, r.text
+    did = r.json()["design_id"]
+    th = c.post(f"/api/v1/designs/{did}/threads",
+                json={"node_id": "N001", "title": "t"}).json()
+    r = c.post(f"/api/v1/design-threads/{th['id']}/messages",
+               json={"content": "hi"})
+    assert r.status_code == 200, r.text
+    r = c.post("/api/v1/nodes/N001/settings",
+               json={"category": "world", "title": "s", "summary": "",
+                     "detail": ""})
+    assert r.status_code == 200, r.text
+    conn = dbmod.connect(db_path)
+    conn.execute("INSERT INTO publish_editions(work_id, episode_no,"
+                 " created_at) VALUES(?,?,?)",
+                 (w["id"], 1, "2026-11-04"))
+    conn.commit()
+    conn.close()
+    r = c.request("DELETE", f"/api/v1/works/{w['uid']}",
+                  json={"title": w["title"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == w["id"]
+    conn = dbmod.connect(db_path)
+    try:
+        for table in ["design_messages", "design_threads", "node_settings",
+                      "design_nodes", "episode_outlines", "story_designs",
+                      "publish_editions"]:
+            n = conn.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"]
+            assert n == 0, f"{table} not cleaned: {n}"
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------- ideas
 
 def test_threads_and_chat_roundtrip(client, fakes):

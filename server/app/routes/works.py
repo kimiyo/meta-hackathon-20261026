@@ -484,6 +484,14 @@ def delete_work(key: str, body: WorkDeleteIn,
     conn.execute("DELETE FROM story_synopsis WHERE work_id=?", (wid,))
     conn.execute("DELETE FROM synopsis_revisions WHERE work_id=?", (wid,))
     conn.execute("DELETE FROM setting_entries WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM design_messages WHERE thread_id IN"
+                 " (SELECT id FROM design_threads WHERE design_id IN"
+                 " (SELECT id FROM story_designs WHERE work_id=?))", (wid,))
+    conn.execute("DELETE FROM design_threads WHERE design_id IN"
+                 " (SELECT id FROM story_designs WHERE work_id=?)", (wid,))
+    conn.execute("DELETE FROM node_settings WHERE node_id IN"
+                 " (SELECT id FROM design_nodes WHERE design_id IN"
+                 " (SELECT id FROM story_designs WHERE work_id=?))", (wid,))
     conn.execute("UPDATE design_nodes SET parent_id=NULL WHERE design_id IN"
                  " (SELECT id FROM story_designs WHERE work_id=?)", (wid,))
     conn.execute("DELETE FROM design_nodes WHERE design_id IN"
@@ -491,6 +499,7 @@ def delete_work(key: str, body: WorkDeleteIn,
     conn.execute("DELETE FROM episode_outlines WHERE design_id IN"
                  " (SELECT id FROM story_designs WHERE work_id=?)", (wid,))
     conn.execute("DELETE FROM story_designs WHERE work_id=?", (wid,))
+    conn.execute("DELETE FROM publish_editions WHERE work_id=?", (wid,))
     conn.execute("DELETE FROM style_policies WHERE work_id=?", (wid,))
     conn.execute("DELETE FROM works WHERE id=?", (wid,))
     conn.commit()
