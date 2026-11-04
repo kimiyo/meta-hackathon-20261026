@@ -34,12 +34,13 @@ function setBusy(v) {
   }
 }
 
-// 순차 집필: EP N의 첫 시작은 EP N-1이 발간중(PUBLISHING)된 뒤에만 가능.
-// 발간된 앞 회차 원고가 다음 회차 검증의 근거가 된다. EP 1은 항상 가능.
+// 순차 집필: EP N의 첫 시작은 EP N-1이 검토중(IN_REVIEW) 이후부터 가능.
+// 발간까지 기다리지 않아도 되며, EP 1은 항상 가능.
 function canStart(ep) {
   const prev = rows.find((r) => r.episode_no === ep - 1);
   if (!prev) return true;
-  return prev.job?.state === "PUBLISHING";
+  const st = prev.job?.state;
+  return st === "IN_REVIEW" || st === "PUBLISHING";
 }
 
 function gateHint(ep) {
