@@ -735,7 +735,8 @@ function renderAliases() {
         showError("review-error", t("review.memory.needEntity"));
         return;
       }
-      await api.resolveAlias(id, { entity_id: entityId, basis: "작가 연결 확정" });
+      // 빈 basis: 서버가 작품 언어의 기본 사유(작가 확정/author confirmed)를 넣는다.
+      await api.resolveAlias(id, { entity_id: entityId, basis: "" });
       await reloadAliases();
       entityOptions = (await api.entities("")).entities ?? [];
       renderAliases();

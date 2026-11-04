@@ -12,11 +12,18 @@ import sqlite3
 from pathlib import Path
 
 from . import drafting, memory
+from . import meta_client as metac
 from .db import now_iso
 from .errors import BudgetExceeded, LLMStepError
 from .schemas import drafting as dsch
 
 CHAT_PROMPT = (Path(__file__).parent / "prompts" / "manuscript_chat.txt").read_text(encoding="utf-8")
+
+
+def _locale(conn, work_id: int) -> tuple[str, str]:
+    """(writing_locale, market) for a work; ko-KR/KR fallback."""
+    market, locale = metac.work_locale(conn, work_id)
+    return locale, market
 
 STATES = ("WRITING", "IN_REVIEW", "PUBLISHING")
 
@@ -117,17 +124,19 @@ def redraft_episode(conn, meta, work_id: int, episode_no: int,
     latest = conn.execute(
         "SELECT text FROM manuscript_revisions WHERE work_id=? AND episode_no=?"
         " ORDER BY version DESC LIMIT 1", (work_id, episode_no)).fetchone()
+    en = _locale(conn, work_id)[0] == "en-US"
     if doc_row["draft_content"].strip() and (
             not latest or doc_row["draft_content"] != latest["text"]):
         manuscripts.create_version(
             conn, work_id, episode_no, job, title, doc_row["revision"],
             f"redraft-keep-{episode_no}-{doc_row['revision']}",
-            doc_row["draft_content"], "AI 재생성 전 초안")
+            doc_row["draft_content"],
+            "Draft before AI redraft" if en else "AI 재생성 전 초안")
     try:
         rev = drafting.draft_episode(
             meta, conn, design_id=job["design_id"], work_id=work_id,
             episode_no=episode_no, max_tokens=max_tokens,
-            revision_label="AI 재생성")
+            revision_label="AI redraft" if en else "AI 재생성")
     except BudgetExceeded as e:
         job["last_error"] = f"budget_exceeded: {e}"[:300]
         job["needs_attention"] = 1
@@ -154,9 +163,12 @@ def chat_revise(conn, meta, work_id: int, episode_no: int, *,
         raise KeyError(f"episode {episode_no} has no job")
     if job["state"] != "WRITING":
         raise ValueError(f"chat revise needs WRITING, got {job['state']}")
+    writing_locale, market = _locale(conn, work_id)
+    en = writing_locale == "en-US"
     instruction = (message or "").strip()
     if not instruction:
-        raise ValueError("수정 지시를 입력하세요")
+        raise ValueError("Enter a revision instruction"
+                         if en else "수정 지시를 입력하세요")
     title_row = conn.execute(
         "SELECT title FROM episode_outlines WHERE design_id=? AND episode_no=?",
         (job["design_id"], episode_no)).fetchone()
@@ -174,22 +186,34 @@ def chat_revise(conn, meta, work_id: int, episode_no: int, *,
     elif draft.strip():
         base = draft
     else:
-        raise ValueError("수정할 원고가 없습니다")
+        raise ValueError("No manuscript to revise"
+                         if en else "수정할 원고가 없습니다")
     if base == draft and draft.strip() and draft != latest_text:
         manuscripts.create_version(
             conn, work_id, episode_no, job, title, doc_row["revision"],
             f"chat-keep-{episode_no}-{doc_row['revision']}",
-            draft, "채팅 수정 전 초안")
+            draft, "Draft before chat revision" if en else "채팅 수정 전 초안")
+    prompt, _, _ = metac.feature_prompt(
+        conn, work_id, "manuscript_chat", writing_locale, market)
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
+    if en:
+        directive = ("The author's instruction and the current manuscript."
+                     " Skeleton: ")
+    else:
+        directive = "작가 지시와 현재 원고다. 스켈레톤: "
     try:
-        out = meta.chat_json(
-            bundle="manuscript-chat", episode=episode_no,
-            system=CHAT_PROMPT, work_id=work_id,
-            user="작가 지시와 현재 원고다. 스켈레톤: "
-                 '{"manuscript": str}\n'
+        out = metac.chat_with_provenance(
+            meta, bundle="manuscript-chat", episode=episode_no,
+            system=prompt.text, work_id=work_id,
+            user=directive
+                 + '{"manuscript": str}\n'
                  + json.dumps({"episode_no": episode_no,
                                "instruction": instruction,
                                "manuscript": base}, ensure_ascii=False),
-            schema=dsch.DraftOutput, max_tokens=max_tokens)
+            schema=dsch.DraftOutput, max_tokens=max_tokens,
+            writing_locale=writing_locale, market=market,
+            prompt_feature="manuscript_chat",
+            preset_id=preset_id, preset_version=preset_version)
     except BudgetExceeded as e:
         job["last_error"] = f"budget_exceeded: {e}"[:300]
         job["needs_attention"] = 1
@@ -203,9 +227,10 @@ def chat_revise(conn, meta, work_id: int, episode_no: int, *,
     revised = (out.get("manuscript") or "")
     if not revised.strip():
         raise LLMStepError("manuscript-chat", episode_no, "empty",
-                           "AI가 빈 원고를 반환했습니다")
+                           "The model returned an empty manuscript"
+                           if en else "AI가 빈 원고를 반환했습니다")
     rev = drafting.save_revision(conn, work_id, episode_no, revised,
-                                 label="AI 채팅 수정")
+                                 label="AI chat revision" if en else "AI 채팅 수정")
     job["manuscript_revision_id"] = rev["revision_id"]
     _save_job(conn, job)
     return {"episode_no": episode_no, **_public(job), "revision": rev}
@@ -279,13 +304,17 @@ def request_publish(conn, work_id: int, episode_no: int) -> dict:
     saved = memory.get_committed_set_for_revision(conn, episode_no, rev_id,
                                                   work_id)
     pset = None
+    writing_locale = _locale(conn, work_id)[0]
+    en = writing_locale == "en-US"
     if saved is None:
         pset = memory.get_pending_set_for_revision(conn, episode_no, rev_id,
                                                    work_id)
         if pset is None:
             if memory.has_any_proposal(conn, episode_no, work_id):
-                raise ValueError("원고가 바뀌어 설정 재추출이 필요합니다")
-            raise ValueError("설정 추출을 먼저 실행하세요")
+                raise ValueError("Manuscript changed; re-extraction is required"
+                                 if en else "원고가 바뀌어 설정 재추출이 필요합니다")
+            raise ValueError("Run entity extraction first"
+                             if en else "설정 추출을 먼저 실행하세요")
     try:
         if saved is not None:
             memory.approve_manuscript_revision(conn, rev_id)
@@ -295,7 +324,8 @@ def request_publish(conn, work_id: int, episode_no: int) -> dict:
         else:
             result = memory.save_episode_memory(
                 conn, episode_no=episode_no, revision_id=rev_id,
-                proposal_set_id=pset["proposal_set_id"], work_id=work_id)
+                proposal_set_id=pset["proposal_set_id"], work_id=work_id,
+                writing_locale=writing_locale)
             job["proposal_set_id"] = pset["proposal_set_id"]
     except Exception:
         job["needs_attention"] = 1

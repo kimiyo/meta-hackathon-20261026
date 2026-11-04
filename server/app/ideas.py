@@ -271,7 +271,15 @@ def update_structure(conn: sqlite3.Connection, work_id: int,
 
 # ---------------------------------------------------------------- handoff
 
-def build_migration_tree(structure: dict, plan: dict) -> tuple[list, dict]:
+def _stub_episode_title(ep_no: int, writing_locale: str = "ko-KR") -> str:
+    if writing_locale == "en-US":
+        return f"Episode {ep_no}"
+    return f"제{ep_no}화"
+
+
+def build_migration_tree(structure: dict, plan: dict,
+                         writing_locale: str = "ko-KR",
+                         ) -> tuple[list, dict]:
     """Pure planning step shared by the preview and the migration.
 
     Returns (tree, counts) where tree is a sanitized nested list of
@@ -315,7 +323,8 @@ def build_migration_tree(structure: dict, plan: dict) -> tuple[list, dict]:
                 if ep_no > total:
                     continue
                 out.append({"kind": "episode",
-                            "title": n["title"] or f"제{ep_no}화",
+                            "title": n["title"]
+                            or _stub_episode_title(ep_no, writing_locale),
                             "summary": n["summary"], "episode_no": ep_no,
                             "stub": False, "children": []})
                 used.add(ep_no)
@@ -344,7 +353,8 @@ def build_migration_tree(structure: dict, plan: dict) -> tuple[list, dict]:
         for ep_no in range(1, total + 1):
             if ep_no in used:
                 continue
-            dest.append({"kind": "episode", "title": f"제{ep_no}화",
+            dest.append({"kind": "episode",
+                         "title": _stub_episode_title(ep_no, writing_locale),
                          "summary": "", "episode_no": ep_no,
                          "stub": True, "children": []})
             counts["episodes"] += 1
@@ -376,6 +386,7 @@ def handoff_migrate(conn: sqlite3.Connection, work_id: int,
     if work["ideas_locked"]:
         raise ValueError("ideas already handed off (read-only)")
     structure = parse_structure(work["structure_json"])
+    writing_locale = work.get("writing_locale") or "ko-KR"
     total = structure["total_episodes"]
     check_total_episodes(total)
     syn = get_synopsis(conn, work_id)
@@ -400,7 +411,7 @@ def handoff_migrate(conn: sqlite3.Connection, work_id: int,
                             "title": s["title"], "summary": s["summary"],
                             "detail": s["detail"]} for s in settings]},
         _skip_commit=True)
-    tree, counts = build_migration_tree(structure, plan)
+    tree, counts = build_migration_tree(structure, plan, writing_locale)
 
     def _create(nodes: list, parent_id: str) -> None:
         for n in nodes:

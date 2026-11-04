@@ -33,6 +33,13 @@ def norm_text(s: str) -> str:
     return (s or "").replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _is_en(conn: sqlite3.Connection, work_id: int) -> bool:
+    """True when the owning work writes in English (ko-KR fallback)."""
+    from . import meta_client as metac
+
+    return metac.work_locale(conn, work_id)[1] == "en-US"
+
+
 def is_locked_job(job: dict | None) -> bool:
     return bool(job) and job.get("state") == "PUBLISHING"
 
@@ -163,9 +170,10 @@ def snapshot_draft_for_submit(conn: sqlite3.Connection, work_id: int,
         return None
     if row["draft_content"] == versions[-1]["text"]:
         return None
+    label = "Submit snapshot" if _is_en(conn, work_id) else "제출 스냅샷"
     return create_version(conn, work_id, episode_no, job, title, row["revision"],
                           f"submit-{episode_no}-{row['revision']}",
-                          row["draft_content"], "제출 스냅샷")
+                          row["draft_content"], label)
 
 
 def _insert_version(conn: sqlite3.Connection, work_id: int, episode_no: int,
@@ -196,8 +204,9 @@ def create_version(conn: sqlite3.Connection, work_id: int, episode_no: int,
         return hit
     if expected_revision != row["revision"]:
         raise RevisionConflict("revision conflict", row["revision"])
+    default_label = "Manual save" if _is_en(conn, work_id) else "수동 저장"
     rev = _insert_version(conn, work_id, episode_no, body["content"],
-                          body["label"] or "수동 저장")
+                          body["label"] or default_label)
     # save_revision already synced draft=latest and bumped revision.
     _adopt_revision(conn, job, rev["revision_id"])
     touch_work(conn, work_id)
@@ -224,10 +233,13 @@ def restore_version(conn: sqlite3.Connection, work_id: int, episode_no: int,
         (work_id, episode_no, source_rid)).fetchone()
     if source is None:
         raise KeyError(f"revision {source_id} not found")
+    if _is_en(conn, work_id):
+        label = f"v{source['version']} restored"
+    else:
+        label = f"v{source['version']} 복원"
     return create_version(
         conn, work_id, episode_no, job, title, expected_revision,
-        f"restore:{request_id}", source["text"],
-        label=f"v{source['version']} 복원")
+        f"restore:{request_id}", source["text"], label=label)
 
 
 def sync_doc_after_revision(conn: sqlite3.Connection, work_id: int,

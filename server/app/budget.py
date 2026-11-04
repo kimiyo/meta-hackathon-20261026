@@ -35,7 +35,9 @@ def record_llm_call(conn: sqlite3.Connection, record: dict) -> None:
         "INSERT INTO llm_calls(ts, bundle, episode_no, work_id, model,"
         " input_tokens, output_tokens, latency_ms, ok, error,"
         " prompt_system, prompt_user, output_text, finish_reason,"
-        " reasoning_tokens) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " reasoning_tokens, market, writing_locale, prompt_feature,"
+        " prompt_version, preset_id, preset_version)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (record.get("ts", now_iso()), record["bundle"], record.get("episode_no"),
          record.get("work_id"), record["model"], record.get("input_tokens", 0),
          record.get("output_tokens", 0), record.get("latency_ms", 0),
@@ -44,7 +46,13 @@ def record_llm_call(conn: sqlite3.Connection, record: dict) -> None:
          record.get("prompt_user", "") or "",
          record.get("output_text", "") or "",
          record.get("finish_reason", "") or "",
-         record.get("reasoning_tokens", 0) or 0),
+         record.get("reasoning_tokens", 0) or 0,
+         record.get("market", "") or "",
+         record.get("writing_locale", "") or "",
+         record.get("prompt_feature", "") or "",
+         record.get("prompt_version", "") or "",
+         record.get("preset_id", "") or "",
+         record.get("preset_version", "") or ""),
     )
     conn.commit()
 

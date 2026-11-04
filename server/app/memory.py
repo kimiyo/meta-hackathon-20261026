@@ -743,7 +743,8 @@ def approve_manuscript_revision(conn, revision_id: int,
 
 def save_episode_memory(conn, *, episode_no: int, revision_id: int,
                         proposal_set_id: int,
-                        work_id: int | None = None) -> dict:
+                        work_id: int | None = None,
+                        writing_locale: str = "ko-KR") -> dict:
     """검토 확정: 새 변경안을 원자적으로 공식 기억으로 저장한다(§5).
 
     같은 회차의 이전 확정 실행은 superseded로만 바꾸고, 그 사실들은
@@ -759,6 +760,8 @@ def save_episode_memory(conn, *, episode_no: int, revision_id: int,
         raise ValueError(f"proposal set {proposal_set_id} is {pset['status']}")
     wid = work_id if work_id is not None else pset["work_id"]
     if current_memory_version(conn, wid) != (pset["base_memory_version"] or 0):
+        if writing_locale == "en-US":
+            raise ValueError("base memory changed; re-review is required")
         raise ValueError("기준 기억이 바뀌어 재검토가 필요합니다")
     try:
         conn.execute("UPDATE change_proposals SET status='superseded'"
@@ -770,6 +773,7 @@ def save_episode_memory(conn, *, episode_no: int, revision_id: int,
                                 revision_id=revision_id,
                                 proposal_set_id=proposal_set_id,
                                 work_id=wid, memory_version=version,
+                                writing_locale=writing_locale,
                                 _commit=False)
         for eid in result["entities"]:
             conn.execute("DELETE FROM entity_snapshots WHERE entity_id=?"
@@ -959,7 +963,8 @@ def is_committed(conn, episode_no: int, revision_id: int) -> bool:
 
 def _commit_resolve(conn, work_id: int, entity_id: str | None,
                     candidate: str, explicit_new: bool,
-                    new_ids: dict[str, str], episode_no: int) -> str:
+                    new_ids: dict[str, str], episode_no: int,
+                    writing_locale: str = "ko-KR") -> str:
     """Stable identity (§5.5): reuse the resolved entity whenever possible.
 
     A confirmed link is always an author decision, so it wins over both
@@ -971,7 +976,7 @@ def _commit_resolve(conn, work_id: int, entity_id: str | None,
         ent = get_entity(conn, entity_id)
         if ent and (work_id is None or ent["work_id"] == work_id):
             return entity_id
-    name = candidate or "이름없음"
+    name = candidate or ("Unnamed" if writing_locale == "en-US" else "이름없음")
     if name in new_ids:
         return new_ids[name]
     if work_id is not None:
@@ -1036,6 +1041,7 @@ def _auto_link_aliases(conn, work_id: int) -> int:
 
 def commit_episode(conn, *, episode_no, revision_id, proposal_set_id,
                    work_id: int | None = None, memory_version: int = 0,
+                   writing_locale: str = "ko-KR",
                    _commit: bool = True) -> dict:
     """Apply approved proposal items. Idempotent on (episode, revision)."""
     if is_committed(conn, episode_no, revision_id):
@@ -1060,14 +1066,15 @@ def commit_episode(conn, *, episode_no, revision_id, proposal_set_id,
             if it["operation"] == "create" or it["entity_id"] is None:
                 entity_id = _commit_resolve(
                     conn, wid, it["entity_id"], it["candidate_name"],
-                    bool(it["explicit_new"]), new_ids, episode_no)
+                    bool(it["explicit_new"]), new_ids, episode_no,
+                    writing_locale)
             else:
                 entity_id = it["entity_id"]
                 ent = get_entity(conn, entity_id)
                 if ent is None or (wid and ent["work_id"] != wid):
                     entity_id = _commit_resolve(
-                        conn, wid, None, it["candidate_name"] or "이름없음",
-                        False, new_ids, episode_no)
+                        conn, wid, None, it["candidate_name"] or "",
+                        False, new_ids, episode_no, writing_locale)
             conn.execute(
                 "INSERT INTO entity_changes(entity_id, work_id, episode_no,"
                 " manuscript_revision_id, proposal_set_id, memory_version,"

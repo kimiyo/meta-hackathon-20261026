@@ -140,6 +140,8 @@ def create_design(key: str, body: DesignIn,
             meta, conn, work_id=work["id"], keywords=body.keywords,
             total_episodes=body.total_episodes, constraints=body.constraints,
             prev_feedback=body.prev_feedback)
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
     except LLMStepError as e:
         raise HTTPException(502, f"planning failed: {e.reason} {e.detail}")
     touch_work(conn, work["id"])
@@ -327,6 +329,9 @@ def generate_blurb(key: str,
     work = _work_or_404(conn, key, author["id"])
     ctx = publishing.collect_blurb_context(conn, work)
     if not publishing.has_blurb_material(ctx):
+        if (work.get("writing_locale") or "ko-KR") == "en-US":
+            raise HTTPException(409, "no blurb material"
+                                     " (need a logline, synopsis, or outlines)")
         raise HTTPException(409, "소개글 재료가 없습니다"
                                  "(로그라인·시놉시스·회차 개요 중 하나 필요)")
     try:
@@ -372,9 +377,10 @@ class CustomStylePatch(BaseModel):
 def get_work_style(key: str, conn: sqlite3.Connection = Depends(get_conn),
                      author: dict = Depends(get_current_author)):
     work = _work_or_404(conn, key, author["id"])
+    market = work.get("market") or locales.DEFAULT_MARKET
     return {"work_id": work["id"],
             **drafting.get_length_range(conn, work["id"]),
-            "presets": style_presets.preset_list(),
+            "presets": style_presets.preset_list(market),
             "custom_styles": custom_styles.list_custom(conn, author["id"])}
 
 
@@ -406,8 +412,9 @@ def patch_work_style(key: str, body: StylePatch,
     touch_work(conn, work["id"])
     conn.commit()
     out = drafting.get_length_range(conn, work["id"])
+    market = work.get("market") or locales.DEFAULT_MARKET
     return {"work_id": work["id"], **out,
-            "presets": style_presets.preset_list(),
+            "presets": style_presets.preset_list(market),
             "custom_styles": custom_styles.list_custom(conn, author["id"])}
 
 

@@ -19,11 +19,11 @@
 <header class="topbar" data-role="shell.topbar">
   <div class="logo"><img class="brand-mark" src="./assets/symbol-paper.svg" alt="" width="22" height="22">StorySpine <span class="brand-sub">AI Novel Studio</span> <button class="model-chip" id="model-info" data-role="shell.topbar.model-chip" data-i18n-title="model.title" title="모델 변경">연결 확인 중…</button></div>
   <button class="btn sm" id="btn-home" data-role="shell.topbar.home-btn" data-i18n="nav.home" style="display:none;background:transparent;border-color:#4a524c;color:#e8e4d8;white-space:nowrap">← 작품 목록</button>
-  <div class="work-pill" id="work-pill" data-role="shell.topbar.work-pill" title="클릭하여 소설 정보 수정" style="cursor:pointer">작품 없음</div>
+  <div class="work-pill" id="work-pill" data-role="shell.topbar.work-pill" data-i18n-title="common.workPillTitle" title="클릭하여 소설 정보 수정" style="cursor:pointer">작품 없음</div>
   <div class="spacer"></div>
   <div class="ops-strip">
-    <span class="health-dot ops-chip" id="health-chip" data-role="shell.topbar.health-chip"><i></i> 확인 중…</span>
-    <button class="ops-chip" id="budget-chip" data-role="shell.topbar.budget-chip" title="AI 호출 로그 보기">토큰 —</button>
+    <span class="health-dot ops-chip" id="health-chip" data-role="shell.topbar.health-chip"><i></i> <span data-i18n="common.healthChecking">확인 중…</span></span>
+    <button class="ops-chip" id="budget-chip" data-role="shell.topbar.budget-chip" data-i18n-title="monitor.budgetLogTitle" data-i18n="monitor.budgetLoading" title="AI 호출 로그 보기">토큰 —</button>
     <span class="ops-chip" id="user-chip" data-role="shell.topbar.user-chip" style="display:none;cursor:pointer" data-i18n-title="common.renameTitle" title="작가명 수정"></span>
     <select class="ops-chip" id="locale-select" data-role="shell.topbar.locale-select" data-i18n-title="common.localeTitle" data-i18n-aria-label="common.localeTitle" title="화면 언어" aria-label="화면 언어" style="cursor:pointer;color:#e8e4d8;width:auto"><option value="ko-KR">한국어</option><option value="en-US">English</option></select>
     <button class="ops-chip" id="btn-logout" data-role="shell.topbar.logout-btn" data-i18n="common.logout" style="display:none">로그아웃</button>
@@ -79,7 +79,7 @@
     <h3><span data-i18n="home.listTitle">내 소설 목록</span> <span class="hint" id="home-count"></span></h3>
     <input type="text" id="home-search" data-role="home.list.search-input" data-i18n-placeholder="home.searchPlaceholder" placeholder="제목 검색" style="margin-bottom:10px">
     <div id="home-list" data-role="home.list.grid" class="home-grid">
-      <span class="muted small">불러오는 중…</span>
+      <span class="muted small" data-i18n="common.loading">불러오는 중…</span>
     </div>
   </div>
 </section>
@@ -156,41 +156,41 @@
 <!-- ════════════ 화면 2 · 소설 설계 ════════════ -->
 <section class="screen" id="sdesign" data-role="design.screen">
   <div id="sdesign-error"></div>
-  <div class="screen-lead"><b>이야기의 뼈대</b>작품의 방향과 전체 흐름을 함께 정리해 보세요.</div>
-  <div class="card" data-role="design.meta.panel"><div id="design-meta"><span class="muted">설계 정보</span></div></div>
+  <div class="screen-lead"><b data-i18n="design.lead.title">이야기의 뼈대</b><span data-i18n="design.lead.text">작품의 방향과 전체 흐름을 함께 정리해 보세요.</span></div>
+  <div class="card" data-role="design.meta.panel"><div id="design-meta"><span class="muted" data-i18n="design.meta.loading">설계 정보</span></div></div>
   <div id="sdesign-mtabs" data-role="design.pane-tabs" class="btn-row">
-    <button class="btn sm" data-mpane="partner" data-role="design.pane-tabs-partner">설계 파트너</button>
-    <button class="btn sm active" data-mpane="tree" data-role="design.pane-tabs-tree">구조</button>
-    <button class="btn sm" data-mpane="editor" data-role="design.pane-tabs-editor">설계</button>
+    <button class="btn sm" data-mpane="partner" data-role="design.pane-tabs-partner" data-i18n="design.pane.partner">설계 파트너</button>
+    <button class="btn sm active" data-mpane="tree" data-role="design.pane-tabs-tree" data-i18n="design.pane.tree">구조</button>
+    <button class="btn sm" data-mpane="editor" data-role="design.pane-tabs-editor" data-i18n="design.pane.editor">설계</button>
   </div>
   <div class="grid-design">
     <div class="card" id="pane-partner" data-role="design.partner.panel">
-      <button class="pane-expand" id="btn-partner-expand" data-role="design.partner.pane-expand-btn" title="설계 파트너 펼치기"><span>▶</span><span class="vlabel">설계 파트너</span></button>
+      <button class="pane-expand" id="btn-partner-expand" data-role="design.partner.pane-expand-btn" data-i18n-title="design.partner.expandTitle" title="설계 파트너 펼치기"><span>▶</span><span class="vlabel" data-i18n="design.pane.partner">설계 파트너</span></button>
       <div class="partner-main">
-      <h3 class="split"><span>설계 파트너 <span class="hint">선택 노드 기준 AI 협업</span></span><button class="btn sm" id="btn-partner-collapse" data-role="design.partner.collapse-btn" title="설계 파트너 접기">◀</button></h3>
+      <h3 class="split"><span><span data-i18n="design.pane.partner">설계 파트너</span> <span class="hint" data-i18n="design.partner.hint">선택 노드 기준 AI 협업</span></span><button class="btn sm" id="btn-partner-collapse" data-role="design.partner.collapse-btn" data-i18n-title="design.partner.collapseTitle" title="설계 파트너 접기">◀</button></h3>
       <div style="display:flex;gap:6px;margin-bottom:8px">
         <select id="partner-thread" data-role="design.partner.thread-select" style="flex:1;min-width:0"></select>
-        <button class="btn sm" id="btn-partner-new" data-role="design.partner.new-btn" title="새 대화">＋</button>
-        <button class="btn sm" id="btn-partner-search" data-role="design.partner.search-btn" title="전체에서 검색">검색</button>
+        <button class="btn sm" id="btn-partner-new" data-role="design.partner.new-btn" data-i18n-title="design.partner.newTitle" title="새 대화">＋</button>
+        <button class="btn sm" id="btn-partner-search" data-role="design.partner.search-btn" data-i18n-title="design.partner.searchTitle" data-i18n="design.partner.search" title="전체에서 검색">검색</button>
       </div>
-      <label class="f">대화를 질문에 포함</label>
+      <label class="f" data-i18n="design.partner.includeLabel">대화를 질문에 포함</label>
       <div class="seg" id="partner-msg-mode" data-role="design.partner.msg-mode" style="margin-bottom:8px">
-        <button data-pmmode="all" data-role="design.partner.msg-mode-all">전부 포함</button>
-        <button data-pmmode="none" data-role="design.partner.msg-mode-none">전부 포함 않음</button>
-        <button data-pmmode="select" data-role="design.partner.msg-mode-select">선택</button>
+        <button data-pmmode="all" data-role="design.partner.msg-mode-all" data-i18n="design.partner.modeAll">전부 포함</button>
+        <button data-pmmode="none" data-role="design.partner.msg-mode-none" data-i18n="design.partner.modeNone">전부 포함 않음</button>
+        <button data-pmmode="select" data-role="design.partner.msg-mode-select" data-i18n="design.partner.modeSelect">선택</button>
       </div>
       <div id="partner-messages" data-role="design.partner.messages" class="chat-box"></div>
-      <label class="f">참조 (@ 없이 쉼표 구분)</label>
-      <input type="text" id="partner-refs" data-role="design.partner.refs-input" placeholder="예: E001, C002">
-      <label class="f">메시지</label>
-      <textarea id="partner-input" data-role="design.partner.input" placeholder="선택 노드에 대해 질문 (Enter 전송)"></textarea>
+      <label class="f" data-i18n="design.partner.refsLabel">참조 (@ 없이 쉼표 구분)</label>
+      <input type="text" id="partner-refs" data-role="design.partner.refs-input" data-i18n-placeholder="design.partner.refsPlaceholder" placeholder="예: E001, C002">
+      <label class="f" data-i18n="design.partner.messageLabel">메시지</label>
+      <textarea id="partner-input" data-role="design.partner.input" data-i18n-placeholder="design.partner.inputPlaceholder" placeholder="선택 노드에 대해 질문 (Enter 전송)"></textarea>
       <div class="btn-row">
-        <button class="btn primary sm" id="btn-partner-send" data-role="design.partner.send-btn">전송</button>
+        <button class="btn primary sm" id="btn-partner-send" data-role="design.partner.send-btn" data-i18n="design.partner.send">전송</button>
       </div>
-      <h3 style="margin-top:12px">하위 설계 <span class="hint">Chapter 선택 → Episode 설계</span></h3>
+      <h3 style="margin-top:12px"><span data-i18n="design.expand.title">하위 설계</span> <span class="hint" data-i18n="design.expand.hint">Chapter 선택 → Episode 설계</span></h3>
       <div style="display:flex;gap:8px">
         <select id="expand-kind" data-role="design.partner.expand-kind-select" style="flex:1">
-          <option value="">자동 (바로 아래 수준)</option>
+          <option value="" data-i18n="design.expand.auto">자동 (바로 아래 수준)</option>
           <option value="part">Part</option>
           <option value="chapter">Chapter</option>
           <option value="episode">Episode</option>
@@ -198,27 +198,27 @@
         </select>
         <button class="btn sm" id="btn-expand" data-role="design.partner.expand-btn">Expand</button>
       </div>
-      <div id="proposal-list" data-role="design.partner.proposals" style="margin-top:8px"><span class="muted small">제안 없음</span></div>
+      <div id="proposal-list" data-role="design.partner.proposals" style="margin-top:8px"><span class="muted small" data-i18n="design.proposal.none">제안 없음</span></div>
       </div>
     </div>
-    <div class="col-resizer" id="design-resizer-left" data-role="design.screen.col-resizer-left" title="드래그하여 너비 조절"></div>
+    <div class="col-resizer" id="design-resizer-left" data-role="design.screen.col-resizer-left" data-i18n-title="common.resizerTitle" title="드래그하여 너비 조절"></div>
     <div class="card mpane-active" id="pane-tree" data-role="design.tree.panel">
-      <h3>소설 구조 <span class="hint">작품 → Part → 장 → 화 → 장면</span></h3>
+      <h3><span data-i18n="design.tree.title">소설 구조</span> <span class="hint" data-i18n="design.tree.hint">작품 → Part → 장 → 화 → 장면</span></h3>
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <input type="text" id="tree-search" data-role="design.tree.search-input" placeholder="검색" style="flex:1">
-        <button class="btn sm" id="btn-tree-search" data-role="design.tree.search-btn">검색</button>
+        <input type="text" id="tree-search" data-role="design.tree.search-input" data-i18n-placeholder="design.tree.searchPlaceholder" placeholder="검색" style="flex:1">
+        <button class="btn sm" id="btn-tree-search" data-role="design.tree.search-btn" data-i18n="design.tree.search">검색</button>
       </div>
       <div class="btn-row" id="tree-mode" data-role="design.tree.view-mode" style="margin-top:0">
-        <button class="btn sm" data-mode="one" data-role="design.tree.view-mode-one">한줄</button>
-        <button class="btn sm" data-mode="flow" data-role="design.tree.view-mode-flow">이어서</button>
-        <button class="btn sm" data-mode="full" data-role="design.tree.view-mode-full">전체</button>
+        <button class="btn sm" data-mode="one" data-role="design.tree.view-mode-one" data-i18n="design.rollup.modeOne">한줄</button>
+        <button class="btn sm" data-mode="flow" data-role="design.tree.view-mode-flow" data-i18n="design.rollup.modeFlow">이어서</button>
+        <button class="btn sm" data-mode="full" data-role="design.tree.view-mode-full" data-i18n="design.tree.modeFull">전체</button>
         <span style="flex:1"></span><span class="tb-sep"></span>
-        <button class="btn sm" id="btn-tree-expand-all" data-role="design.tree.expand-all-btn" title="모든 분기 펼치기">전체 펼치기</button>
-        <button class="btn sm" id="btn-tree-collapse-all" data-role="design.tree.collapse-all-btn" title="모든 분기 접기">전체 접기</button>
+        <button class="btn sm" id="btn-tree-expand-all" data-role="design.tree.expand-all-btn" data-i18n-title="design.tree.expandAllTitle" data-i18n="design.tree.expandAll" title="모든 분기 펼치기">전체 펼치기</button>
+        <button class="btn sm" id="btn-tree-collapse-all" data-role="design.tree.collapse-all-btn" data-i18n-title="design.tree.collapseAllTitle" data-i18n="design.tree.collapseAll" title="모든 분기 접기">전체 접기</button>
       </div>
-      <label class="small"><input type="checkbox" id="show-archived" data-role="design.tree.show-archived-checkbox" style="width:auto"> 보관함 표시</label>
+      <label class="small"><input type="checkbox" id="show-archived" data-role="design.tree.show-archived-checkbox" style="width:auto"> <span data-i18n="design.tree.showArchived">보관함 표시</span></label>
       <div id="tree-list" data-role="design.tree.list" style="margin-top:8px"></div>
-      <h3 style="margin-top:12px">노드 추가 <span class="hint">선택 노드 아래에 생성</span></h3>
+      <h3 style="margin-top:12px"><span data-i18n="design.tree.addTitle">노드 추가</span> <span class="hint" data-i18n="design.tree.addHint">선택 노드 아래에 생성</span></h3>
       <div style="display:flex;gap:8px">
         <select id="node-add-kind" data-role="design.tree.add-kind-select" style="flex:1">
           <option value="part">Part</option>
@@ -226,24 +226,24 @@
           <option value="episode">Episode</option>
           <option value="scene">Scene</option>
         </select>
-        <input type="text" id="node-add-title" data-role="design.tree.add-title-input" placeholder="제목" style="flex:2">
-        <button class="btn sm primary" id="btn-node-add" data-role="design.tree.add-btn">추가</button>
+        <input type="text" id="node-add-title" data-role="design.tree.add-title-input" data-i18n-placeholder="design.tree.addTitlePlaceholder" placeholder="제목" style="flex:2">
+        <button class="btn sm primary" id="btn-node-add" data-role="design.tree.add-btn" data-i18n="design.tree.add">추가</button>
       </div>
     </div>
-    <div class="col-resizer" id="design-resizer-right" data-role="design.screen.col-resizer-right" title="드래그하여 너비 조절"></div>
+    <div class="col-resizer" id="design-resizer-right" data-role="design.screen.col-resizer-right" data-i18n-title="common.resizerTitle" title="드래그하여 너비 조절"></div>
     <div class="card" id="pane-editor" data-role="design.editor.panel">
-      <h3 style="display:flex;align-items:center;gap:8px">설계 편집 <span class="hint" id="node-id-label">-</span><span style="flex:1"></span><button class="btn sm danger" id="btn-node-delete" data-role="design.editor.delete-btn">삭제</button></h3>
-      <label class="f">제목</label>
+      <h3 style="display:flex;align-items:center;gap:8px"><span data-i18n="design.editor.title">설계 편집</span> <span class="hint" id="node-id-label">-</span><span style="flex:1"></span><button class="btn sm danger" id="btn-node-delete" data-role="design.editor.delete-btn" data-i18n="common.delete">삭제</button></h3>
+      <label class="f" data-i18n="design.editor.titleLabel">제목</label>
       <input type="text" id="node-title" data-role="design.editor.title-input">
-      <label class="f">줄거리</label>
+      <label class="f" data-i18n="design.editor.loglineLabel">줄거리</label>
       <textarea id="node-logline" data-role="design.editor.logline-input" style="min-height:90px"></textarea>
       <div id="children-rollup" data-role="design.editor.children-rollup" style="margin-top:12px"></div>
       <div id="node-settings" data-role="design.editor.node-settings" style="margin-top:12px">
         <hr>
-        <div class="btn-row"><button class="btn sm" id="btn-ns-add" data-role="design.editor.ns-add-btn">+ 추가</button></div>
+        <div class="btn-row"><button class="btn sm" id="btn-ns-add" data-role="design.editor.ns-add-btn" data-i18n="design.editor.nsAdd">+ 추가</button></div>
       </div>
       <div class="btn-row">
-        <button class="btn sm" id="btn-write-jump" data-role="design.editor.write-jump-btn" style="display:none">이 화 집필하기 →</button>
+        <button class="btn sm" id="btn-write-jump" data-role="design.editor.write-jump-btn" data-i18n="design.editor.writeJump" style="display:none">이 화 집필하기 →</button>
         <span class="small muted" id="node-save-info"></span>
       </div>
       <div id="node-inherited" data-role="design.editor.inherited" style="margin-top:12px"></div>
@@ -267,7 +267,7 @@
           <button class="btn sm" id="btn-monitor-load" data-role="writing.progress.load-btn" data-i18n="monitor.loadBtn" style="white-space:nowrap">불러오기</button>
         </div>
       </details>
-      <div class="small muted" id="monitor-budget" style="margin-top:10px">토큰 —</div>
+      <div class="small muted" id="monitor-budget" data-i18n="monitor.budgetLoading" style="margin-top:10px">토큰 —</div>
       <div class="progress-10" id="monitor-progress" style="display:none"><i style="width:0%"></i></div>
       <table class="tbl" style="margin-top:10px">
         <thead><tr><th data-i18n="monitor.colEpisode">회차</th><th data-i18n="monitor.colState">상태</th><th></th></tr></thead>
@@ -275,11 +275,11 @@
       </table>
       </div>
     </div>
-    <div class="col-resizer" id="writing-resizer" data-role="writing.screen.col-resizer" title="드래그하여 너비 조절"></div>
+    <div class="col-resizer" id="writing-resizer" data-role="writing.screen.col-resizer" data-i18n-title="common.resizerTitle" title="드래그하여 너비 조절"></div>
     <div class="center-col">
       <div class="card" id="ep-detail" data-role="writing.episode.panel"><h3 data-i18n="monitor.detailTitle">회차 상세</h3><span class="muted" data-i18n="monitor.detailEmpty">회차를 선택하면 상세 정보가 표시됩니다.</span></div>
     </div>
-    <div class="col-resizer" id="writing-resizer-right" data-role="writing.screen.col-resizer-right" title="드래그하여 너비 조절"></div>
+    <div class="col-resizer" id="writing-resizer-right" data-role="writing.screen.col-resizer-right" data-i18n-title="common.resizerTitle" title="드래그하여 너비 조절"></div>
     <div class="card" id="pane-writing-chat" data-role="writing.chat.panel">
       <button class="pane-expand" id="btn-writing-chat-expand" data-role="writing.chat.expand-btn" data-i18n-title="monitor.chatExpandTitle" title="AI 채팅 펼치기"><span>◀</span><span class="vlabel" data-i18n="monitor.chatTitle">AI 채팅</span></button>
       <div class="writing-chat-main">
@@ -296,67 +296,67 @@
 <!-- ════════════ 화면 4 · 작가 검토 ════════════ -->
 <section class="screen" id="s3" data-role="review.screen">
   <div id="review-error"></div>
-  <div class="screen-lead"><b>작가 검토중</b>① 설정추출 → ② 일관성점검 순서로 진행하고, 이상이 없으면 설정을 저장하세요. 수정은 집필 화면에서 합니다.</div>
+  <div class="screen-lead"><b data-i18n="review.lead.title">작가 검토중</b><span data-i18n="review.lead.text">① 설정추출 → ② 일관성점검 순서로 진행하고, 이상이 없으면 설정을 저장하세요. 수정은 집필 화면에서 합니다.</span></div>
   <div id="review-notice"></div>
   <div style="margin-bottom:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <label class="f" style="margin:0">회차</label>
+    <label class="f" style="margin:0" data-i18n="review.loader.episodeLabel">회차</label>
     <input type="number" id="review-ep" data-role="review.loader.episode-input" value="1" min="1" style="width:80px">
-    <button class="btn sm" id="btn-review-load" data-role="review.loader.load-btn">불러오기</button>
+    <button class="btn sm" id="btn-review-load" data-role="review.loader.load-btn" data-i18n="review.loader.load">불러오기</button>
     <span class="small muted" id="review-state"></span>
     <span style="flex:1"></span>
-    <button class="btn sm" id="btn-back-to-writing" data-role="review.actions.back-btn">집필중으로 돌아가기</button>
-    <button class="btn sm primary" id="btn-request-publish" data-role="review.actions.publish-btn">발간요청</button>
+    <button class="btn sm" id="btn-back-to-writing" data-role="review.actions.back-btn" data-i18n="review.actions.back">집필중으로 돌아가기</button>
+    <button class="btn sm primary" id="btn-request-publish" data-role="review.actions.publish-btn" data-i18n="review.actions.publish">발간요청</button>
   </div>
   <div class="grid-review">
     <div>
       <div class="card" data-role="review.manuscript.panel">
-        <div id="review-ms-mount"><span class="muted">회차를 불러오세요.</span></div>
+        <div id="review-ms-mount"><span class="muted" data-i18n="review.ms.loading">회차를 불러오세요.</span></div>
       </div>
     </div>
-    <div class="col-resizer" id="review-resizer" data-role="review.screen.col-resizer" title="드래그하여 너비 조절"></div>
+    <div class="col-resizer" id="review-resizer" data-role="review.screen.col-resizer" data-i18n-title="common.resizerTitle" title="드래그하여 너비 조절"></div>
     <div>
-      <div class="seg" role="tablist" aria-label="검토 작업 순서" data-role="review.tabs.bar" style="margin-bottom:10px">
-        <button class="active" id="tab-extract" data-role="review.tabs.extract-btn" role="tab" aria-selected="true">1 · 설정추출</button>
-        <button id="tab-consistency" data-role="review.tabs.consistency-btn" role="tab" aria-selected="false">2 · 일관성점검</button>
+      <div class="seg" role="tablist" data-i18n-aria-label="review.tabs.aria" aria-label="검토 작업 순서" data-role="review.tabs.bar" style="margin-bottom:10px">
+        <button class="active" id="tab-extract" data-role="review.tabs.extract-btn" role="tab" aria-selected="true" data-i18n="review.tabs.extract">1 · 설정추출</button>
+        <button id="tab-consistency" data-role="review.tabs.consistency-btn" role="tab" aria-selected="false" data-i18n="review.tabs.consistency">2 · 일관성점검</button>
       </div>
       <div id="tabpane-extract" data-role="review.tabs.extract-pane" role="tabpanel">
       <div class="card" data-role="review.memory.panel">
-        <h3>설정 기억 <span class="hint">추출·수정·저장</span></h3>
+        <h3><span data-i18n="review.memory.title">설정 기억</span> <span class="hint" data-i18n="review.memory.hint">추출·수정·저장</span></h3>
         <div class="btn-row" style="margin-top:0">
-          <button class="btn sm" id="btn-entity-extract" data-role="review.memory.extract-btn">설정 추출 실행</button>
-          <button class="btn sm" id="btn-entity-save" data-role="review.memory.save-btn">설정 저장</button>
-          <button class="btn sm" id="btn-entity-reset" data-role="review.memory.reset-btn" title="이번 화의 설정 기억을 모두 지웁니다">설정 초기화</button>
+          <button class="btn sm" id="btn-entity-extract" data-role="review.memory.extract-btn" data-i18n="review.memory.extractRun">설정 추출 실행</button>
+          <button class="btn sm" id="btn-entity-save" data-role="review.memory.save-btn" data-i18n="review.memory.save">설정 저장</button>
+          <button class="btn sm" id="btn-entity-reset" data-role="review.memory.reset-btn" data-i18n-title="review.memory.resetTitle" data-i18n="review.memory.reset" title="이번 화의 설정 기억을 모두 지웁니다">설정 초기화</button>
         </div>
-        <div id="memory-pending" data-role="review.memory.pending" style="margin-top:10px"><span class="muted small">회차를 불러오세요.</span></div>
-        <h3 style="margin-top:12px">별명·표기 후보 <span class="hint">모호할 때만 연결 확인</span></h3>
-        <div id="alias-list" data-role="review.memory.aliases"><span class="muted small">회차를 불러오세요.</span></div>
-        <label class="f">수정 요청</label>
-        <textarea id="entity-chat-input" data-role="review.memory.chat-input" placeholder="예: 서도윤의 직업을 보험설계사로 고쳐줘"></textarea>
+        <div id="memory-pending" data-role="review.memory.pending" style="margin-top:10px"><span class="muted small" data-i18n="review.ms.loading">회차를 불러오세요.</span></div>
+        <h3 style="margin-top:12px"><span data-i18n="review.memory.aliasTitle">별명·표기 후보</span> <span class="hint" data-i18n="review.memory.aliasHint">모호할 때만 연결 확인</span></h3>
+        <div id="alias-list" data-role="review.memory.aliases"><span class="muted small" data-i18n="review.ms.loading">회차를 불러오세요.</span></div>
+        <label class="f" data-i18n="review.memory.requestLabel">수정 요청</label>
+        <textarea id="entity-chat-input" data-role="review.memory.chat-input" data-i18n-placeholder="review.memory.requestPlaceholder" placeholder="예: 서도윤의 직업을 보험설계사로 고쳐줘"></textarea>
         <div class="btn-row">
-          <button class="btn sm" id="btn-entity-chat" data-role="review.memory.chat-btn">요청</button>
+          <button class="btn sm" id="btn-entity-chat" data-role="review.memory.chat-btn" data-i18n="review.chat.send">요청</button>
         </div>
       </div>
       </div>
       <div id="tabpane-consistency" data-role="review.tabs.consistency-pane" role="tabpanel" style="display:none">
       <div class="card" data-role="review.issues.panel">
-        <h3>일관성 오류 목록 <span class="hint" id="issue-count"></span></h3>
+        <h3><span data-i18n="review.issues.title">일관성 오류 목록</span> <span class="hint" id="issue-count"></span></h3>
         <div class="btn-row" style="margin-top:0">
-          <button class="btn sm" id="btn-consistency-analyze" data-role="review.consistency.analyze-btn">전체 분석 실행</button>
-          <button class="btn sm" id="btn-consistency-reset" data-role="review.issues.reset-btn">일관성 점검 초기화</button>
+          <button class="btn sm" id="btn-consistency-analyze" data-role="review.consistency.analyze-btn" data-i18n="review.analyze.runFull">전체 분석 실행</button>
+          <button class="btn sm" id="btn-consistency-reset" data-role="review.issues.reset-btn" data-i18n="review.issues.reset">일관성 점검 초기화</button>
         </div>
-        <div id="analysis-status" data-role="review.issues.analysis-status" style="margin-bottom:8px"><span class="muted small">분석 전입니다.</span></div>
-        <div id="issue-list" data-role="review.issues.list"><span class="muted small">회차를 불러오세요.</span></div>
+        <div id="analysis-status" data-role="review.issues.analysis-status" style="margin-bottom:8px"><span class="muted small" data-i18n="review.analysis.beforeAnalysis">분석 전입니다.</span></div>
+        <div id="issue-list" data-role="review.issues.list"><span class="muted small" data-i18n="review.ms.loading">회차를 불러오세요.</span></div>
         <div class="btn-row">
           <button class="btn primary sm" id="btn-fix-selected" data-role="review.issues.fix-selected-btn" disabled>선택된 모순 AI 수정 및 집필로 이동</button>
         </div>
       </div>
       <div class="card" data-role="review.consistency.panel">
-        <h3>일관성 분석 도우미 <span class="hint">확정 기억과 현재 원고 대조</span></h3>
+        <h3><span data-i18n="review.consistency.title">일관성 분석 도우미</span> <span class="hint" data-i18n="review.consistency.hint">확정 기억과 현재 원고 대조</span></h3>
         <div id="consistency-messages" data-role="review.consistency.messages" class="chat-box" style="margin-top:10px"></div>
-        <label class="f">질문</label>
-        <textarea id="consistency-input" data-role="review.consistency.input" placeholder="예: 3화에서 정한 주인공의 능력과 모순되는 곳이 있어?"></textarea>
+        <label class="f" data-i18n="review.consistency.questionLabel">질문</label>
+        <textarea id="consistency-input" data-role="review.consistency.input" data-i18n-placeholder="review.consistency.questionPlaceholder" placeholder="예: 3화에서 정한 주인공의 능력과 모순되는 곳이 있어?"></textarea>
         <div class="btn-row">
-          <button class="btn primary sm" id="btn-consistency-send" data-role="review.consistency.send-btn">전송</button>
+          <button class="btn primary sm" id="btn-consistency-send" data-role="review.consistency.send-btn" data-i18n="review.consistency.send">전송</button>
         </div>
       </div>
       </div>
@@ -367,38 +367,38 @@
 <!-- ════════════ 화면 5 · 발간중 ════════════ -->
 <section class="screen" id="s5" data-role="publish.screen">
   <div id="publish-error"></div>
-  <div class="screen-lead"><b>발간중</b>플랫폼에 올릴 작품 정보와 회차별 최종 출판본을 관리합니다.</div>
-  <div class="seg" role="tablist" aria-label="발간 작업 순서" data-role="publish.tabs.bar" style="margin-bottom:10px">
-    <button class="active" id="tab-pub-work" data-role="publish.tabs.work-btn" role="tab" aria-selected="true">1 · 작품정보</button>
-    <button id="tab-pub-episodes" data-role="publish.tabs.episodes-btn" role="tab" aria-selected="false">2 · 발간중인 회차</button>
+  <div class="screen-lead"><b data-i18n="publish.lead.title">발간중</b><span data-i18n="publish.lead.text">플랫폼에 올릴 작품 정보와 회차별 최종 출판본을 관리합니다.</span></div>
+  <div class="seg" role="tablist" data-i18n-aria-label="publish.tabs.aria" aria-label="발간 작업 순서" data-role="publish.tabs.bar" style="margin-bottom:10px">
+    <button class="active" id="tab-pub-work" data-role="publish.tabs.work-btn" role="tab" aria-selected="true" data-i18n="publish.tabs.work">1 · 작품정보</button>
+    <button id="tab-pub-episodes" data-role="publish.tabs.episodes-btn" role="tab" aria-selected="false" data-i18n="publish.tabs.episodes">2 · 발간중인 회차</button>
   </div>
   <div id="tabpane-pub-work" data-role="publish.tabs.work-pane" role="tabpanel">
   <div class="grid-2eq" data-role="publish.work.wrap">
     <div class="card" data-role="publish.work.panel">
-      <h3>작품 발간 정보</h3>
-      <label class="f">게재 작품명
+      <h3 data-i18n="publish.work.title">작품 발간 정보</h3>
+      <label class="f"><span data-i18n="publish.work.fieldTitle">게재 작품명</span>
         <input type="text" id="pub-title" data-role="publish.work.title-input" maxlength="80">
       </label>
-      <label class="f">작가 필명
+      <label class="f"><span data-i18n="publish.work.fieldPen">작가 필명</span>
         <input type="text" id="pub-pen" data-role="publish.work.pen-input" maxlength="80">
       </label>
-      <label class="f">작품 소개글
+      <label class="f"><span data-i18n="publish.work.fieldBlurb">작품 소개글</span>
         <textarea id="pub-blurb" data-role="publish.work.blurb-input" rows="4" maxlength="2000"></textarea>
       </label>
-      <label class="f" for="pub-platform">게시출판 플랫폼
+      <label class="f" for="pub-platform"><span data-i18n="publish.work.fieldPlatform">게시출판 플랫폼</span>
         <select id="pub-platform" data-role="publish.work.platform-select"></select>
       </label>
-      <div class="btn-row"><button class="btn sm" id="btn-pub-blurb" data-role="publish.work.blurb-btn">AI 소개글 생성</button></div>
+      <div class="btn-row"><button class="btn sm" id="btn-pub-blurb" data-role="publish.work.blurb-btn" data-i18n="publish.work.blurbBtn">AI 소개글 생성</button></div>
     </div>
     <div class="card" data-role="publish.cover.panel">
-      <h3>커버 이미지 <span class="hint">jpg/png · 5MB 이하</span></h3>
-      <div id="pub-cover-view" data-role="publish.cover.view"><span class="muted small">불러오는 중…</span></div>
+      <h3><span data-i18n="publish.cover.title">커버 이미지</span> <span class="hint" data-i18n="publish.cover.hint">jpg/png · 5MB 이하</span></h3>
+      <div id="pub-cover-view" data-role="publish.cover.view"><span class="muted small" data-i18n="publish.detail.loading">불러오는 중…</span></div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-        <label class="btn sm" for="pub-cover-file" data-role="publish.cover.pick-label">파일 선택</label>
+        <label class="btn sm" for="pub-cover-file" data-role="publish.cover.pick-label" data-i18n="publish.cover.pick">파일 선택</label>
         <input type="file" id="pub-cover-file" data-role="publish.cover.file" accept=".jpg,.jpeg,.png" hidden>
-        <button class="btn sm primary" id="btn-pub-cover-upload" data-role="publish.cover.upload-btn" disabled>업로드</button>
-        <a class="btn sm" id="btn-pub-cover-download" data-role="publish.cover.download-btn" href="#" download hidden>다운로드</a>
-        <button class="btn sm danger" id="btn-pub-cover-delete" data-role="publish.cover.delete-btn" hidden>삭제</button>
+        <button class="btn sm primary" id="btn-pub-cover-upload" data-role="publish.cover.upload-btn" data-i18n="publish.cover.upload" disabled>업로드</button>
+        <a class="btn sm" id="btn-pub-cover-download" data-role="publish.cover.download-btn" data-i18n="publish.cover.download" href="#" download hidden>다운로드</a>
+        <button class="btn sm danger" id="btn-pub-cover-delete" data-role="publish.cover.delete-btn" data-i18n="common.delete" hidden>삭제</button>
       </div>
     </div>
   </div>
@@ -406,12 +406,12 @@
   <div id="tabpane-pub-episodes" data-role="publish.tabs.episodes-pane" role="tabpanel" style="display:none">
   <div class="grid-2eq" data-role="publish.episodes.wrap">
     <div class="card" data-role="publish.list.panel">
-      <h3>발간중인 회차 <span class="hint" id="publish-count"></span></h3>
-      <div id="publish-cards" data-role="publish.list.cards"><span class="muted small">불러오는 중…</span></div>
+      <h3><span data-i18n="publish.list.title">발간중인 회차</span> <span class="hint" id="publish-count"></span></h3>
+      <div id="publish-cards" data-role="publish.list.cards"><span class="muted small" data-i18n="publish.detail.loading">불러오는 중…</span></div>
     </div>
     <div class="card" data-role="publish.detail.panel">
       <h3 id="pub-detail-title" data-role="publish.detail.title">회차 상세</h3>
-      <div id="pub-detail-body" data-role="publish.detail.body"><span class="muted">회차를 선택하세요.</span></div>
+      <div id="pub-detail-body" data-role="publish.detail.body"><span class="muted" data-i18n="publish.detail.emptyHint">회차를 선택하세요.</span></div>
     </div>
   </div>
   </div>
@@ -420,26 +420,26 @@
 <!-- ════════════ 화면 6 · 설정 ════════════ -->
 <section class="screen" id="s4" data-role="entities.screen">
   <div id="entities-error"></div>
-  <div class="screen-lead"><b>설정</b>흩어진 설정을 작품 안에서 연결하세요. 확정된 내용만 표시됩니다.</div>
+  <div class="screen-lead"><b data-i18n="entities.leadTitle">설정</b><span data-i18n="entities.leadText">흩어진 설정을 작품 안에서 연결하세요. 확정된 내용만 표시됩니다.</span></div>
   <div class="grid-2">
     <div class="card" data-role="entities.search.panel">
-      <h3>설정 검색 <span class="hint">인물 · 장소</span></h3>
+      <h3><span data-i18n="entities.searchTitle">설정 검색</span> <span class="hint" data-i18n="entities.searchHint">인물 · 장소</span></h3>
       <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
-        <label class="f" for="ent-asof" style="margin:0;white-space:nowrap">기준 회차</label>
-        <input type="number" id="ent-asof" data-role="entities.search.asof-input" placeholder="전체" min="1" style="width:90px">
-        <button class="btn sm" id="btn-ent-asof" data-role="entities.search.asof-btn" style="white-space:nowrap">조회</button>
+        <label class="f" for="ent-asof" style="margin:0;white-space:nowrap" data-i18n="entities.asofLabel">기준 회차</label>
+        <input type="number" id="ent-asof" data-role="entities.search.asof-input" data-i18n-placeholder="entities.asofPlaceholder" placeholder="전체" min="1" style="width:90px">
+        <button class="btn sm" id="btn-ent-asof" data-role="entities.search.asof-btn" data-i18n="entities.asofBtn" style="white-space:nowrap">조회</button>
       </div>
       <div style="display:flex;gap:8px">
-        <input type="text" id="ent-search" data-role="entities.search.input" placeholder="이름·ID·내용 검색" style="flex:1;min-width:0">
-        <button class="btn sm" id="btn-ent-search" data-role="entities.search.btn" style="white-space:nowrap">검색</button>
+        <input type="text" id="ent-search" data-role="entities.search.input" data-i18n-placeholder="entities.searchPlaceholder" placeholder="이름·ID·내용 검색" style="flex:1;min-width:0">
+        <button class="btn sm" id="btn-ent-search" data-role="entities.search.btn" data-i18n="entities.searchBtn" style="white-space:nowrap">검색</button>
       </div>
-      <div style="margin-top:10px" id="ent-list" data-role="entities.search.results"><span class="muted small">불러오는 중…</span></div>
+      <div style="margin-top:10px" id="ent-list" data-role="entities.search.results"><span class="muted small" data-i18n="entities.loading">불러오는 중…</span></div>
     </div>
-    <div class="col-resizer" id="entities-resizer" data-role="entities.screen.col-resizer" title="드래그하여 너비 조절"></div>
+    <div class="col-resizer" id="entities-resizer" data-role="entities.screen.col-resizer" data-i18n-title="common.resizerTitle" title="드래그하여 너비 조절"></div>
     <div>
-      <div class="card" id="ent-detail" data-role="entities.detail.panel"><h3>설정 상태</h3><span class="muted">설정을 선택하세요.</span></div>
+      <div class="card" id="ent-detail" data-role="entities.detail.panel"><h3 data-i18n="entities.detailTitle">설정 상태</h3><span class="muted" data-i18n="entities.selectPrompt">설정을 선택하세요.</span></div>
       <div class="card" id="ent-history-card" data-role="entities.history.panel" style="display:none">
-        <h3>속성 이력 타임라인 <span class="hint">변경 순서대로 표시</span></h3>
+        <h3><span data-i18n="entities.historyTitle">속성 이력 타임라인</span> <span class="hint" data-i18n="entities.historyHint">변경 순서대로 표시</span></h3>
         <div class="timeline" id="ent-history" data-role="entities.history.timeline"></div>
       </div>
     </div>
@@ -455,6 +455,8 @@
     <div id="novel-dialog-error"></div>
     <label class="f" data-i18n="home.dialogTitleLabel">소설 제목 (필수, 최대 80자)</label>
     <input type="text" id="novel-dialog-title-input" data-role="home.novel-create.title-input" data-i18n-placeholder="home.dialogTitlePlaceholder" placeholder="새 소설 제목" maxlength="80">
+    <label class="f" data-i18n="home.createMarketLabel">대상 시장 (집필 언어)</label>
+    <div id="novel-dialog-markets" data-role="home.novel-create.markets" style="display:flex;gap:12px;margin-bottom:8px"></div>
     <div class="btn-row" style="justify-content:flex-end">
       <button class="btn ghost" id="btn-novel-dialog-cancel" data-role="home.novel-create.cancel-btn" data-i18n="common.cancel">취소</button>
       <button class="btn primary" id="btn-novel-dialog-confirm" data-role="home.novel-create.confirm-btn" data-i18n="home.createConfirm">만들기 · 시작</button>
@@ -491,7 +493,8 @@
     <div id="novel-panel-general" role="tabpanel" aria-labelledby="novel-tab-general">
       <label class="f" data-i18n="home.infoTitleLabel">소설 제목 (최대 80자)</label>
       <input type="text" id="novel-info-title-input" data-role="home.novel-info.title-input" data-i18n-placeholder="home.infoTitlePlaceholder" placeholder="소설 제목" maxlength="80">
-      <label class="f" data-i18n="home.infoLengthLabel">회차 목표 분량 (자 · 최소 ~ 최대, 최대 10000)</label>
+      <div class="small" style="margin:6px 0"><span data-i18n="home.infoMarketLabel">대상 시장 · 집필 언어</span>: <b id="novel-info-market" data-role="home.novel-info.market">-</b> <span class="muted" id="novel-info-locale" data-role="home.novel-info.locale"></span></div>
+      <label class="f" id="novel-info-length-label" data-i18n="home.infoLengthLabel">회차 목표 분량 (자 · 최소 ~ 최대, 최대 10000)</label>
       <div style="display:flex;gap:8px;align-items:center">
         <input type="number" id="novel-info-length-min" data-role="home.novel-info.length-min-input" min="1" max="10000" step="100" style="width:130px">
         <span class="muted">~</span>
@@ -548,7 +551,7 @@
 <div id="ailog-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal fullscreen" role="dialog" aria-modal="true" aria-labelledby="ailog-title" data-role="shell.ailog.dialog">
     <div class="ailog-head-row">
-      <h3 id="ailog-title">AI 호출 로그 <span class="chip" id="ailog-sub"></span></h3>
+      <h3 id="ailog-title"><span data-i18n="common.aiLogTitle">AI 호출 로그</span> <span class="chip" id="ailog-sub"></span></h3>
       <button class="btn sm" id="btn-ailog-close" data-role="shell.ailog.close-btn" data-i18n="common.close">닫기</button>
     </div>
     <div id="ailog-error"></div>
@@ -579,12 +582,12 @@
 
 <div id="thread-search-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="thread-search-title" data-role="design.partner.search-dialog">
-    <h3 id="thread-search-title">전체 대화 검색</h3>
+    <h3 id="thread-search-title" data-i18n="design.search.title">전체 대화 검색</h3>
     <div id="thread-search-error"></div>
-    <input type="text" id="thread-search-input" data-role="design.partner.search-input" placeholder="제목·본문 검색" autocomplete="off">
+    <input type="text" id="thread-search-input" data-role="design.partner.search-input" data-i18n-placeholder="design.search.placeholder" placeholder="제목·본문 검색" autocomplete="off">
     <div id="thread-search-list" data-role="design.partner.search-list" style="margin-top:8px"></div>
     <div class="btn-row" style="justify-content:flex-end;margin-top:8px">
-      <button class="btn ghost" id="btn-thread-search-close" data-role="design.partner.search-close-btn">닫기</button>
+      <button class="btn ghost" id="btn-thread-search-close" data-role="design.partner.search-close-btn" data-i18n="common.close">닫기</button>
     </div>
   </div>
 </div>
@@ -604,73 +607,73 @@
 </div>
 <div id="ns-dialog-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ns-dialog-title" data-role="design.editor.ns-dialog">
-    <h3 id="ns-dialog-title">노드 설정 <span class="hint" id="ns-dialog-node"></span></h3>
+    <h3 id="ns-dialog-title"><span data-i18n="design.ns.dialogTitle">노드 설정</span> <span class="hint" id="ns-dialog-node"></span></h3>
     <div id="ns-dialog-error"></div>
     <div class="btn-row" style="margin-top:0">
-      <button class="btn sm primary" id="btn-ns-dialog-add" data-role="design.editor.ns-dialog-add-btn">+ 새 설정</button>
+      <button class="btn sm primary" id="btn-ns-dialog-add" data-role="design.editor.ns-dialog-add-btn" data-i18n="design.ns.dialogAdd">+ 새 설정</button>
     </div>
     <div id="ns-dialog-form" style="display:none"></div>
-    <div class="small" style="margin-top:8px"><b>이 노드의 설정</b></div>
+    <div class="small" style="margin-top:8px"><b data-i18n="design.ns.ownTitle">이 노드의 설정</b></div>
     <div id="ns-dialog-own" data-role="design.editor.ns-dialog-list" style="margin-top:6px"></div>
-    <div class="small" style="margin-top:8px"><b>상위에서 물려받음</b></div>
+    <div class="small" style="margin-top:8px"><b data-i18n="design.ns.inheritedTitle">상위에서 물려받음</b></div>
     <div id="ns-dialog-inherited" data-role="design.editor.ns-dialog-inherited" style="margin-top:6px"></div>
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-ns-dialog-close" data-role="design.editor.ns-dialog-close-btn">닫기</button>
+      <button class="btn ghost" id="btn-ns-dialog-close" data-role="design.editor.ns-dialog-close-btn" data-i18n="common.close">닫기</button>
     </div>
   </div>
 </div>
 
 <div id="delete-dialog-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" data-role="design.editor.delete-dialog">
-    <h3 id="delete-dialog-title">노드 삭제</h3>
+    <h3 id="delete-dialog-title" data-i18n="design.delete.title">노드 삭제</h3>
     <div id="delete-dialog-msg"></div>
     <div id="delete-dialog-error"></div>
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-delete-cancel" data-role="design.editor.delete-dialog-cancel-btn">취소</button>
-      <button class="btn danger" id="btn-delete-confirm" data-role="design.editor.delete-dialog-confirm-btn">삭제</button>
+      <button class="btn ghost" id="btn-delete-cancel" data-role="design.editor.delete-dialog-cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn danger" id="btn-delete-confirm" data-role="design.editor.delete-dialog-confirm-btn" data-i18n="common.delete">삭제</button>
     </div>
   </div>
 </div>
 
 <div id="reset-confirm-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reset-confirm-title" data-role="review.memory.reset-confirm-dialog">
-    <h3 id="reset-confirm-title">설정 초기화</h3>
+    <h3 id="reset-confirm-title" data-i18n="review.memory.reset">설정 초기화</h3>
     <div id="reset-confirm-msg" data-role="review.memory.reset-confirm-msg"></div>
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-reset-cancel" data-role="review.memory.reset-cancel-btn">취소</button>
-      <button class="btn danger" id="btn-reset-confirm" data-role="review.memory.reset-confirm-btn">삭제</button>
+      <button class="btn ghost" id="btn-reset-cancel" data-role="review.memory.reset-cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn danger" id="btn-reset-confirm" data-role="review.memory.reset-confirm-btn" data-i18n="common.delete">삭제</button>
     </div>
   </div>
 </div>
 
 <div id="consistency-reset-confirm-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="consistency-reset-confirm-title" data-role="review.issues.reset-confirm-dialog">
-    <h3 id="consistency-reset-confirm-title">일관성 점검 초기화</h3>
+    <h3 id="consistency-reset-confirm-title" data-i18n="review.issues.reset">일관성 점검 초기화</h3>
     <div id="consistency-reset-confirm-msg" data-role="review.issues.reset-confirm-msg"></div>
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-consistency-reset-cancel" data-role="review.issues.reset-cancel-btn">취소</button>
-      <button class="btn danger" id="btn-consistency-reset-confirm" data-role="review.issues.reset-confirm-btn">삭제</button>
+      <button class="btn ghost" id="btn-consistency-reset-cancel" data-role="review.issues.reset-cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn danger" id="btn-consistency-reset-confirm" data-role="review.issues.reset-confirm-btn" data-i18n="common.delete">삭제</button>
     </div>
   </div>
 </div>
 
 <div id="fix-confirm-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fix-confirm-title" data-role="review.issues.fix-confirm-dialog">
-    <h3 id="fix-confirm-title">선택된 모순 AI 수정</h3>
+    <h3 id="fix-confirm-title" data-i18n="review.fix.title">선택된 모순 AI 수정</h3>
     <div id="fix-confirm-msg" data-role="review.issues.fix-confirm-msg"></div>
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn ghost" id="btn-fix-cancel" data-role="review.issues.fix-cancel-btn">취소</button>
-      <button class="btn primary" id="btn-fix-confirm" data-role="review.issues.fix-confirm-btn">수정 시작</button>
+      <button class="btn ghost" id="btn-fix-cancel" data-role="review.issues.fix-cancel-btn" data-i18n="common.cancel">취소</button>
+      <button class="btn primary" id="btn-fix-confirm" data-role="review.issues.fix-confirm-btn" data-i18n="review.fix.start">수정 시작</button>
     </div>
   </div>
 </div>
 
 <div id="save-result-backdrop" class="modal-backdrop" style="display:none">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="save-result-title" data-role="review.memory.save-result-dialog">
-    <h3 id="save-result-title">설정 저장</h3>
+    <h3 id="save-result-title" data-i18n="review.memory.save">설정 저장</h3>
     <div id="save-result-msg" data-role="review.memory.save-result-msg"></div>
     <div class="btn-row" style="justify-content:flex-end">
-      <button class="btn primary" id="btn-save-result-ok" data-role="review.memory.save-result-ok-btn">확인</button>
+      <button class="btn primary" id="btn-save-result-ok" data-role="review.memory.save-result-ok-btn" data-i18n="common.ok">확인</button>
     </div>
   </div>
 </div>

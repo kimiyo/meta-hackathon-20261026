@@ -6,6 +6,17 @@ import { t } from "./i18n.js";
 let presets = [];
 let current = "";
 
+// 서버 desc_key 이전 버전과의 호환용. 서버가 desc_key를 주면 그 값을 쓴다.
+const DESC_BY_ID = {
+  "muse-wonder-1.0": "model.descWonder",
+  "muse-spark-1.3": "model.descSpark",
+};
+
+function descText(p) {
+  const key = p.desc_key ?? DESC_BY_ID[p.id];
+  return key ? t(key) : (p.desc ?? "");
+}
+
 function renderList() {
   const box = $("model-list");
   box.innerHTML = presets
@@ -18,7 +29,7 @@ function renderList() {
           p.id === current ? ` <span class="chip">${t("model.inUse")}</span>` : ""
         }<br>
         <span class="id">${esc(p.id)}</span><br>
-        <span class="d">${esc(p.desc ?? "")}</span></span>
+        <span class="d">${esc(descText(p))}</span></span>
       </label>`
     )
     .join("");

@@ -103,6 +103,8 @@ def manuscript_chat(episode_no: int, body: ChatReviseIn, work: str,
         return state_machine.chat_revise(
             conn, meta, job["work_id"], episode_no,
             message=body.message, include_draft=body.include_draft)
+    except FileNotFoundError as e:
+        raise HTTPException(501, f"AI prompt unavailable: {e}")
     except (KeyError, ValueError) as e:
         raise HTTPException(400, str(e))
     except LLMStepError as e:

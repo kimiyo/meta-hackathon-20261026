@@ -475,9 +475,16 @@ def _retry_feedback(detail: str,
     return "\n\n[검증 교정] 직전 원고가 기각됐다: " + detail + " 문제를 고쳐 다시 써라."
 
 
+def default_revision_label(conn: sqlite3.Connection,
+                           work_id: int) -> str:
+    """First-draft version label in the work's language."""
+    _, writing_locale = get_work_locale(conn, work_id)
+    return "AI draft" if writing_locale == "en-US" else "AI 초안"
+
+
 def draft_episode(meta, conn, *, design_id: int, work_id: int, episode_no: int,
                   manuscript_draft: str = "", author_instruction: str = "",
-                  max_tokens: int = 8000, revision_label: str = "AI 초안",
+                  max_tokens: int = 8000, revision_label: str | None = None,
                   max_retries: int = DRAFT_MAX_RETRIES,
                   length_unit: str | None = None) -> dict:
     """Run drafting, retrying manuscript_invalid up to max_retries.
@@ -486,6 +493,8 @@ def draft_episode(meta, conn, *, design_id: int, work_id: int, episode_no: int,
     schema errors fail fast. Retries stay inside the request: the episode's
     attempt budget is untouched (the caller counts the request once)."""
     unit = effective_length_unit(conn, work_id, length_unit)
+    if revision_label is None:
+        revision_label = default_revision_label(conn, work_id)
     feedback = ""
     for n in range(max_retries + 1):
         try:
@@ -504,12 +513,17 @@ def draft_episode(meta, conn, *, design_id: int, work_id: int, episode_no: int,
 
 def _draft_once(meta, conn, *, design_id: int, work_id: int, episode_no: int,
                  manuscript_draft: str = "", author_instruction: str = "",
-                 max_tokens: int = 8000, revision_label: str = "AI 초안",
+                 max_tokens: int = 8000, revision_label: str | None = None,
                  length_unit: str | None = None) -> dict:
     """Run drafting (with at most one lookup-injection round) and save revision."""
+    from . import meta_client as metac
+
     market, writing_locale = get_work_locale(conn, work_id)
+    if revision_label is None:
+        revision_label = default_revision_label(conn, work_id)
     unit = effective_length_unit(conn, work_id, length_unit)
     bundle = prompt_loader.load(DRAFT_FEATURE, writing_locale, market)
+    preset_id, preset_version = metac.preset_ref(conn, work_id)
     outline = get_outline(conn, design_id, episode_no)
     style = get_style(conn, work_id)
     _, style_hi = parse_length_target(style["length_target"])
@@ -526,24 +540,30 @@ def _draft_once(meta, conn, *, design_id: int, work_id: int, episode_no: int,
     if author_instruction:
         base_input["author_instruction"] = author_instruction
 
-    out = meta.chat_json(
-        bundle="drafting", episode=episode_no, system=bundle.text,
+    out = metac.chat_with_provenance(
+        meta, bundle="drafting", episode=episode_no, system=bundle.text,
         work_id=work_id,
         user=_user_first(writing_locale)
              + json.dumps(base_input, ensure_ascii=False),
-        schema=sch.DraftOutput, max_tokens=out_budget)
+        schema=sch.DraftOutput, max_tokens=out_budget,
+        writing_locale=writing_locale, market=market,
+        prompt_feature=DRAFT_FEATURE,
+        preset_id=preset_id, preset_version=preset_version)
 
     lookups = out.get("lookup_requests") or []
     if lookups:
         results = execute_lookups(conn, lookups, episode_no, work_id)
-        out = meta.chat_json(
-            bundle="drafting", episode=episode_no, system=bundle.text,
+        out = metac.chat_with_provenance(
+            meta, bundle="drafting", episode=episode_no, system=bundle.text,
             work_id=work_id,
             user=_user_refine_head(writing_locale)
                  + out["manuscript"][:4000]
                  + _user_refine_tail(writing_locale)
                  + json.dumps(results, ensure_ascii=False),
-            schema=sch.DraftOutput, max_tokens=out_budget)
+            schema=sch.DraftOutput, max_tokens=out_budget,
+            writing_locale=writing_locale, market=market,
+            prompt_feature=DRAFT_FEATURE,
+            preset_id=preset_id, preset_version=preset_version)
 
     problems = validate_manuscript(out["manuscript"], outline.get("constraints", []),
                                    style["length_target"], unit)

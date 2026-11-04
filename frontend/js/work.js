@@ -46,6 +46,10 @@ function setNovelTab(style) {
 function openNovelInfo() {
   if (!work) return;
   $("novel-info-title-input").value = work.title;
+  $("novel-info-market").textContent = work.market
+    ? t(["market", work.market].join(".")) : "-";
+  $("novel-info-locale").textContent = work.writing_locale
+    ? `· ${work.writing_locale}` : "";
   showError("novel-info-dialog-error", "");
   setNovelTab(false);
   $("novel-info-dialog-backdrop").style.display = "";
@@ -146,6 +150,8 @@ async function loadNovelStyle(keepValue) {
     workStyle = await api.workStyle(work.uid || work.id);
     $("novel-info-length-min").value = workStyle.length_min;
     $("novel-info-length-max").value = workStyle.length_max;
+    $("novel-info-length-label").textContent = t(workStyle.length_unit === "words"
+      ? "home.infoLengthLabelWords" : "home.infoLengthLabel");
     $("novel-info-length-hint").textContent = workStyle.is_default ? t("work.lengthDefault") : "";
     renderStyleList(keep);
     renderStyleCurrent();

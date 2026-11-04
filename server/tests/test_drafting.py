@@ -27,7 +27,7 @@ class FakeMeta:
         self.calls = []
 
     def chat_json(self, *, bundle, episode, system, user, schema, max_tokens,
-                  work_id=None):
+                  work_id=None, **_extra):
         self.calls.append(user)
         m = self.manuscripts.pop(0)
         if isinstance(m, tuple):

@@ -231,7 +231,8 @@ def save_entities(episode_no: int, work: str,
     재검토를 요구한다.
     """
     job = _job_or_404(conn, work, episode_no, author["id"])
-    en = _locale(conn, _work_of_job(conn, job))[0] == "en-US"
+    writing_locale = _locale(conn, _work_of_job(conn, job))[0]
+    en = writing_locale == "en-US"
     if job["state"] != "IN_REVIEW":
         if en:
             raise HTTPException(
@@ -259,7 +260,8 @@ def save_entities(episode_no: int, work: str,
     try:
         result = memory.save_episode_memory(
             conn, episode_no=episode_no, revision_id=rev_id,
-            proposal_set_id=pset["proposal_set_id"], work_id=work_id)
+            proposal_set_id=pset["proposal_set_id"], work_id=work_id,
+            writing_locale=writing_locale)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"episode_no": episode_no, "saved": True, "commit": result,

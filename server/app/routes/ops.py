@@ -17,9 +17,11 @@ router = APIRouter(prefix="/api/v1", tags=["ops"])
 
 MODEL_PRESETS = [
     {"id": "muse-wonder-1.0", "label": "Muse Wonder",
-     "desc": "최상위 모델 · 복잡한 작업용"},
+     "desc": "최상위 모델 · 복잡한 작업용",
+     "desc_key": "model.descWonder"},
     {"id": "muse-spark-1.3", "label": "Muse Spark 1.3",
-     "desc": "권장 범용 모델"},
+     "desc": "권장 범용 모델",
+     "desc_key": "model.descSpark"},
 ]
 _MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 

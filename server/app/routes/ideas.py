@@ -743,7 +743,8 @@ def handoff_preview(key: str,
     except LLMStepError as e:
         raise HTTPException(
             502, f"handoff_migrate failed: {e.reason} {e.detail}")
-    tree, counts = ideas.build_migration_tree(structure, plan)
+    tree, counts = ideas.build_migration_tree(structure, plan,
+                                               writing_locale)
     row = conn.execute("SELECT COALESCE(MAX(version),0) v FROM story_designs"
                        " WHERE work_id=?", (w["id"],)).fetchone()
     if en:

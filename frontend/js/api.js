@@ -126,8 +126,12 @@ export const api = {
   updateMe: (body) =>
     req("/auth/me", { method: "PATCH", body: JSON.stringify(body) }),
   works: () => req("/works"),
-  createWork: (title, logline) =>
-    req("/works", { method: "POST", body: JSON.stringify({ title, logline }) }),
+  locales: () => req("/locales"),
+  createWork: (title, logline, extra) =>
+    req("/works", {
+      method: "POST",
+      body: JSON.stringify({ title, logline, ...(extra ?? {}) }),
+    }),
   patchWork: (key, body) =>
     req(`/works/${key}`, { method: "PATCH", body: JSON.stringify(body) }),
   workStyle: (key) => req(`/works/${key}/style`),

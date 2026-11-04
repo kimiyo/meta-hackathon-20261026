@@ -68,9 +68,13 @@ async function loadWorkPanel() {
   penInput.value = full.publish_pen_name || full.author_pen_name || "";
   penInput.placeholder = t("publish.work.penPlaceholder");
   $("pub-blurb").value = full.publish_blurb || "";
-  const platform = full.platform || "문피아";
-  $("pub-platform").innerHTML = (full.platforms ?? ["문피아"])
-    .map((p) => `<option${p === platform ? " selected" : ""}>${esc(p)}</option>`).join("");
+  // US 작품은 platform ""(미정)으로 시작한다. 한국어 기본값을 덧씌우지 않는다.
+  const platform = full.platform || "";
+  const choices = (full.platforms ?? []).filter((p) => p);
+  $("pub-platform").innerHTML =
+    `<option value=""${platform ? "" : " selected"}>${esc(t("publish.work.platformUnset"))}</option>` +
+    choices
+      .map((p) => `<option${p === platform ? " selected" : ""}>${esc(p)}</option>`).join("");
   renderCover(full.cover_url || "");
 }
 

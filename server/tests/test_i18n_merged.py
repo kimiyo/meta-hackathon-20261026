@@ -38,11 +38,12 @@ DATAROLE_RE = re.compile(r"""data-role="[^"]*\"""")
 BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
 CODE_RE = re.compile(r'^([A-Z][A-Z0-9_]+)\s*=\s*"([A-Z][A-Z0-9_]+)"', re.M)
 
-# Stage-1 skeleton keys with no runtime reference yet (no market
-# selector UI; topbar uses its own locale keys). Pinned so new
-# orphans fail loudly instead of accumulating silently.
-KNOWN_UNUSED = {"common.appName", "common.confirm", "common.error",
-                "common.loading", "common.ok", "market.KR", "market.US"}
+# Stage-1 skeleton keys with no runtime reference yet (topbar uses
+# its own locale keys). Pinned so new orphans fail loudly instead of
+# accumulating silently. market.* left this set once the novel-create
+# dialog rendered the market selector; common.loading/common.ok once
+# static placeholders referenced them.
+KNOWN_UNUSED = {"common.appName", "common.confirm", "common.error"}
 
 
 def _load(p):

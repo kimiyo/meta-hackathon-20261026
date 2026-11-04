@@ -33,12 +33,25 @@ ATTR_RE = re.compile(r"""data-i18n(?:-html|-placeholder|-title|-aria-label|-cont
 KOREAN_RE = re.compile(r"[가-힣]")
 
 # index.html blocks owned by other i18n scopes. Each block is covered by its
-# own scope test (e.g. test_i18n_ideas.py covers the ideas section), so the
-# shell scan skips them to keep ownership disjoint.
+# own scope test (test_i18n_ideas.py covers the ideas section,
+# test_i18n_static_html.py covers design/review/publish/entities and their
+# dialogs), so the shell scan skips them to keep ownership disjoint.
 # (start marker, end marker, include end marker in the cut)
 NON_SHELL_BLOCKS = [
     ('<section class="screen" id="ideas"', "</section>", True),
     ('<div id="handoff-backdrop"', '<div id="ailog-backdrop"', False),
+    # Screen sections with design./review./publish./entities. keys.
+    ('<section class="screen" id="sdesign"', "</section>", True),
+    ('<section class="screen" id="s3"', "</section>", True),
+    ('<section class="screen" id="s5"', "</section>", True),
+    ('<section class="screen" id="s4"', "</section>", True),
+    # Design dialogs (rename-backdrop between them stays shell-owned).
+    ('<div id="thread-search-backdrop"', '<div id="rename-backdrop"',
+     False),
+    ('<div id="ns-dialog-backdrop"', '<div id="reset-confirm-backdrop"',
+     False),
+    # Review dialogs (reset, consistency-reset, fix, save-result).
+    ('<div id="reset-confirm-backdrop"', "<script", False),
 ]
 
 

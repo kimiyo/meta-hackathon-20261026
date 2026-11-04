@@ -174,32 +174,41 @@ def sanitize_patch(patch: dict | None) -> dict:
     return clean
 
 
-def proposal_digest(msg: dict) -> str:
+def proposal_digest(msg: dict,
+                    writing_locale: str = "ko-KR") -> str:
     """One-line applied-state summary for history context."""
     props = msg.get("proposals") or {}
     applied = msg.get("applied") or {}
     kids = props.get("children") or []
     done = set(applied.get("children") or [])
-    parts = [f"하위 [{c.get('kind')}]"
+    en = writing_locale == "en-US"
+    yes = "applied" if en else "반영됨"
+    no = "pending" if en else "미반영"
+    parts = [f"{'child' if en else '하위'} [{c.get('kind')}]"
              f"{c.get('title', '')}"
-             f"({'반영됨' if i in done else '미반영'})"
+             f"({yes if i in done else no})"
              for i, c in enumerate(kids)]
     if props.get("patch"):
         parts.append(
-            f"노드수정({'반영됨' if applied.get('patch') else '미반영'})")
+            f"{'node patch' if en else '노드수정'}"
+            f"({yes if applied.get('patch') else no})")
     if not parts:
         return ""
+    if en:
+        return "(This reply proposed: " + ", ".join(parts) + ")"
     return "(이 답변의 제안: " + ", ".join(parts) + ")"
 
 
 def ref_lines(conn: sqlite3.Connection, design_id: int,
-              refs: list[str]) -> list[str]:
+              refs: list[str],
+              writing_locale: str = "ko-KR") -> list[str]:
     """Resolve @ codes to node one-liners; unknowns stay listed."""
+    unknown = "(unknown)" if writing_locale == "en-US" else "(알 수 없음)"
     lines = []
     for ref in refs:
         nid = design_nodes.resolve_node_id(conn, design_id, ref)
         if nid is None:
-            lines.append(f"- {ref} = (알 수 없음)")
+            lines.append(f"- {ref} = {unknown}")
             continue
         n = design_nodes.get_node(conn, nid)
         lines.append(f"- {ref} = {n['full_code']}({n['kind']})"
@@ -208,10 +217,13 @@ def ref_lines(conn: sqlite3.Connection, design_id: int,
 
 
 def node_context(conn: sqlite3.Connection, node: dict, extra: str = "",
-                 history: list[str] | None = None) -> str:
+                 history: list[str] | None = None,
+                 writing_locale: str = "ko-KR") -> str:
     design = conn.execute("SELECT * FROM story_designs WHERE id=?",
                           (node["design_id"],)).fetchone()
     work = find_work(conn, design["work_id"]) if design else None
+    en = writing_locale == "en-US"
+    none = "(none)" if en else "(없음)"
     root_code = design_nodes.design_root_code(conn, node["design_id"])
     chain, seen = [], node.get("parent_id")
     while seen is not None and len(chain) < 8:
@@ -234,38 +246,59 @@ def node_context(conn: sqlite3.Connection, node: dict, extra: str = "",
         (node["design_id"], node.get("parent_id"), node["id"])).fetchall()
     settings = ideas.list_settings(conn, work["id"])[:20] if work else []
     code_of = lambda r: design_nodes.node_code(r["kind"], r["seq"])
-    parts = [
-        f"작품: {work['title'] if work else '?'}"
-        f" / 구조: {work['structure_json'] if work else '{}'}",
-        f"설계 트리: {root_code or '?'}"
-        " (이 트리 안에서는 E001 같은 짧은 코드로 지칭한다)",
-        f"선택 노드: {node.get('code') or node['id']}({node['kind']})"
-        f" {node['title']}",
-        f"줄거리: {node['logline']}",
-        f"상세: {json.dumps(node['body'], ensure_ascii=False)[:1000]}",
-        "상위: " + (" > ".join(reversed(chain)) if chain else "(없음)"),
-        "하위:",
-    ]
+    if en:
+        parts = [
+            f"Work: {work['title'] if work else '?'}"
+            f" / Structure: {work['structure_json'] if work else '{}'}",
+            f"Design tree: {root_code or '?'}"
+            " (within this tree, refer to nodes by short codes like E001)",
+            f"Selected node: {node.get('code') or node['id']}({node['kind']})"
+            f" {node['title']}",
+            f"Logline: {node['logline']}",
+            f"Detail: {json.dumps(node['body'], ensure_ascii=False)[:1000]}",
+            "Ancestors: " + (" > ".join(reversed(chain)) if chain else none),
+            "Children:",
+        ]
+    else:
+        parts = [
+            f"작품: {work['title'] if work else '?'}"
+            f" / 구조: {work['structure_json'] if work else '{}'}",
+            f"설계 트리: {root_code or '?'}"
+            " (이 트리 안에서는 E001 같은 짧은 코드로 지칭한다)",
+            f"선택 노드: {node.get('code') or node['id']}({node['kind']})"
+            f" {node['title']}",
+            f"줄거리: {node['logline']}",
+            f"상세: {json.dumps(node['body'], ensure_ascii=False)[:1000]}",
+            "상위: " + (" > ".join(reversed(chain)) if chain else none),
+            "하위:",
+        ]
     parts += [f"- {code_of(k)}({k['kind']}) {k['title']}: {k['logline']}"
-              for k in kids] or ["(없음)"]
-    parts += ["형제:"] + [
-        f"- {code_of(s)}({s['kind']}) {s['title']}" for s in sibs] or ["(없음)"]
-    parts += ["설정정보:"] + [
+              for k in kids] or [none]
+    parts += ["Siblings:" if en else "형제:"] + [
+        f"- {code_of(s)}({s['kind']}) {s['title']}" for s in sibs] or [none]
+    parts += ["Settings:" if en else "설정정보:"] + [
         f"- [{s['category']}] {s['title']}: {s['summary']}"
-        for s in settings] or ["(없음)"]
+        for s in settings] or [none]
     if history is not None:
-        parts += ["", "[포함된 대화]:"] + (history or ["(없음)"])
+        parts += ["", "[Included conversation]:" if en else "[포함된 대화]:"] \
+            + (history or [none])
     if extra:
         parts += ["", extra]
     return "\n".join(parts)[:8000]
 
 
-def history_lines(messages: list[dict]) -> list[str]:
+def history_lines(messages: list[dict],
+                  writing_locale: str = "ko-KR") -> list[str]:
     """Render included messages for the prompt, with proposal digests."""
+    en = writing_locale == "en-US"
     lines = []
     for m in messages:
-        who = "질문" if m["role"] == "user" else "답변"
+        if en:
+            who = "Author" if m["role"] == "user" else "AI"
+        else:
+            who = "질문" if m["role"] == "user" else "답변"
         content = (m["content"] or "")[:HISTORY_CLIP]
-        digest = proposal_digest(m) if m["role"] == "assistant" else ""
+        digest = proposal_digest(m, writing_locale) \
+            if m["role"] == "assistant" else ""
         lines.append(f"{who}: {content}{digest}")
     return lines

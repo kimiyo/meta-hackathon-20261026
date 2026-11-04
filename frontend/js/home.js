@@ -1,6 +1,6 @@
 import { api, setToken } from "./api.js";
 import { $, esc, showError } from "./util.js";
-import { t } from "./i18n.js";
+import { getLocale, t } from "./i18n.js";
 
 // 메인 · 소설 목록. 선택/생성 시 enter-work 이벤트(uid)를 쏘면 app.js가 라우팅한다.
 let cache = [];
@@ -25,10 +25,12 @@ function stageLabel(stage) {
 function cardHtml(w) {
   const done = w.completed_episodes ?? 0;
   const total = w.total_episodes ?? "?";
+  const market = w.market ? `<span class="chip">${esc(marketLabel(w.market))}</span>` : "";
   return `<div class="work-item" data-uid="${esc(w.uid || w.id)}">
       <div class="t">${esc(w.title)}</div>
       <div class="meta">
         <span class="chip">${esc(stageLabel(w.stage))}</span>
+        ${market}
         <span class="chip mono">EP ${esc(done)}/${esc(total)}</span>
         <span class="muted small">${esc(fmtDate(w.updated_at || w.created_at))}</span>
       </div>
@@ -144,9 +146,69 @@ async function submitAuth() {
 
 // ---- 새 소설 다이얼로그 ----
 
+const MARKET_STORE_KEY = "preferred_market";
+let marketCache = null;
+
+function storedMarket() {
+  try {
+    return localStorage.getItem(MARKET_STORE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeMarket(code) {
+  try {
+    localStorage.setItem(MARKET_STORE_KEY, code);
+  } catch {
+    /* 저장 실패해도 생성은 진행 */
+  }
+}
+
+function marketLabel(code) {
+  // 서버 name_key와 같은 규칙. 정적 스캔에 걸리지 않도록 동적 조합한다.
+  return t(["market", code].join("."));
+}
+
+function defaultMarketCode(markets) {
+  const codes = (markets ?? []).map((m) => m.code);
+  const stored = storedMarket();
+  if (stored && codes.includes(stored)) return stored;
+  const byUi = getLocale() === "en-US" ? "US" : "KR";
+  if (codes.includes(byUi)) return byUi;
+  return codes[0] ?? "KR";
+}
+
+function renderMarketOptions(markets) {
+  const box = $("novel-dialog-markets");
+  const def = defaultMarketCode(markets);
+  const prev = box.querySelector('input[name="novel-market"]:checked')?.value;
+  const sel = prev && markets.some((m) => m.code === prev) ? prev : def;
+  box.innerHTML = markets.map((m) => {
+    const label = m.name_key ? t(m.name_key) : m.code;
+    return `<label class="small" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+      <input type="radio" name="novel-market" data-role="home.novel-create.market-radio"
+        value="${esc(m.code)}"${m.code === sel ? " checked" : ""} style="width:auto">
+      <span>${esc(label)} · ${esc(m.default_writing_locale ?? "")}</span></label>`;
+  }).join("");
+}
+
+async function ensureMarkets() {
+  if (!marketCache) {
+    const out = await api.locales().catch(() => null);
+    marketCache = out?.markets?.length ? out.markets : [
+      { code: "KR", name_key: "market.KR", default_writing_locale: "ko-KR" },
+      { code: "US", name_key: "market.US", default_writing_locale: "en-US" },
+    ];
+  }
+  renderMarketOptions(marketCache);
+  return marketCache;
+}
+
 function openDialog() {
   $("novel-dialog-title-input").value = "";
   showError("novel-dialog-error", "");
+  ensureMarkets().catch((e) => showError("novel-dialog-error", String(e)));
   $("novel-dialog-backdrop").style.display = "";
   $("novel-dialog-title-input").focus();
 }
@@ -172,7 +234,15 @@ async function submitDialog() {
   btn.textContent = t("home.creating");
   showError("novel-dialog-error", "");
   try {
-    const w = await api.createWork(title, "");
+    const markets = await ensureMarkets();
+    const picked = document.querySelector('input[name="novel-market"]:checked')?.value
+      || defaultMarketCode(markets);
+    const market = markets.find((m) => m.code === picked) ?? markets[0];
+    const w = await api.createWork(title, "", {
+      market: market.code,
+      writing_locale: market.default_writing_locale,
+    });
+    storeMarket(market.code);
     closeDialog();
     document.dispatchEvent(new CustomEvent("enter-work", { detail: w.uid || w.id }));
   } catch (e) {
@@ -261,5 +331,6 @@ export function initHome() {
   document.addEventListener("locale-changed", () => {
     renderGate();
     refreshHome();
+    if (marketCache) renderMarketOptions(marketCache);
   });
 }

@@ -212,8 +212,12 @@ function detailHtml(c) {
   const ok = c.ok
     ? `<span class="step-done">${t("ailog.success")}</span>`
     : `<span class="step-run">${esc(c.error || t("ailog.failed"))}</span>`;
+  // Provenance chips: codes need no translation.
+  const prov = [c.writing_locale, c.prompt_feature, c.preset_id]
+    .filter((x) => x)
+    .map((x) => `<span class="chip mono">${esc(x)}</span>`).join(" ");
   return `<div class="ailog-detail-head"><b>${esc(role)}</b> <span class="chip mono">${esc(c.bundle)}</span>
-      <span class="muted small">${esc(fmtTime(c.ts))} · EP ${esc(ep)} · ${esc(fmtDur(c.latency_ms))} · in ${esc(c.input_tokens)}/out ${esc(c.output_tokens)}</span> ${ok}</div>
+      <span class="muted small">${esc(fmtTime(c.ts))} · EP ${esc(ep)} · ${esc(fmtDur(c.latency_ms))} · in ${esc(c.input_tokens)}/out ${esc(c.output_tokens)}</span> ${ok}${prov ? `<br>${prov}` : ""}</div>
     ${c.prompt_system ? `<details class="ailog-block" open><summary>${t("ailog.promptSystem")} <span class="muted small">${t("ailog.charCount", { count: c.prompt_system.length })}</span></summary><pre>${esc(c.prompt_system)}</pre></details>` : ""}
     ${block(t("ailog.promptUser"), c.prompt_user, userHtml(c.prompt_user))}
     ${block(t("ailog.outputResult"), c.output_text, outputHtml(c.output_text))}`;

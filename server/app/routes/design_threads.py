@@ -88,15 +88,15 @@ def post_message(thread_id: int, body: ThreadMessageIn,
         raise HTTPException(400, "content must not be blank")
     user_msg = design_threads.add_message(conn, thread_id, "user", content)
     history = None
-    if body.include_messages is not None:
-        want = set(body.include_messages)
-        msgs = [m for m in design_threads.list_messages(conn, thread_id, 10000)
-                if m["id"] in want and m["id"] != user_msg["id"]]
-        history = design_threads.history_lines(msgs)
     design = conn.execute("SELECT work_id FROM story_designs WHERE id=?",
                           (node["design_id"],)).fetchone()
     work_id = design["work_id"] if design else None
     market, writing_locale = metac.work_locale(conn, work_id)
+    if body.include_messages is not None:
+        want = set(body.include_messages)
+        msgs = [m for m in design_threads.list_messages(conn, thread_id, 10000)
+                if m["id"] in want and m["id"] != user_msg["id"]]
+        history = design_threads.history_lines(msgs, writing_locale)
     en = writing_locale == "en-US"
     if en:
         refs_txt = ", ".join(body.refs) or "(none)"
@@ -105,7 +105,8 @@ def post_message(thread_id: int, body: ThreadMessageIn,
         extra = f"작가 요청: {content}\n참조: {', '.join(body.refs) or '(없음)'}"
     if body.refs:
         extra += ("\nRef notes:\n" if en else "\n참조 해석:\n") + "\n".join(
-            design_threads.ref_lines(conn, node["design_id"], body.refs))
+            design_threads.ref_lines(conn, node["design_id"], body.refs,
+                                     writing_locale))
     try:
         system = prompt_loader.load(
             "design_chat", writing_locale, market).text
@@ -116,7 +117,8 @@ def post_message(thread_id: int, body: ThreadMessageIn,
         out = metac.chat_with_provenance(
             meta, bundle="design_chat", episode=None, system=system,
             user=design_threads.node_context(conn, node, extra,
-                                             history=history),
+                                             history=history,
+                                             writing_locale=writing_locale),
             schema=sch.DesignChatOut, max_tokens=8000,
             work_id=work_id, writing_locale=writing_locale, market=market,
             prompt_feature="design_chat",

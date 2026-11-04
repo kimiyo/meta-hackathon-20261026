@@ -171,7 +171,8 @@ def node_chat(node_id: str, body: NodeChatIn,
         extra = f"작가 요청: {content}\n참조: {', '.join(body.refs) or '(없음)'}"
     if body.refs:
         extra += ("\nRef notes:\n" if en else "\n참조 해석:\n") + "\n".join(
-            design_threads.ref_lines(conn, node["design_id"], body.refs))
+            design_threads.ref_lines(conn, node["design_id"], body.refs,
+                                     writing_locale))
     try:
         system = prompt_loader.load(
             "design_chat", writing_locale, market).text
@@ -181,7 +182,8 @@ def node_chat(node_id: str, body: NodeChatIn,
     try:
         return metac.chat_with_provenance(
             meta, bundle="design_chat", episode=None, system=system,
-            user=design_threads.node_context(conn, node, extra),
+            user=design_threads.node_context(conn, node, extra,
+                                             writing_locale=writing_locale),
             schema=sch.DesignChatOut, max_tokens=8000,
             work_id=work_id, writing_locale=writing_locale, market=market,
             prompt_feature="design_chat",
@@ -222,7 +224,8 @@ def node_expand(node_id: str, body: ExpandIn,
     try:
         return metac.chat_with_provenance(
             meta, bundle="design_expand", episode=None, system=system,
-            user=design_threads.node_context(conn, node, extra),
+            user=design_threads.node_context(conn, node, extra,
+                                             writing_locale=writing_locale),
             schema=sch.ExpandOut, max_tokens=8000,
             work_id=work_id, writing_locale=writing_locale, market=market,
             prompt_feature="design_expand",

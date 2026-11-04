@@ -24,28 +24,49 @@ def _skeleton_outline(start: int) -> str:
     )
 
 
-def generate_concept(meta, *, keywords: str, total_episodes: int,
-                     constraints: list[str], prev_feedback: str = "",
-                     work_id: int | None = None,
-                     max_tokens: int) -> dict:
-    user = (
-        f"키워드: {keywords}\n총 회차: {total_episodes}\n"
-        f"제약: {json.dumps(constraints, ensure_ascii=False)}\n"
-        + (f"이전 피드백(반영): {prev_feedback}\n" if prev_feedback else "")
-        + "다음 스켈레톤의 JSON으로 concept와 sections를 생성하라. 키 이름을 바꾸지 마라:\n"
-        + '{"concept": {"title_candidates": [str, ...], "genre": str, "tone": str, '
-        + '"theme": str, "ending": str}, "sections": [{"range": "1-10", '
-        + '"summary": str}], "warnings": []}'
-    )
-    return meta.chat_json(bundle="planning", episode=None, system=PROMPT,
-                          user=user, schema=sch.ConceptOutput, work_id=work_id,
-                          max_tokens=max_tokens)
+def _concept_user(keywords: str, total_episodes: int,
+                  constraints: list[str], prev_feedback: str,
+                  writing_locale: str) -> str:
+    if writing_locale == "en-US":
+        user = (
+            f"Keywords: {keywords}\nTotal episodes: {total_episodes}\n"
+            f"Constraints: {json.dumps(constraints, ensure_ascii=False)}\n"
+            + (f"Previous feedback (apply it): {prev_feedback}\n"
+               if prev_feedback else "")
+            + "Generate concept and sections as JSON matching the skeleton"
+            " below. Do not rename keys:\n"
+        )
+    else:
+        user = (
+            f"키워드: {keywords}\n총 회차: {total_episodes}\n"
+            f"제약: {json.dumps(constraints, ensure_ascii=False)}\n"
+            + (f"이전 피드백(반영): {prev_feedback}\n" if prev_feedback else "")
+            + "다음 스켈레톤의 JSON으로 concept와 sections를 생성하라."
+            " 키 이름을 바꾸지 마라:\n"
+        )
+    return (user
+            + '{"concept": {"title_candidates": [str, ...], "genre": str,'
+            ' "tone": str, "theme": str, "ending": str},'
+            ' "sections": [{"range": "1-10", "summary": str}],'
+            ' "warnings": []}')
 
 
-def generate_outline_batch(meta, *, keywords: str, concept: dict, start: int,
-                           end: int, constraints: list[str], prev_summary: str,
-                           work_id: int | None = None,
-                           max_tokens: int) -> dict:
+def _outline_user(keywords: str, concept: dict, start: int, end: int,
+                  constraints: list[str], prev_summary: str,
+                  writing_locale: str) -> str:
+    if writing_locale == "en-US":
+        user = (
+            f"Keywords: {keywords}\n"
+            f"Concept: {json.dumps(concept, ensure_ascii=False)}\n"
+            f"Constraints: {json.dumps(constraints, ensure_ascii=False)}\n"
+            f"Generate episode outlines for episode_no {start} to {end}"
+            f" ({end - start + 1} total) as JSON matching the skeleton"
+            " below. Do not rename keys:\n"
+            + _skeleton_outline(start)
+        )
+        if prev_summary:
+            user += f"\nEarlier section (keep continuity): {prev_summary}"
+        return user
     user = (
         f"키워드: {keywords}\n컨셉: {json.dumps(concept, ensure_ascii=False)}\n"
         f"제약: {json.dumps(constraints, ensure_ascii=False)}\n"
@@ -55,9 +76,55 @@ def generate_outline_batch(meta, *, keywords: str, concept: dict, start: int,
     )
     if prev_summary:
         user += f"\n앞 구간(연속성 유지): {prev_summary}"
-    return meta.chat_json(bundle="planning", episode=None, system=PROMPT,
-                          user=user, schema=sch.OutlineBatch, work_id=work_id,
-                          max_tokens=max_tokens)
+    return user
+
+
+def generate_concept(meta, *, keywords: str, total_episodes: int,
+                     constraints: list[str], prev_feedback: str = "",
+                     work_id: int | None = None,
+                     max_tokens: int,
+                     writing_locale: str = "ko-KR",
+                     market: str = "KR",
+                     system: str | None = None) -> dict:
+    from . import meta_client as metac
+
+    if system is None:
+        prompt, writing_locale, market = metac.feature_prompt(
+            None, work_id, "planning", writing_locale, market)
+        system = prompt.text
+    preset_id, preset_version = metac.preset_ref(None, work_id)
+    return metac.chat_with_provenance(
+        meta, bundle="planning", episode=None, system=system,
+        user=_concept_user(keywords, total_episodes, constraints,
+                           prev_feedback, writing_locale),
+        schema=sch.ConceptOutput, work_id=work_id, max_tokens=max_tokens,
+        writing_locale=writing_locale, market=market,
+        prompt_feature="planning",
+        preset_id=preset_id, preset_version=preset_version)
+
+
+def generate_outline_batch(meta, *, keywords: str, concept: dict, start: int,
+                           end: int, constraints: list[str], prev_summary: str,
+                           work_id: int | None = None,
+                           max_tokens: int,
+                           writing_locale: str = "ko-KR",
+                           market: str = "KR",
+                           system: str | None = None) -> dict:
+    from . import meta_client as metac
+
+    if system is None:
+        prompt, writing_locale, market = metac.feature_prompt(
+            None, work_id, "planning", writing_locale, market)
+        system = prompt.text
+    preset_id, preset_version = metac.preset_ref(None, work_id)
+    return metac.chat_with_provenance(
+        meta, bundle="planning", episode=None, system=system,
+        user=_outline_user(keywords, concept, start, end, constraints,
+                           prev_summary, writing_locale),
+        schema=sch.OutlineBatch, work_id=work_id, max_tokens=max_tokens,
+        writing_locale=writing_locale, market=market,
+        prompt_feature="planning",
+        preset_id=preset_id, preset_version=preset_version)
 
 
 def generate_design(meta, conn: sqlite3.Connection, *, work_id: int,
@@ -65,11 +132,17 @@ def generate_design(meta, conn: sqlite3.Connection, *, work_id: int,
                     constraints: list[str] | None = None,
                     prev_feedback: str = "", max_tokens: int = 8000) -> dict:
     """Full design generation + persistence. Returns design summary."""
+    from . import meta_client as metac
+
+    market, writing_locale = metac.work_locale(conn, work_id)
+    prompt, writing_locale, market = metac.feature_prompt(
+        conn, work_id, "planning", writing_locale, market)
     constraints = constraints or []
     concept_out = generate_concept(
         meta, keywords=keywords, total_episodes=total_episodes,
         constraints=constraints, prev_feedback=prev_feedback, work_id=work_id,
-        max_tokens=max_tokens)
+        max_tokens=max_tokens, writing_locale=writing_locale, market=market,
+        system=prompt.text)
     merged: list[dict] = []
     prev_summary = ""
     for start in range(1, total_episodes + 1, BATCH):
@@ -77,7 +150,8 @@ def generate_design(meta, conn: sqlite3.Connection, *, work_id: int,
         batch = generate_outline_batch(
             meta, keywords=keywords, concept=concept_out["concept"],
             start=start, end=end, constraints=constraints,
-            prev_summary=prev_summary, max_tokens=max_tokens, work_id=work_id)
+            prev_summary=prev_summary, max_tokens=max_tokens, work_id=work_id,
+            writing_locale=writing_locale, market=market, system=prompt.text)
         merged.extend(batch["episode_outlines"])
         prev_summary = "; ".join(
             f"EP{o['episode_no']}:{o['title']}" for o in batch["episode_outlines"])

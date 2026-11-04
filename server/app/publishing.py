@@ -88,8 +88,9 @@ def set_publish_record(conn: sqlite3.Connection, work_id: int, episode_no: int,
     if d:
         work = conn.execute("SELECT platform FROM works WHERE id=?",
                             (work_id,)).fetchone()
-        platform = (work["platform"] if work and work["platform"]
-                    else DEFAULT_PLATFORM)
+        # Never auto-apply the Korean default (§4.6): US works without a
+        # platform keep "" until one is chosen.
+        platform = work["platform"] if work and work["platform"] else ""
     conn.execute(
         "UPDATE episode_jobs SET published_date=?, published_note=?,"
         " published_platform=? WHERE work_id=? AND episode_no=?",
