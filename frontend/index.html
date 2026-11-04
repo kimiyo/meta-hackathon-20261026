@@ -17,12 +17,11 @@
 <body>
 
 <header class="topbar" data-role="shell.topbar">
-  <div class="logo"><img class="brand-mark" src="./assets/symbol-paper.svg" alt="" width="22" height="22">StorySpine <span class="brand-sub">AI Novel Studio</span> <button class="model-chip" id="model-info" data-role="shell.topbar.model-chip" data-i18n-title="model.title" title="모델 변경">연결 확인 중…</button></div>
+  <div class="logo"><img class="brand-mark" src="./assets/symbol-paper.svg" alt="" width="22" height="22">StorySpine <span class="brand-sub">AI Novel Studio</span> <button class="model-chip health-dot" id="model-info" data-role="shell.topbar.model-chip" data-i18n-title="model.title" title="모델 변경"><i></i> <span>연결 확인 중…</span></button></div>
   <button class="btn sm" id="btn-home" data-role="shell.topbar.home-btn" data-i18n="nav.home" style="display:none;background:transparent;border-color:#4a524c;color:#e8e4d8;white-space:nowrap">← 작품 목록</button>
   <div class="work-pill" id="work-pill" data-role="shell.topbar.work-pill" data-i18n-title="common.workPillTitle" title="클릭하여 소설 정보 수정" style="cursor:pointer">작품 없음</div>
   <div class="spacer"></div>
   <div class="ops-strip">
-    <span class="health-dot ops-chip" id="health-chip" data-role="shell.topbar.health-chip"><i></i> <span data-i18n="common.healthChecking">확인 중…</span></span>
     <button class="ops-chip" id="budget-chip" data-role="shell.topbar.budget-chip" data-i18n-title="monitor.budgetLogTitle" data-i18n="monitor.budgetLoading" title="AI 호출 로그 보기">토큰 —</button>
     <span class="ops-chip" id="user-chip" data-role="shell.topbar.user-chip" style="display:none;cursor:pointer" data-i18n-title="common.renameTitle" title="작가명 수정"></span>
     <select class="ops-chip" id="locale-select" data-role="shell.topbar.locale-select" data-i18n-title="common.localeTitle" data-i18n-aria-label="common.localeTitle" title="화면 언어" aria-label="화면 언어" style="cursor:pointer;color:#e8e4d8;width:auto"><option value="ko-KR">한국어</option><option value="en-US">English</option></select>
@@ -567,12 +566,6 @@
     <h3 id="model-title" data-i18n="model.title">모델 변경</h3>
     <div id="model-error"></div>
     <div id="model-list" data-role="shell.model.list"></div>
-    <label class="f" data-i18n="model.customLabel">다른 모델 ID (향후 버전 직접 입력)</label>
-    <input type="text" id="model-custom" data-role="shell.model.custom-input" data-i18n-placeholder="model.customPlaceholder" placeholder="예: muse-spark-1.4" maxlength="128" autocomplete="off" spellcheck="false">
-    <div class="notice warn small" id="model-contrib-warn" data-i18n="model.contribWarn" style="display:none">contributor 모드는 전송한 콘텐츠가 학습에 사용될 수 있습니다.</div>
-    <label class="f" data-i18n="model.tokenLabel">관리자 토큰 (서버에 설정된 경우에만)</label>
-    <input type="password" id="model-token" data-role="shell.model.token-input" placeholder="ADMIN_TOKEN" autocomplete="off">
-    <p class="muted small" style="margin-top:8px" data-i18n="model.note">변경 전 연결을 확인합니다. 서버를 다시 시작하면 .env의 MODEL_TEXT_ID로 돌아갑니다.</p>
     <div class="btn-row" style="justify-content:flex-end">
       <button class="btn ghost" id="btn-model-cancel" data-role="shell.model.cancel-btn" data-i18n="common.cancel">취소</button>
       <button class="btn primary" id="btn-model-apply" data-role="shell.model.apply-btn" data-i18n="model.apply">변경하기</button>

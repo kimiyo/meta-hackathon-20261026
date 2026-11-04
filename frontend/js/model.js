@@ -33,31 +33,15 @@ function renderList() {
       </label>`
     )
     .join("");
-  box.querySelectorAll('input[name="model-pick"]').forEach((r) =>
-    r.addEventListener("change", () => {
-      $("model-custom").value = "";
-      updateContribWarn();
-    })
-  );
-}
-
-function updateContribWarn() {
-  const v = $("model-custom").value.trim().toLowerCase();
-  $("model-contrib-warn").style.display = v.includes("contributor") ? "" : "none";
 }
 
 function picked() {
-  const custom = $("model-custom").value.trim();
-  if (custom) return custom;
   const r = document.querySelector('input[name="model-pick"]:checked');
   return r ? r.value : "";
 }
 
 async function open() {
   showError("model-error", "");
-  $("model-custom").value = "";
-  $("model-token").value = "";
-  updateContribWarn();
   try {
     const m = await api.model();
     current = m.model;
@@ -88,8 +72,7 @@ async function apply() {
   btn.textContent = t("model.checking");
   showError("model-error", "");
   try {
-    const token = $("model-token").value.trim();
-    await api.setModel(id, token || undefined);
+    await api.setModel(id);
     close();
     document.dispatchEvent(new CustomEvent("model-changed"));
   } catch (e) {
@@ -109,16 +92,6 @@ export function initModel() {
   $("btn-model-apply").addEventListener("click", apply);
   $("model-backdrop").addEventListener("click", (e) => {
     if (e.target === $("model-backdrop")) close();
-  });
-  $("model-custom").addEventListener("input", () => {
-    if ($("model-custom").value.trim()) {
-      document
-        .querySelectorAll('input[name="model-pick"]')
-        .forEach((r) => {
-          r.checked = false;
-        });
-    }
-    updateContribWarn();
   });
   document.addEventListener("keydown", (e) => {
     if ($("model-backdrop").style.display === "none") return;

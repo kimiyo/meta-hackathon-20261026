@@ -89,6 +89,9 @@ class _TextUse(HTMLParser):
         # A data-i18n on any open ancestor covers nested static text.
         if any("data-i18n" in ancestor for _, ancestor in self.stack):
             return
+        # So does a JS-owned ancestor: its whole subtree is rendered by JS.
+        if any(a.get("id") in JS_OWNED_IDS for _, a in self.stack):
+            return
         self.bare_korean.append(
             f"<{tag} id={d.get('id')!r}>: {data.strip()[:60]}")
 

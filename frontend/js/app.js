@@ -188,20 +188,20 @@ $("btn-logout").addEventListener("click", async () => {
 document.querySelector(".logo").style.cursor = "pointer";
 document.querySelector(".logo").addEventListener("click", () => go("/"));
 
-// 상단 상태: 모델·헬스·토큰 예산
+// 상단 상태: 모델 칩 하나에 상태 점 + 모델·모드 표시 (클릭하면 모델 변경).
 async function refreshTopbar() {
-  const healthChip = $("health-chip");
   const modelInfo = $("model-info");
+  if (!modelInfo) return;
   try {
     const h = await api.health();
-    const ok = h.db === "ok";
-    healthChip.innerHTML = ok
-      ? `<i></i> ${t("common.healthHealthy", { model: esc(h.model ?? "?") })}`
-      : `<i style="background:#d4695e"></i> ${t("common.healthDbError")}`;
-    if (modelInfo) modelInfo.textContent = `${h.model ?? "?"} · ${h.mode ?? ""}`;
-  } catch (e) {
-    healthChip.innerHTML = `<i style="background:#d4695e"></i> ${t("common.healthOffline")}`;
-    if (modelInfo) modelInfo.textContent = String(e).slice(0, 80);
+    if (h.db !== "ok") {
+      modelInfo.innerHTML = `<i style="background:#d4695e"></i> <span>${t("common.healthDbError")}</span>`;
+      return;
+    }
+    const label = [h.model ?? "?", h.mode ?? ""].filter(Boolean).join(" · ");
+    modelInfo.innerHTML = `<i></i> <span>${esc(label)}</span>`;
+  } catch {
+    modelInfo.innerHTML = `<i style="background:#d4695e"></i> <span>${t("common.healthOffline")}</span>`;
   }
 }
 
