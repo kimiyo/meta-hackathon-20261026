@@ -28,7 +28,7 @@ cd server && ../.venv/bin/python -m pytest tests/test_eval_quality.py -q  # no L
 
 ## 2. Demo video / live demo
 
-- Demo video: [`demo-video-3min.mp4`](demo-video-3min.mp4) (3 minutes, 1080p). English UI, demo novel *The Hidden Legacy of the Ancient Mage*: write → extract → consistency-check → fix → publish per episode. AI waiting sections are time-lapsed and labeled `edited / time-lapse`.
+- Demo video: [watch on YouTube](https://youtu.be/tK2-zfvz6mg) (3 minutes, 1080p; file also in repo: [`demo-video-3min.mp4`](demo-video-3min.mp4)). English UI, demo novel *The Hidden Legacy of the Ancient Mage*: write → extract → consistency-check → fix → publish per episode. AI waiting sections are time-lapsed and labeled `edited / time-lapse`.
 - Live demo: none. Judges can reproduce everything locally by following §7–§8 (requires a Meta Model API key for AI steps; checks and tests run without one).
 
 ## 3. Problem and target users
@@ -148,7 +148,7 @@ Reproduce the full workflow (needs `MODEL_API_KEY`):
 3. In Story Design, select EP1 and use Child design → Expand to create scenes; repeat for EP2/EP3.
 4. In Writing, start EP1, then request review. In Review: run entity extraction, inspect the proposals (name, kind, quote, episode, memory version), save entities, run full analysis, and check the issue list (severity, evidence episode, related facts).
 5. Select issues → AI-fix → verify the new revision with version diff in Writing → request review again → re-extract and re-analyze until 0 open issues → request publishing.
-6. Repeat for EP2/EP3, inspect accumulated memory in Settings, and confirm per-episode editions plus the AI call log prompts in Publishing.
+6. Repeat for EP2/EP3, inspect accumulated memory in Entities, confirm per-episode editions in Publishing, and open the AI call log from the topbar token chip to inspect prompts.
 
 Expected result: each episode completes the cycle and publishes; EP2+ analyses ground themselves in EP1's committed memory and manuscript. AI outputs are non-deterministic, so exact findings vary — the deterministic checks in `evals/cases.json` are the stable assertions.
 
